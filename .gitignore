@@ -1,0 +1,31 @@
+# 依存パッケージ
+node_modules/
+
+# ビルド成果物・キャッシュ
+dist/
+*.tsbuildinfo
+.vite/
+
+# ブラウザ自動操作の出力（スクリーンショット・ログ）
+.playwright-mcp/
+
+# バックアップ
+*_backup_*/
+*.bak
+*.orig
+
+# 機密情報・ローカル設定
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.claude/settings.local.json
+
+# ログ・OS / エディタ
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
