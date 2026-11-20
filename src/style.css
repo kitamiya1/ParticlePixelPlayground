@@ -121,3 +121,10 @@ body.compare #app::after { content: ''; position: absolute; top: 0; bottom: 0; l
 body.compare #app::before { content: 'A：ポイント描画　　　　　　B：Gaussian Splats'; position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
   white-space: pre; background: rgba(0, 0, 0, 0.45); padding: 3px 10px; border-radius: 4px; pointer-events: none; z-index: 1; }
 body.split.method-splats #app::before { content: 'Gaussian Splats　　　　　　簡易メッシュ'; }
+
+/* 方式 B（Spark）の読み込み表示 */
+#splat-status { position: fixed; left: 50%; bottom: 18px; transform: translate(-50%, 20px); opacity: 0; transition: 0.2s; z-index: 6;
+  max-width: calc(100% - 32px); background: rgba(20, 24, 36, 0.92); border: 1px solid #8a4f7a; padding: 7px 14px; border-radius: 6px;
+  pointer-events: none; font-variant-numeric: tabular-nums; }
+#splat-status.show { opacity: 1; transform: translate(-50%, 0); }
+body.touch #splat-status { bottom: calc(160px + env(safe-area-inset-bottom)); }

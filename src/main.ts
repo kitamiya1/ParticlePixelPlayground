@@ -6,7 +6,7 @@ import { SceneRenderer } from './render/SceneRenderer';
 import { paletteById } from './render/palettes';
 import { Panel } from './ui/Panel';
 import { BenchmarkTool, CaptureTool, FlickerTool, abShots, zoomShots, type Tool, type ToolHost } from './ui/CompareTools';
-import { loadCurrent } from './ui/presets';
+import { loadCurrent, saveCurrent } from './ui/presets';
 import { isTouchDevice, TouchControls } from './ui/TouchControls';
 import { buildWorldVisuals } from './visual/WorldVisualBuilder';
 
@@ -77,6 +77,36 @@ function boot() {
   const modeTag = document.createElement('div');
   modeTag.id = 'mode-tag';
   document.body.appendChild(modeTag);
+  // 方式 B（Spark）の読み込み状態の表示
+  const splatTag = document.createElement('div');
+  splatTag.id = 'splat-status';
+  splatTag.setAttribute('role', 'status');
+  document.body.appendChild(splatTag);
+  let splatShown = view.splatStatus;
+  let splatLoadT0 = 0;
+  const watchSplatLoad = () => {
+    const st = view.splatStatus;
+    if (st === 'loading') {
+      if (splatShown !== 'loading') splatLoadT0 = performance.now();
+      const sec = ((performance.now() - splatLoadT0) / 1000).toFixed(1);
+      splatTag.textContent = `方式 B（Gaussian Splats）を読み込んでいます… ${sec} 秒　読み込みが終わるまで方式 A で表示します`;
+      splatTag.className = 'show';
+    } else if (st !== splatShown) {
+      splatTag.className = '';
+      if (st === 'ready' && splatShown === 'loading') panel.notify(`方式 B を読み込みました（${view.splatLoadMs.toFixed(0)} ms）`);
+      if (st === 'error') {
+        // 読み込みに失敗したら方式 A に戻し、次に B を選んだときに再試行できるようにする
+        settings.renderMethod = 'points';
+        if (settings.viewMode === 'compare') settings.viewMode = 'particles';
+        saveCurrent(settings);
+        panel.sync();
+        panel.setReport(`<b>方式 B の読み込みに失敗しました</b><br>方式 A で表示を続けています。もう一度 B を選ぶと再試行します（続けて失敗する場合はページを再読み込みしてください）。<div class="small">${escapeHtml(view.splatError)}</div>`);
+        panel.notify('方式 B を読み込めませんでした。方式 A で続けます');
+        view.resetSplatError();
+      }
+    }
+    splatShown = view.splatStatus;
+  };
 
   const resize = () => {
     const r = canvas.getBoundingClientRect();
@@ -120,6 +150,8 @@ function boot() {
       tool = null;
       document.body.classList.remove('tool-running');
     }
+    // ツールが読み込み失敗を先に受け取れるよう、状態の監視（失敗時の A への切り戻し）はツールの後
+    watchSplatLoad();
 
     acc += dtRaw;
     cpuAcc += cpu;
@@ -155,7 +187,7 @@ function boot() {
         <div><span>描画解像度</span><b>${settings.viewMode === 'mesh' ? 'ネイティブ' : `${lr.w}×${lr.h}`}</b></div>
         <div><span>パレット</span><b>${pal.colors.length ? `${pal.colors.length}色` : settings.palette === 'levels' ? `${settings.colorLevels ** 3}色` : '制限なし'}</b></div>
         <div><span>キャラクター</span><b>${MOVE_STATE_LABEL[game.character.state]}</b></div>
-        <div class="small">${cats}<br>生成時間 ${visuals.buildMs.toFixed(0)} ms${sp ? `<br>B：点群の用意 ${view.splatPrepMs.toFixed(0)} ms / Spark 構築 ${view.splatBuildMs.toFixed(0)} ms（構築 ${view.splatRebuilds} 回目）<br>B：キャラ ${sp.charTotal.toLocaleString()} スプラット（SplatSkinning ${settings.splatSource === 'sdf' ? '2 ボーン重み' : '1 ボーン'}）` : ''}</div>`);
+        <div class="small">${cats}<br>生成時間 ${visuals.buildMs.toFixed(0)} ms<br>B：Spark モジュール ${{ idle: '未読み込み', loading: '読み込み中', ready: `読み込み済み（${view.splatLoadMs.toFixed(0)} ms）`, error: '読み込み失敗' }[view.splatStatus]}${sp ? `<br>B：点群の用意 ${view.splatPrepMs.toFixed(0)} ms / Spark 構築 ${view.splatBuildMs.toFixed(0)} ms（構築 ${view.splatRebuilds} 回目）<br>B：キャラ ${sp.charTotal.toLocaleString()} スプラット（SplatSkinning ${settings.splatSource === 'sdf' ? '2 ボーン重み' : '1 ボーン'}）` : ''}</div>`);
       modeTag.textContent = game.camera.viewing ? '鑑賞モード' : '';
       modeTag.style.display = game.camera.viewing ? 'block' : 'none';
       document.body.classList.toggle('split', settings.viewMode === 'split');
@@ -167,6 +199,10 @@ function boot() {
 
   // デバッグ・自動検証用
   (window as unknown as Record<string, unknown>).__ppp = { game, view, settings };
+}
+
+function escapeHtml(t: string): string {
+  return t.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
 
 function saveScreenshot(canvas: HTMLCanvasElement, panel: Panel, method: string) {

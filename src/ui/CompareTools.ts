@@ -76,6 +76,21 @@ abstract class BaseTool implements Tool {
   }
 
   /** 方式 B の並べ替えが落ち着いたか */
+  /**
+   * 方式 B を描ける状態か。B のモジュール（Spark）は初回に読み込むので、届くまで待つ。
+   * 読み込みに失敗したら 'fail'（ツールは結果を出して終了する）
+   */
+  protected splatReady(method: RenderMethod): 'ok' | 'wait' | 'fail' {
+    if (method !== 'splats') return 'ok';
+    const v = this.host.view;
+    if (v.splat) return 'ok';
+    return v.splatStatus === 'error' ? 'fail' : 'wait';
+  }
+
+  protected failReport(title: string) {
+    this.host.report(`<b>${title}</b><br>方式 B を読み込めなかったため中止しました。`);
+  }
+
   protected settled(frames: number, min: number): boolean {
     const sp = this.host.view.splat;
     return frames >= min && (!sp || !sp.busy || frames > min + 60);
@@ -113,6 +128,12 @@ export class CaptureTool extends BaseTool {
   }
 
   after(): boolean {
+    const ready = this.splatReady(this.shots[this.i].method);
+    if (ready === 'fail') {
+      this.failReport(this.title);
+      return false;
+    }
+    if (ready === 'wait') return true;
     this.frames++;
     // 方式の切り替え直後は Spark の生成・並べ替えが 1〜数フレーム遅れるので待つ
     if (!this.settled(this.frames, 6)) return true;
@@ -195,6 +216,12 @@ export class FlickerTool extends BaseTool {
   }
 
   after(): boolean {
+    const ready = this.splatReady(this.methods[this.mi]);
+    if (ready === 'fail') {
+      this.failReport('ちらつき計測');
+      return false;
+    }
+    if (ready === 'wait') return true;
     const f = this.frame++;
     const W = FlickerTool.WARM, S = FlickerTool.STATIC, P = FlickerTool.PAN;
     if (f < W) {
@@ -294,6 +321,12 @@ export class BenchmarkTool extends BaseTool {
   }
 
   after(info: FrameInfo): boolean {
+    const ready = this.splatReady(this.methods[this.mi]);
+    if (ready === 'fail') {
+      this.failReport('性能ベンチマーク');
+      return false;
+    }
+    if (ready === 'wait') return true;
     const f = this.frame++;
     if (f >= BenchmarkTool.WARM) {
       this.samples.f.push(info.frameMs);

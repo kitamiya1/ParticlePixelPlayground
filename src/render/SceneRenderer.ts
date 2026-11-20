@@ -4,14 +4,19 @@ import * as THREE from 'three';
 import type { Game } from '../game/Game';
 import type { RenderMethod, RenderSettings, SplatSource } from '../settings';
 import { BONE_PIVOTS, CHARACTER_PARTS } from '../visual/emitters/character';
-import { buildSdfCharacter, buildSdfObjects, characterSourceFromGeometry, type CharacterSplatSource } from '../visual/sdf/sdfObjects';
+import type { CharacterSplatSource } from '../visual/sdf/sdfObjects';
 import { SUN_DIR, type WorldVisuals } from '../visual/WorldVisualBuilder';
 import type { IslandLayout } from '../world/IslandLayout';
 import { CharacterRig } from './CharacterRig';
 import { createParticleMaterial, createSharedUniforms } from './ParticleMaterial';
 import { PixelPipeline } from './PixelPipeline';
-import { mergeAndShuffle, pointSetFromBuilder, pointSetFromGeometry, type SplatPointSet } from './splat/SplatData';
-import { SplatRenderer } from './splat/SplatRenderer';
+// 方式 B（Spark）は型だけを静的に参照し、実体は必要になったときに動的 import で読み込む
+import type { SplatPointSet } from './splat/SplatData';
+import type { SplatRenderer } from './splat/SplatRenderer';
+
+type SplatModule = typeof import('./splat/SplatModule');
+/** 方式 B のモジュールの読み込み状態 */
+export type SplatLoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 const ORTHO_DISTANCE = 90;
 
@@ -45,6 +50,13 @@ export class SceneRenderer {
   splatBuildMs = 0;
   /** 方式 B を作り直した回数（GPU 資源の蓄積確認用） */
   splatRebuilds = 0;
+  /** 方式 B のモジュール（Spark を含む）の読み込み状態・所要時間・失敗理由 */
+  splatStatus: SplatLoadStatus = 'idle';
+  splatLoadMs = 0;
+  splatError = '';
+  private splatModule: SplatModule | null = null;
+  /** 読み込み関数（テストで失敗を再現できるよう差し替え可能にしている） */
+  splatImporter: () => Promise<SplatModule> = () => import('./splat/SplatModule');
   private readonly visuals: WorldVisuals;
   private lastLowCam: THREE.OrthographicCamera | THREE.PerspectiveCamera | null = null;
   /** スナップ後のカメラ位置（低解像度画素単位の整数。ちらつき計測の動き補正に使う） */
@@ -220,8 +232,9 @@ export class SceneRenderer {
 
     // 方式 B は必要なときだけ GPU 資源を持つ（A のみ・メッシュのみの表示では解放する）
     const useSplat = s.viewMode !== 'mesh' && (s.renderMethod === 'splats' || s.viewMode === 'compare');
-    const usePoints = s.viewMode !== 'mesh' && (s.renderMethod === 'points' || s.viewMode === 'compare');
     this.syncSplat(useSplat, s.splatSource, game.layout);
+    // 方式 B の読み込み中・失敗時は方式 A で描いて、操作を止めない
+    const usePoints = s.viewMode !== 'mesh' && (s.renderMethod === 'points' || s.viewMode === 'compare' || !this.splat);
     if (!usePoints) this.drawnParticles = 0;
     this.drawnSplats = 0;
 
@@ -241,7 +254,7 @@ export class SceneRenderer {
       }
       const pr = r.getPixelRatio();
       const W = cw / pr, H = ch / pr;
-      if (s.viewMode === 'compare') {
+      if (s.viewMode === 'compare' && this.splat) {
         // 左：方式 A / 右：方式 B（同じカメラ・同じ描画解像度）
         r.setScissorTest(true);
         r.setScissor(0, 0, W / 2, H);
@@ -276,8 +289,34 @@ export class SceneRenderer {
     }
   }
 
+  /** 方式 B のモジュール（Spark）を読み込む。読み込み済み・読み込み中なら何もしない */
+  private loadSplatModule() {
+    if (this.splatStatus === 'loading' || this.splatStatus === 'ready' || this.splatStatus === 'error') return;
+    this.splatStatus = 'loading';
+    this.splatError = '';
+    const t0 = performance.now();
+    this.splatImporter().then(
+      (m) => {
+        this.splatModule = m;
+        this.splatLoadMs = performance.now() - t0;
+        this.splatStatus = 'ready';
+      },
+      (e: unknown) => {
+        this.splatStatus = 'error';
+        this.splatError = e instanceof Error ? e.message : String(e);
+        console.error('方式 B（Spark）の読み込みに失敗しました', e);
+      },
+    );
+  }
+
+  /** 読み込み失敗の後、次に方式 B を選んだときに読み込みをやり直せるようにする */
+  resetSplatError() {
+    if (this.splatStatus === 'error') this.splatStatus = 'idle';
+  }
+
   /** 方式 B の元データを用意する（初回だけ CPU で生成し、以後は使い回す） */
-  private splatSource(src: SplatSource, layout: IslandLayout) {
+  private splatSource(m: SplatModule, src: SplatSource, layout: IslandLayout) {
+    const { buildSdfCharacter, buildSdfObjects, characterSourceFromGeometry, mergeAndShuffle, pointSetFromBuilder, pointSetFromGeometry } = m;
     let d = this.splatSources.get(src);
     if (d) return d;
     const t0 = performance.now();
@@ -303,15 +342,21 @@ export class SceneRenderer {
 
   /** 方式 B の GPU 資源を必要に応じて作成・破棄する */
   private syncSplat(want: boolean, src: SplatSource, layout: IslandLayout) {
+    // モジュールが未読み込みなら読み込みを始め、届くまでは方式 A で描く（キーは確定させない）
+    const m = this.splatModule;
+    if (want && !m) {
+      this.loadSplatModule();
+      return;
+    }
     const key = want ? src : '';
     if (key === this.splatKey) return;
     this.splatKey = key;
     this.splat?.dispose();
     this.splat = null;
-    if (!want) return;
-    const d = this.splatSource(src, layout);
+    if (!want || !m) return;
+    const d = this.splatSource(m, src, layout);
     this.splatPrepMs = d.ms;
-    this.splat = new SplatRenderer(this.renderer, this.uniforms, this.pipeline, d.world, d.character);
+    this.splat = new m.SplatRenderer(this.renderer, this.uniforms, this.pipeline, d.world, d.character);
     this.splatBuildMs = this.splat.buildMs;
     this.splatRebuilds++;
   }
