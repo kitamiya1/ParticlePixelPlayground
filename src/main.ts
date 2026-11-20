@@ -5,7 +5,8 @@ import { GpuTimer } from './render/GpuTimer';
 import { SceneRenderer } from './render/SceneRenderer';
 import { paletteById } from './render/palettes';
 import { Panel } from './ui/Panel';
-import { BenchmarkTool, CaptureTool, FlickerTool, abShots, zoomShots, type Tool, type ToolHost } from './ui/CompareTools';
+import { BenchmarkTool, CaptureTool, FlickerTool, GapTool, methodShots, pitchShots, zoomShots, type Tool, type ToolHost } from './ui/CompareTools';
+import { METHOD_NAME } from './settings';
 import { loadCurrent, saveCurrent } from './ui/presets';
 import { isTouchDevice, TouchControls } from './ui/TouchControls';
 import { buildWorldVisuals } from './visual/WorldVisualBuilder';
@@ -43,8 +44,10 @@ function boot() {
     onScreenshot: () => (shotRequested = true),
     onToggleViewing: () => game.toggleViewing(),
     onToggleAutoRotate: () => (game.camera.autoRotate = !game.camera.autoRotate),
-    onCaptureAB: () => startTool(() => new CaptureTool(host, abShots(), 'A/B 同条件スクリーンショット'), '撮影中'),
+    onCaptureAB: () => startTool(() => new CaptureTool(host, methodShots(), 'A/B/C 同条件スクリーンショット'), '撮影中'),
     onCaptureZoom: () => startTool(() => new CaptureTool(host, zoomShots(game.camera.zoom), 'ズーム 3 段階スクリーンショット'), '撮影中'),
+    onCapturePitch: () => startTool(() => new CaptureTool(host, pitchShots(), '見下ろし角 3 段階スクリーンショット'), '撮影中'),
+    onGapAnalysis: () => startTool(() => new GapTool(host), '隙間・重ね塗りを解析中'),
     onFlickerTest: () => startTool(() => new FlickerTool(host), 'ちらつき計測中（約 5 秒）'),
     onBenchmark: () => startTool(() => new BenchmarkTool(host), 'ベンチマーク中（約 10 秒）'),
   });
@@ -77,6 +80,9 @@ function boot() {
   const modeTag = document.createElement('div');
   modeTag.id = 'mode-tag';
   document.body.appendChild(modeTag);
+  const compareTag = document.createElement('div');
+  compareTag.id = 'compare-tag';
+  document.getElementById('app')!.appendChild(compareTag);
   // 方式 B（Spark）の読み込み状態の表示
   const splatTag = document.createElement('div');
   splatTag.id = 'splat-status';
@@ -96,8 +102,8 @@ function boot() {
       if (st === 'ready' && splatShown === 'loading') panel.notify(`方式 B を読み込みました（${view.splatLoadMs.toFixed(0)} ms）`);
       if (st === 'error') {
         // 読み込みに失敗したら方式 A に戻し、次に B を選んだときに再試行できるようにする
-        settings.renderMethod = 'points';
-        if (settings.viewMode === 'compare') settings.viewMode = 'particles';
+        if (settings.renderMethod === 'splats') settings.renderMethod = 'points';
+        if (settings.viewMode === 'compare' && (settings.compareLeft === 'splats' || settings.compareRight === 'splats')) settings.viewMode = 'particles';
         saveCurrent(settings);
         panel.sync();
         panel.setReport(`<b>方式 B の読み込みに失敗しました</b><br>方式 A で表示を続けています。もう一度 B を選ぶと再試行します（続けて失敗する場合はページを再読み込みしてください）。<div class="small">${escapeHtml(view.splatError)}</div>`);
@@ -172,7 +178,9 @@ function boot() {
       const pal = paletteById(settings.palette);
       const sp = view.splat;
       const mem = view.renderer.info.memory;
-      const methodLabel = settings.viewMode === 'mesh' ? '簡易メッシュ' : settings.viewMode === 'compare' ? 'A/B 左右比較' : settings.renderMethod === 'splats' ? 'B：Gaussian Splats' : 'A：ポイント描画';
+      const shown = view.shownMethods(settings);
+      const methodLabel = settings.viewMode === 'mesh' ? '簡易メッシュ' : settings.viewMode === 'compare' ? `${METHOD_NAME[settings.compareLeft]} | ${METHOD_NAME[settings.compareRight]}` : METHOD_NAME[settings.renderMethod];
+      const sf = view.surfel;
       panel.setStats(`
         <div class="big"><span>描画方式</span><b class="method">${methodLabel}</b></div>
         <div class="big"><span>FPS</span><b>${fps.toFixed(1)}</b></div>
@@ -183,15 +191,23 @@ function boot() {
         <div><span>描画中の粒数（A）</span><b>${view.drawnParticles.toLocaleString()}</b></div>
         <div><span>スプラットの総数（B）</span><b>${sp ? (sp.worldTotal + sp.charTotal).toLocaleString() : '―'}</b></div>
         <div><span>描画中のスプラット数（B）</span><b>${sp ? view.drawnSplats.toLocaleString() : '―'}</b></div>
+        <div><span>円盤の総数（C）</span><b>${sf ? (sf.worldTotal + sf.charTotal).toLocaleString() : '―'}</b></div>
+        <div><span>描画中の円盤数（C）</span><b>${sf ? view.drawnSurfels.toLocaleString() : '―'}</b></div>
         <div><span>GPU 資源（テクスチャ / 形状）</span><b>${mem.textures} / ${mem.geometries}</b></div>
         <div><span>描画解像度</span><b>${settings.viewMode === 'mesh' ? 'ネイティブ' : `${lr.w}×${lr.h}`}</b></div>
         <div><span>パレット</span><b>${pal.colors.length ? `${pal.colors.length}色` : settings.palette === 'levels' ? `${settings.colorLevels ** 3}色` : '制限なし'}</b></div>
         <div><span>キャラクター</span><b>${MOVE_STATE_LABEL[game.character.state]}</b></div>
-        <div class="small">${cats}<br>生成時間 ${visuals.buildMs.toFixed(0)} ms<br>B：Spark モジュール ${{ idle: '未読み込み', loading: '読み込み中', ready: `読み込み済み（${view.splatLoadMs.toFixed(0)} ms）`, error: '読み込み失敗' }[view.splatStatus]}${sp ? `<br>B：点群の用意 ${view.splatPrepMs.toFixed(0)} ms / Spark 構築 ${view.splatBuildMs.toFixed(0)} ms（構築 ${view.splatRebuilds} 回目）<br>B：キャラ ${sp.charTotal.toLocaleString()} スプラット（SplatSkinning ${settings.splatSource === 'sdf' ? '2 ボーン重み' : '1 ボーン'}）` : ''}</div>`);
+        <div class="small">${cats}<br>生成時間 ${visuals.buildMs.toFixed(0)} ms<br>B：Spark モジュール ${{ idle: '未読み込み', loading: '読み込み中', ready: `読み込み済み（${view.splatLoadMs.toFixed(0)} ms）`, error: '読み込み失敗' }[view.splatStatus]}${sp ? `<br>B：点群の用意 ${view.splatPrepMs.toFixed(0)} ms / Spark 構築 ${view.splatBuildMs.toFixed(0)} ms（構築 ${view.splatRebuilds} 回目）<br>B：キャラ ${sp.charTotal.toLocaleString()} スプラット（SplatSkinning ${settings.splatSource === 'sdf' ? '2 ボーン重み' : '1 ボーン'}）` : ''}${sf ? `<br>C：構築 ${view.surfelBuildMs.toFixed(0)} ms（構築 ${view.surfelRebuilds} 回目）、Spark 不使用` : ''}</div>`);
       modeTag.textContent = game.camera.viewing ? '鑑賞モード' : '';
       modeTag.style.display = game.camera.viewing ? 'block' : 'none';
       document.body.classList.toggle('split', settings.viewMode === 'split');
       document.body.classList.toggle('compare', settings.viewMode === 'compare');
+      // 左右比較の見出し（読み込み中の B は A で代わりに描いていることも示す）
+      compareTag.style.display = settings.viewMode === 'compare' ? 'flex' : 'none';
+      if (settings.viewMode === 'compare') {
+        const label = (want: typeof settings.renderMethod, got: typeof settings.renderMethod) => (want === got ? METHOD_NAME[want] : `${METHOD_NAME[want]}（読み込み中は A）`);
+        compareTag.innerHTML = `<span>${label(settings.compareLeft, shown[0])}</span><span>${label(settings.compareRight, shown[1] ?? shown[0])}</span>`;
+      }
     }
   };
   loading.remove();

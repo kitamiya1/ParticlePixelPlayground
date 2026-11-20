@@ -4,14 +4,15 @@ import * as THREE from 'three';
 import type { Game } from '../game/Game';
 import type { RenderMethod, RenderSettings, SplatSource } from '../settings';
 import { BONE_PIVOTS, CHARACTER_PARTS } from '../visual/emitters/character';
-import type { CharacterSplatSource } from '../visual/sdf/sdfObjects';
+import { buildSdfCharacter, buildSdfObjects, characterSourceFromGeometry, type CharacterSplatSource } from '../visual/sdf/sdfObjects';
 import { SUN_DIR, type WorldVisuals } from '../visual/WorldVisualBuilder';
 import type { IslandLayout } from '../world/IslandLayout';
 import { CharacterRig } from './CharacterRig';
 import { createParticleMaterial, createSharedUniforms } from './ParticleMaterial';
 import { PixelPipeline } from './PixelPipeline';
+import { mergeAndShuffle, pointSetFromBuilder, pointSetFromGeometry, type SplatPointSet } from './shared/PointSet';
+import { SurfelRenderer } from './surfel/SurfelRenderer';
 // 方式 B（Spark）は型だけを静的に参照し、実体は必要になったときに動的 import で読み込む
-import type { SplatPointSet } from './splat/SplatData';
 import type { SplatRenderer } from './splat/SplatRenderer';
 
 type SplatModule = typeof import('./splat/SplatModule');
@@ -33,8 +34,9 @@ export class SceneRenderer {
   private readonly charPoints: THREE.Points;
   private readonly charMeshRoot = new THREE.Group();
   private readonly charMeshBones: THREE.Group[] = [];
-  readonly worldTotal: number;
-  readonly charTotal: number;
+  /** 方式 A の粒の総数（形状データの切り替えで変わる） */
+  worldTotal: number;
+  charTotal: number;
   private readonly offset = new THREE.Vector2();
   /** 最後に描いた粒数 */
   drawnParticles = 0;
@@ -43,8 +45,17 @@ export class SceneRenderer {
   /** 方式 B の描画一式（使っていない間は null = GPU 資源を持たない） */
   splat: SplatRenderer | null = null;
   private splatKey = '';
-  /** 方式 B の元データ（CPU 側にだけ保持し、方式を戻したときの作り直しに使う） */
-  private readonly splatSources = new Map<SplatSource, { world: SplatPointSet; character: CharacterSplatSource; ms: number }>();
+  /** 形状データ（A・B・C 共通。CPU 側にだけ保持し、方式を戻したときの作り直しに使う） */
+  private readonly shapeSources = new Map<SplatSource, { world: SplatPointSet; character: CharacterSplatSource; ms: number }>();
+  /** 方式 A の粒ジオメトリがどの形状データか */
+  private pointsSource: SplatSource = 'convert';
+  /** 方式 C の描画一式（使っていない間は null = GPU 資源を持たない） */
+  surfel: SurfelRenderer | null = null;
+  private surfelKey = '';
+  surfelBuildMs = 0;
+  surfelRebuilds = 0;
+  /** 最後に描いたサーフェル数（方式 C） */
+  drawnSurfels = 0;
   /** 方式 B の生成にかかった時間（点群の用意 / GPU 側の構築） */
   splatPrepMs = 0;
   splatBuildMs = 0;
@@ -62,6 +73,9 @@ export class SceneRenderer {
   /** スナップ後のカメラ位置（低解像度画素単位の整数。ちらつき計測の動き補正に使う） */
   readonly snapIndex = new THREE.Vector2();
   private analysisRT: THREE.WebGLRenderTarget | null = null;
+  /** 隙間の評価用：深度テクスチャ → 線形の奥行き（ワールド単位）へ変換する一式（解析時だけ作る） */
+  private depthPass: { scene: THREE.Scene; cam: THREE.OrthographicCamera; mat: THREE.ShaderMaterial; geo: THREE.BufferGeometry } | null = null;
+  private refRT: THREE.WebGLRenderTarget | null = null;
 
   constructor(canvas: HTMLCanvasElement, visuals: WorldVisuals) {
     this.visuals = visuals;
@@ -206,6 +220,18 @@ export class SceneRenderer {
     u.uRes.value.set(this.pipeline.lowW, this.pipeline.lowH);
   }
 
+  /** いま画面に出す方式の並び（左右比較なら [左, 右]）。メッシュのみの表示では空 */
+  private wantedMethods(s: RenderSettings): RenderMethod[] {
+    if (s.viewMode === 'mesh') return [];
+    if (s.viewMode === 'compare') return [s.compareLeft, s.compareRight];
+    return [s.renderMethod];
+  }
+
+  /** 実際に描く方式（方式 B の読み込み中・失敗時は方式 A で代わりに描き、操作を止めない） */
+  shownMethods(s: RenderSettings): RenderMethod[] {
+    return this.wantedMethods(s).map((m) => (m === 'splats' && !this.splat ? 'points' : m));
+  }
+
   render(game: Game, s: RenderSettings, dt: number) {
     const canvas = this.renderer.domElement;
     const cw = canvas.width, ch = canvas.height;
@@ -213,6 +239,9 @@ export class SceneRenderer {
     const scale = Math.max(1, Math.round(s.pixelScale * dpr));
     this.pipeline.ensureSize(cw, ch, scale);
     this.applySettings(s, game.time);
+
+    // 形状データ（A・B・C 共通）の選択
+    this.syncShapes(s.splatSource, game.layout);
 
     // キャラクター
     const c = game.character;
@@ -224,50 +253,51 @@ export class SceneRenderer {
     // 密度：シャッフル済みバッファの先頭から必要数だけ描く
     const n = Math.max(1, Math.round(this.worldTotal * s.density));
     this.worldPoints.geometry.setDrawRange(0, n);
-    this.drawnParticles = s.viewMode === 'mesh' ? 0 : n + this.charTotal;
 
     const r = this.renderer;
     r.setScissorTest(false);
     r.setViewport(0, 0, cw / r.getPixelRatio(), ch / r.getPixelRatio());
 
-    // 方式 B は必要なときだけ GPU 資源を持つ（A のみ・メッシュのみの表示では解放する）
-    const useSplat = s.viewMode !== 'mesh' && (s.renderMethod === 'splats' || s.viewMode === 'compare');
-    this.syncSplat(useSplat, s.splatSource, game.layout);
-    // 方式 B の読み込み中・失敗時は方式 A で描いて、操作を止めない
-    const usePoints = s.viewMode !== 'mesh' && (s.renderMethod === 'points' || s.viewMode === 'compare' || !this.splat);
-    if (!usePoints) this.drawnParticles = 0;
+    // 方式 B・C は必要なときだけ GPU 資源を持つ（使わなくなったら解放する）
+    const wanted = this.wantedMethods(s);
+    this.syncSplat(wanted.includes('splats'), s.splatSource, game.layout);
+    this.syncSurfel(wanted.includes('surfels'), s.splatSource, game.layout);
+    const shown = this.shownMethods(s);
+    this.drawnParticles = shown.includes('points') ? n + this.charTotal : 0;
     this.drawnSplats = 0;
+    this.drawnSurfels = 0;
 
-    if (s.viewMode !== 'mesh') {
+    if (shown.length) {
       const cam = this.setupCamera(game, s, true);
       this.lastLowCam = cam;
       this.uniforms.uPxPerUnit.value = cam.projectionMatrix.elements[5] * this.pipeline.lowH * 0.5;
       this.uniforms.uIsOrtho.value = s.projection === 'ortho' ? 1 : 0;
       const offset = this.offset.clone().negate();
-      // まず両方式とも低解像度ターゲットへ描く（ハサミ切り抜きはターゲットにも効くので切っておく）
-      if (usePoints) this.pipeline.renderScene(r, this.particleScene, cam);
-      if (this.splat && useSplat) {
-        const comp = s.densityComp ? Math.min(2.2, Math.pow(Math.max(s.density, 0.02), -0.5)) : 1;
+      const comp = s.densityComp ? Math.min(2.2, Math.pow(Math.max(s.density, 0.02), -0.5)) : 1;
+      // まず使う方式をすべて低解像度ターゲットへ描く（ハサミ切り抜きはターゲットにも効くので切っておく）
+      if (shown.includes('points')) this.pipeline.renderScene(r, this.particleScene, cam);
+      if (shown.includes('splats') && this.splat) {
         this.splat.update(s, this.rig, cam, comp);
         this.splat.renderScene(r, cam, this.pipeline.lowW, this.pipeline.lowH, Math.round(s.splatSupersample) >= 2 ? 2 : 1);
         this.drawnSplats = this.splat.drawn;
       }
+      if (shown.includes('surfels') && this.surfel) {
+        this.surfel.update(s, this.rig, comp, this.pipeline.lowW, this.pipeline.lowH);
+        this.surfel.renderScene(r, cam, cw, ch, scale);
+        this.drawnSurfels = this.surfel.drawn;
+      }
       const pr = r.getPixelRatio();
       const W = cw / pr, H = ch / pr;
-      if (s.viewMode === 'compare' && this.splat) {
-        // 左：方式 A / 右：方式 B（同じカメラ・同じ描画解像度）
+      if (shown.length === 2) {
+        // 左右比較：同じカメラ・同じ描画解像度で、左右に別の方式を合成する
         r.setScissorTest(true);
         r.setScissor(0, 0, W / 2, H);
-        this.pipeline.composite(r, s, cam, offset);
-        if (this.splat) {
-          r.setScissor(W / 2, 0, W / 2, H);
-          this.splat.post.composite(r, s, offset);
-        }
+        this.compositeMethod(shown[0], s, cam, offset);
+        r.setScissor(W / 2, 0, W / 2, H);
+        this.compositeMethod(shown[1], s, cam, offset);
         r.setScissorTest(false);
-      } else if (s.renderMethod === 'splats' && this.splat) {
-        this.splat.post.composite(r, s, offset);
       } else {
-        this.pipeline.composite(r, s, cam, offset);
+        this.compositeMethod(shown[0], s, cam, offset);
       }
     }
 
@@ -287,6 +317,16 @@ export class SceneRenderer {
       r.render(this.meshScene, cam);
       r.setScissorTest(false);
     }
+  }
+
+  /** 方式ごとの後処理（輪郭・ディザ・減色・拡大）。mask=true ならシルエットのマスクを出す */
+  private compositeMethod(
+    m: RenderMethod, s: RenderSettings, cam: THREE.OrthographicCamera | THREE.PerspectiveCamera, offset: THREE.Vector2,
+    target: THREE.WebGLRenderTarget | null = null, raw = false, mask = false,
+  ) {
+    if (m === 'splats' && this.splat) this.splat.post.composite(this.renderer, s, offset, target, raw, mask);
+    else if (m === 'surfels' && this.surfel) this.surfel.pipeline.composite(this.renderer, s, cam, offset, target, raw, mask);
+    else this.pipeline.composite(this.renderer, s, cam, offset, target, raw, mask);
   }
 
   /** 方式 B のモジュール（Spark）を読み込む。読み込み済み・読み込み中なら何もしない */
@@ -314,15 +354,14 @@ export class SceneRenderer {
     if (this.splatStatus === 'error') this.splatStatus = 'idle';
   }
 
-  /** 方式 B の元データを用意する（初回だけ CPU で生成し、以後は使い回す） */
-  private splatSource(m: SplatModule, src: SplatSource, layout: IslandLayout) {
-    const { buildSdfCharacter, buildSdfObjects, characterSourceFromGeometry, mergeAndShuffle, pointSetFromBuilder, pointSetFromGeometry } = m;
-    let d = this.splatSources.get(src);
+  /** 形状データを用意する（A・B・C 共通。初回だけ CPU で生成し、以後は使い回す） */
+  private shapeSource(src: SplatSource, layout: IslandLayout) {
+    let d = this.shapeSources.get(src);
     if (d) return d;
     const t0 = performance.now();
     const cg = this.visuals.character;
     if (src === 'sdf') {
-      // 樹木・岩・キャラクターを SDF から生成し、地形・草花・雲は既存の粒を変換して使う
+      // 樹木・岩・キャラクターを SDF から生成し、地形・草花・雲は既存の粒をそのまま使う
       const rest = pointSetFromGeometry(this.visuals.world, ['樹木', '岩']);
       const objs = pointSetFromBuilder(buildSdfObjects(layout));
       d = { world: mergeAndShuffle([rest, objs]), character: buildSdfCharacter(), ms: 0 };
@@ -336,8 +375,30 @@ export class SceneRenderer {
       d = { world: pointSetFromGeometry(this.visuals.world), character, ms: 0 };
     }
     d.ms = performance.now() - t0;
-    this.splatSources.set(src, d);
+    this.shapeSources.set(src, d);
     return d;
+  }
+
+  /**
+   * 方式 A の粒ジオメトリを形状データに合わせる。「変換」は生成時のジオメトリそのもの、
+   * 「SDF」は共通の点群から作ったジオメトリ（切り替えで前のものは GPU から解放する）。
+   */
+  private syncShapes(src: SplatSource, layout: IslandLayout) {
+    if (src === this.pointsSource) return;
+    this.pointsSource = src;
+    const prevW = this.worldPoints.geometry, prevC = this.charPoints.geometry;
+    if (src === 'sdf') {
+      const d = this.shapeSource(src, layout);
+      this.worldPoints.geometry = pointsGeometryFromSet(d.world);
+      this.charPoints.geometry = pointsGeometryFromCharacter(d.character);
+    } else {
+      this.worldPoints.geometry = this.visuals.world;
+      this.charPoints.geometry = this.visuals.character;
+    }
+    if (prevW !== this.visuals.world && prevW !== this.worldPoints.geometry) prevW.dispose();
+    if (prevC !== this.visuals.character && prevC !== this.charPoints.geometry) prevC.dispose();
+    this.worldTotal = this.worldPoints.geometry.getAttribute('position').count;
+    this.charTotal = this.charPoints.geometry.getAttribute('position').count;
   }
 
   /** 方式 B の GPU 資源を必要に応じて作成・破棄する */
@@ -354,51 +415,401 @@ export class SceneRenderer {
     this.splat?.dispose();
     this.splat = null;
     if (!want || !m) return;
-    const d = this.splatSource(m, src, layout);
+    const d = this.shapeSource(src, layout);
     this.splatPrepMs = d.ms;
     this.splat = new m.SplatRenderer(this.renderer, this.uniforms, this.pipeline, d.world, d.character);
     this.splatBuildMs = this.splat.buildMs;
     this.splatRebuilds++;
   }
 
-  /** 方式 B の元データの点数（統計表示用） */
+  /** 方式 C の GPU 資源を必要に応じて作成・破棄する */
+  private syncSurfel(want: boolean, src: SplatSource, layout: IslandLayout) {
+    const key = want ? src : '';
+    if (key === this.surfelKey) return;
+    this.surfelKey = key;
+    this.surfel?.dispose();
+    this.surfel = null;
+    if (!want) return;
+    const d = this.shapeSource(src, layout);
+    this.surfel = new SurfelRenderer(this.uniforms, this.rig, d.world, d.character);
+    this.surfelBuildMs = this.surfel.buildMs;
+    this.surfelRebuilds++;
+  }
+
+  /** 形状データの点数（統計表示用） */
   splatSourceInfo(src: SplatSource) {
-    const d = this.splatSources.get(src);
+    const d = this.shapeSources.get(src);
     return d ? { world: d.world.count, character: d.character.count } : null;
+  }
+
+  private ensureAnalysisRT(w: number, h: number, type: THREE.TextureDataType = THREE.UnsignedByteType) {
+    const cur = this.analysisRT;
+    if (!cur || cur.width !== w || cur.height !== h || cur.texture.type !== type) {
+      cur?.dispose();
+      this.analysisRT = new THREE.WebGLRenderTarget(w, h, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false, type });
+    }
+    return this.analysisRT!;
   }
 
   /**
    * 直前に描いたフレームを、低解像度画素 1 つ = 1 画素の画像として読み出す（ちらつき計測用）。
-   * 後処理（輪郭・ディザ・減色）まで含めた最終的なドットを比較できる。
+   * 後処理（輪郭・ディザ・減色）まで含めた最終的なドットを比較できる。mask=true ならシルエット（物体 = 白）。
    */
-  readLowRes(s: RenderSettings, method: RenderMethod): { w: number; h: number; data: Uint8Array } | null {
+  readLowRes(s: RenderSettings, method: RenderMethod, mask = false): { w: number; h: number; data: Uint8Array } | null {
     const p = this.pipeline;
     if (!this.lastLowCam || !p.rt) return null;
+    if (method === 'splats' && !this.splat) return null;
+    if (method === 'surfels' && !this.surfel) return null;
     const w = p.lowW, h = p.lowH;
-    if (!this.analysisRT || this.analysisRT.width !== w || this.analysisRT.height !== h) {
-      this.analysisRT?.dispose();
-      this.analysisRT = new THREE.WebGLRenderTarget(w, h, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false });
-    }
+    const rt = this.ensureAnalysisRT(w, h);
     const r = this.renderer;
     const prevScissor = r.getScissorTest();
     r.setScissorTest(false);
-    const zero = new THREE.Vector2();
-    if (method === 'splats') {
-      if (!this.splat) return null;
-      this.splat.post.composite(r, s, zero, this.analysisRT, true);
-    } else {
-      this.pipeline.composite(r, s, this.lastLowCam, zero, this.analysisRT, true);
-    }
+    this.compositeMethod(method, s, this.lastLowCam, new THREE.Vector2(), rt, true, mask);
     const data = new Uint8Array(w * h * 4);
-    r.readRenderTargetPixels(this.analysisRT, 0, 0, w, h, data);
+    r.readRenderTargetPixels(rt, 0, 0, w, h, data);
     r.setRenderTarget(null);
     r.setScissorTest(prevScissor);
     return { w, h, data };
+  }
+
+  /**
+   * 基準形状（簡易メッシュ）のシルエットを、直前のフレームと同じカメラ・描画解像度で描いて読み出す。
+   * 物体 = 白 / 背景 = 黒。円盤やスプラットの「隙間」を評価する基準に使う。
+   */
+  readReferenceMask(): { w: number; h: number; data: Uint8Array } | null {
+    const p = this.pipeline;
+    if (!this.lastLowCam) return null;
+    const w = p.lowW, h = p.lowH;
+    const rt = this.ensureAnalysisRT(w, h);
+    const r = this.renderer;
+    this.charMeshRoot.matrix.copy(this.rig.root);
+    this.rig.bones.forEach((m, i) => this.charMeshBones[i].matrix.copy(m));
+    this.charMeshRoot.updateMatrixWorld(true);
+    const white = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+    const bg = this.meshScene.background;
+    this.meshScene.background = null;
+    this.meshScene.overrideMaterial = white;
+    const prevScissor = r.getScissorTest();
+    r.setScissorTest(false);
+    r.setRenderTarget(rt);
+    r.setClearColor(0x000000, 1);
+    r.clear(true, true, true);
+    r.render(this.meshScene, this.lastLowCam);
+    const data = new Uint8Array(w * h * 4);
+    r.readRenderTargetPixels(rt, 0, 0, w, h, data);
+    r.setRenderTarget(null);
+    r.setScissorTest(prevScissor);
+    this.meshScene.overrideMaterial = null;
+    this.meshScene.background = bg;
+    white.dispose();
+    return { w, h, data };
+  }
+
+  /**
+   * 重ね塗り（ラスタライズされた断片数）の実測。方式 A・C だけが対象（方式 B は Spark 内部のシェーダーなので
+   * 同じ方法では数えられず、CPU 側の推定値を使う）。計測用シェーダーに差し替え、深度テストなし・加算合成で
+   * 1 断片 = 1 を半精度浮動小数点のターゲットに積算し、読み出して合計する。
+   */
+  measureFragments(method: 'points' | 'surfels'): { rasterized: number; written: number; coveredPixels: number; pixels: number } | null {
+    const p = this.pipeline;
+    const cam = this.lastLowCam;
+    if (!cam) return null;
+    const w = p.lowW, h = p.lowH;
+    const rt = this.ensureAnalysisRT(w, h, THREE.HalfFloatType);
+    const r = this.renderer;
+    r.setScissorTest(false);
+    if (method === 'surfels') {
+      if (!this.surfel) return null;
+      this.surfel.renderCount(r, cam, rt);
+    } else {
+      const objs = [this.worldPoints, this.charPoints];
+      const saved = objs.map((o) => o.material as THREE.ShaderMaterial);
+      const counters = saved.map((m) => {
+        const c = m.clone();
+        c.uniforms = m.uniforms;
+        c.defines = { ...m.defines, COUNT_FRAGMENTS: '' };
+        c.blending = THREE.AdditiveBlending;
+        c.depthTest = false;
+        c.depthWrite = false;
+        c.transparent = true;
+        return c;
+      });
+      objs.forEach((o, i) => (o.material = counters[i]));
+      r.setRenderTarget(rt);
+      r.setClearColor(0x000000, 0);
+      r.clear(true, true, true);
+      r.render(this.particleScene, cam);
+      r.setRenderTarget(null);
+      objs.forEach((o, i) => (o.material = saved[i]));
+      counters.forEach((c) => c.dispose());
+    }
+    const half = new Uint16Array(w * h * 4);
+    r.readRenderTargetPixels(rt, 0, 0, w, h, half);
+    let rasterized = 0, written = 0, covered = 0;
+    for (let i = 0; i < w * h; i++) {
+      const a = THREE.DataUtils.fromHalfFloat(half[i * 4]);
+      rasterized += a;
+      written += THREE.DataUtils.fromHalfFloat(half[i * 4 + 1]);
+      if (a > 0) covered++;
+    }
+    return { rasterized, written, coveredPixels: covered, pixels: w * h };
+  }
+
+  /**
+   * 方式 B の重ね塗りの推定（CPU で計算。実測ではない）。
+   * Spark の頂点シェーダーと同じ考え方で、各スプラットの 3D 共分散を画面へ投影し、
+   * 描画範囲（標準偏差 × splatStdDev）の楕円を囲む四角形の面積 = ラスタライズされる断片数、
+   * 楕円の面積 = 色を書く断片数として、画面内にあるスプラットについて合計する。
+   * 風による揺れ・半透明での破棄（minAlpha）・はみ出した部分の切り取りは考慮しない。
+   */
+  estimateSplatFragments(s: RenderSettings): { rasterized: number; written: number; pixels: number; counted: number } | null {
+    const cam = this.lastLowCam;
+    const d = this.shapeSources.get(s.splatSource);
+    if (!cam || !d || !this.splat) return null;
+    const ss = Math.round(s.splatSupersample) >= 2 ? 2 : 1;
+    const W = this.pipeline.lowW * ss, H = this.pipeline.lowH * ss;
+    const comp = s.densityComp ? Math.min(2.2, Math.pow(Math.max(s.density, 0.02), -0.5)) : 1;
+    const spread = s.splatScale * comp;
+    const sx = spread, sy = spread * s.splatAniso, sz = spread * s.splatFlat;
+    const blur = this.splat.spark.blurAmount ?? 0;
+    const k = s.splatStdDev;
+    const maxPx = this.splat.spark.maxPixelRadius ?? 512;
+    const view = cam.matrixWorldInverse.elements;
+    const proj = cam.projectionMatrix.elements;
+    const ortho = (cam as THREE.OrthographicCamera).isOrthographicCamera;
+    let rasterized = 0, written = 0, counted = 0;
+    const T = new THREE.Vector3(), B = new THREE.Vector3(), N = new THREE.Vector3();
+    const addSet = (pos: Float32Array, nrm: Float32Array, size: Float32Array, n: number, model: THREE.Matrix4 | null) => {
+      const me = model?.elements;
+      for (let i = 0; i < n; i++) {
+        let x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2];
+        if (me) {
+          const X = me[0] * x + me[4] * y + me[8] * z + me[12], Y = me[1] * x + me[5] * y + me[9] * z + me[13], Z = me[2] * x + me[6] * y + me[10] * z + me[14];
+          x = X; y = Y; z = Z;
+        }
+        // カメラ座標
+        const vx = view[0] * x + view[4] * y + view[8] * z + view[12];
+        const vy = view[1] * x + view[5] * y + view[9] * z + view[13];
+        const vz = view[2] * x + view[6] * y + view[10] * z + view[14];
+        if (vz >= 0) continue;
+        // 画素単位への換算（正射影なら一定、透視なら奥行きで割る）
+        const fx = 0.5 * W * proj[0], fy = 0.5 * H * proj[5];
+        const sxp = ortho ? fx : fx / -vz, syp = ortho ? fy : fy / -vz;
+        const px = (ortho ? vx * proj[0] : (vx * proj[0]) / -vz) * 0.5 * W + W / 2;
+        const py = (ortho ? vy * proj[5] : (vy * proj[5]) / -vz) * 0.5 * H + H / 2;
+        // 円盤の 3 軸（法線 = Z、世界の上を面に投影した向き = Y）
+        N.set(nrm[i * 3], nrm[i * 3 + 1], nrm[i * 3 + 2]);
+        if (N.lengthSq() < 1e-8) N.set(0, 1, 0);
+        N.normalize();
+        if (me) N.transformDirection(model!);
+        T.set(0, Math.abs(N.y) > 0.95 ? 0 : 1, Math.abs(N.y) > 0.95 ? 1 : 0).cross(N).normalize();
+        B.crossVectors(N, T);
+        const sig = size[i] * 0.34;
+        // 3 軸をカメラ座標の x, y へ射影して 2D 共分散を作る
+        let a = 0, b = 0, c = 0;
+        for (const [ax, sc] of [[T, sx], [B, sy], [N, sz]] as const) {
+          const cx = (view[0] * ax.x + view[4] * ax.y + view[8] * ax.z) * sig * sc * sxp;
+          const cy = (view[1] * ax.x + view[5] * ax.y + view[9] * ax.z) * sig * sc * syp;
+          a += cx * cx;
+          b += cx * cy;
+          c += cy * cy;
+        }
+        a += blur;
+        c += blur;
+        const avg = 0.5 * (a + c), diff = Math.sqrt(0.25 * (a - c) * (a - c) + b * b);
+        const r1 = Math.min(maxPx, k * Math.sqrt(avg + diff)), r2 = Math.min(maxPx, k * Math.sqrt(Math.max(0, avg - diff)));
+        // 画面外にはみ出す部分は、楕円を囲む軸平行の箱が画面内に残る割合で差し引く（方式 A の推定と同じ扱い）
+        const ex = Math.min(maxPx, k * Math.sqrt(a)), ey = Math.min(maxPx, k * Math.sqrt(c));
+        const x0 = Math.max(0, px - ex), x1 = Math.min(W, px + ex), y0 = Math.max(0, py - ey), y1 = Math.min(H, py + ey);
+        if (x1 <= x0 || y1 <= y0) continue;
+        const f = ((x1 - x0) * (y1 - y0)) / Math.max(1e-6, 4 * ex * ey);
+        counted++;
+        rasterized += 4 * r1 * r2 * f;
+        written += Math.PI * r1 * r2 * f;
+      }
+    };
+    addSet(d.world.pos, d.world.nrm, d.world.size, Math.max(1, Math.round(d.world.count * s.density)), null);
+    addSet(d.character.pos, d.character.nrm, d.character.size, d.character.count, this.rig.root);
+    return { rasterized, written, pixels: W * H, counted };
+  }
+
+  /**
+   * 方式 A の断片数を、B と同じく CPU で推定する（実測値と比べて推定方法の確かさを示すため）。
+   * 各点の gl_PointSize（px）を頂点シェーダーと同じ式で求め、px × px を画面内の点について合計する。
+   */
+  estimatePointFragments(s: RenderSettings): { rasterized: number; pixels: number } | null {
+    const cam = this.lastLowCam;
+    if (!cam) return null;
+    const W = this.pipeline.lowW, H = this.pipeline.lowH;
+    const view = cam.matrixWorldInverse.elements, proj = cam.projectionMatrix.elements;
+    const ortho = (cam as THREE.OrthographicCamera).isOrthographicCamera;
+    const scale = this.uniforms.uPointScale.value, ppu = this.uniforms.uPxPerUnit.value;
+    let rasterized = 0;
+    const m = new THREE.Matrix4(), v = new THREE.Vector3();
+    const addGeo = (g: THREE.BufferGeometry, n: number, bones: boolean) => {
+      const pos = g.getAttribute('position').array, misc = g.getAttribute('aMisc').array;
+      const bone = bones ? g.getAttribute('aBone').array : null;
+      for (let i = 0; i < n; i++) {
+        v.set(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
+        if (bone) v.applyMatrix4(m.multiplyMatrices(this.rig.root, this.rig.bones[Math.round(bone[i])]));
+        const vx = view[0] * v.x + view[4] * v.y + view[8] * v.z + view[12];
+        const vy = view[1] * v.x + view[5] * v.y + view[9] * v.z + view[13];
+        const vz = view[2] * v.x + view[6] * v.y + view[10] * v.z + view[14];
+        const d = -vz;
+        if (d <= 0) continue;
+        let px = (misc[i * 3] * scale * ppu) / (ortho ? 1 : Math.max(d, 0.01));
+        px = Math.min(48, Math.max(1, px));
+        if (s.pointSnap) px = Math.floor(px + 0.5);
+        const sx = (ortho ? vx * proj[0] : (vx * proj[0]) / d) * 0.5 * W + W / 2;
+        const sy = (ortho ? vy * proj[5] : (vy * proj[5]) / d) * 0.5 * H + H / 2;
+        // 画面外にはみ出す部分を切り取った面積
+        const x0 = Math.max(0, sx - px / 2), x1 = Math.min(W, sx + px / 2);
+        const y0 = Math.max(0, sy - px / 2), y1 = Math.min(H, sy + px / 2);
+        if (x1 > x0 && y1 > y0) rasterized += (x1 - x0) * (y1 - y0);
+      }
+    };
+    addGeo(this.worldPoints.geometry, Math.max(1, Math.round(this.worldTotal * s.density)), false);
+    addGeo(this.charPoints.geometry, this.charTotal, true);
+    return { rasterized, pixels: W * H };
+  }
+
+  /**
+   * 深度テクスチャを、カメラからの奥行き（ワールド単位）として読み出す。背景（深度なし）は Infinity。
+   * source: 'points' / 'surfels' はその方式の低解像度ターゲット、'reference' は基準形状（簡易メッシュ）。
+   */
+  readDepth(source: 'points' | 'surfels' | 'reference'): { w: number; h: number; depth: Float32Array } | null {
+    const cam = this.lastLowCam;
+    const p = this.pipeline;
+    if (!cam || !p.rt) return null;
+    const w = p.lowW, h = p.lowH;
+    const r = this.renderer;
+    r.setScissorTest(false);
+    let tex: THREE.DepthTexture | null = null;
+    if (source === 'points') tex = p.rt.depthTexture;
+    else if (source === 'surfels') tex = this.surfel?.pipeline.rt?.depthTexture ?? null;
+    else {
+      // 基準形状をこのフレームと同じカメラ・解像度で描き、その深度を使う
+      if (!this.refRT || this.refRT.width !== w || this.refRT.height !== h) {
+        this.refRT?.depthTexture?.dispose();
+        this.refRT?.dispose();
+        const dt = new THREE.DepthTexture(w, h);
+        dt.minFilter = dt.magFilter = THREE.NearestFilter;
+        this.refRT = new THREE.WebGLRenderTarget(w, h, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: true, depthTexture: dt });
+      }
+      this.charMeshRoot.matrix.copy(this.rig.root);
+      this.rig.bones.forEach((m, i) => this.charMeshBones[i].matrix.copy(m));
+      this.charMeshRoot.updateMatrixWorld(true);
+      const bg = this.meshScene.background;
+      this.meshScene.background = null;
+      r.setRenderTarget(this.refRT);
+      r.setClearColor(0x000000, 1);
+      r.clear(true, true, true);
+      r.render(this.meshScene, cam);
+      r.setRenderTarget(null);
+      this.meshScene.background = bg;
+      tex = this.refRT.depthTexture;
+    }
+    if (!tex) return null;
+    if (!this.depthPass) {
+      const mat = new THREE.ShaderMaterial({
+        uniforms: { tDepth: { value: null }, uNear: { value: 1 }, uFar: { value: 200 }, uIsOrtho: { value: 1 }, uRes: { value: new THREE.Vector2() } },
+        vertexShader: 'void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }',
+        fragmentShader: /* glsl */ `
+          uniform sampler2D tDepth; uniform float uNear; uniform float uFar; uniform float uIsOrtho; uniform vec2 uRes;
+          void main() {
+            float d = texture2D(tDepth, gl_FragCoord.xy / uRes).r;
+            float lin;
+            if (d >= 0.99999) lin = 60000.0;
+            else if (uIsOrtho > 0.5) lin = uNear + d * (uFar - uNear);
+            else { float z = d * 2.0 - 1.0; lin = 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear)); }
+            gl_FragColor = vec4(lin, 0.0, 0.0, 1.0);
+          }`,
+        depthTest: false,
+        depthWrite: false,
+      });
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.frustumCulled = false;
+      const scene = new THREE.Scene();
+      scene.add(mesh);
+      this.depthPass = { scene, cam: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), mat, geo };
+    }
+    const u = this.depthPass.mat.uniforms;
+    u.tDepth.value = tex;
+    u.uNear.value = cam.near;
+    u.uFar.value = cam.far;
+    u.uIsOrtho.value = (cam as THREE.OrthographicCamera).isOrthographicCamera ? 1 : 0;
+    u.uRes.value.set(w, h);
+    const rt = this.ensureAnalysisRT(w, h, THREE.FloatType);
+    r.setRenderTarget(rt);
+    r.render(this.depthPass.scene, this.depthPass.cam);
+    const raw = new Float32Array(w * h * 4);
+    r.readRenderTargetPixels(rt, 0, 0, w, h, raw);
+    r.setRenderTarget(null);
+    const depth = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) depth[i] = raw[i * 4] >= 59999 ? Infinity : raw[i * 4];
+    return { w, h, depth };
   }
 
   /** 解析用ターゲットを解放する */
   releaseAnalysis() {
     this.analysisRT?.dispose();
     this.analysisRT = null;
+    this.refRT?.depthTexture?.dispose();
+    this.refRT?.dispose();
+    this.refRT = null;
+    if (this.depthPass) {
+      this.depthPass.mat.dispose();
+      this.depthPass.geo.dispose();
+      this.depthPass = null;
+    }
   }
+}
+
+/** 共通の点群から方式 A 用の粒ジオメトリを作る（SDF 形状を方式 A でも使うため） */
+function pointsGeometryFromSet(d: SplatPointSet): THREE.BufferGeometry {
+  const n = d.count;
+  const nrm = new Int8Array(n * 3);
+  for (let i = 0; i < n * 3; i++) nrm[i] = Math.round(Math.max(-1, Math.min(1, d.nrm[i])) * 127);
+  const misc = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    misc[i * 3] = d.size[i];
+    misc[i * 3 + 1] = d.wind[i];
+    misc[i * 3 + 2] = d.sun[i];
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(d.pos, 3));
+  g.setAttribute('aColor', new THREE.BufferAttribute(d.col, 3, true));
+  g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3, true));
+  g.setAttribute('aMisc', new THREE.BufferAttribute(misc, 3));
+  return g;
+}
+
+/** キャラクター（静止姿勢）→ 方式 A 用（各ボーン支点からの相対座標・1 本目のボーンのみ） */
+function pointsGeometryFromCharacter(c: CharacterSplatSource): THREE.BufferGeometry {
+  const n = c.count;
+  const pos = new Float32Array(n * 3);
+  const nrm = new Int8Array(n * 3);
+  const misc = new Float32Array(n * 3);
+  const bone = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const b = c.bone0[i];
+    const pv = BONE_PIVOTS[b];
+    for (let k = 0; k < 3; k++) {
+      pos[i * 3 + k] = c.pos[i * 3 + k] - pv[k];
+      nrm[i * 3 + k] = Math.round(Math.max(-1, Math.min(1, c.nrm[i * 3 + k])) * 127);
+    }
+    misc[i * 3] = c.size[i];
+    misc[i * 3 + 2] = 1;
+    bone[i] = b;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('aColor', new THREE.BufferAttribute(c.col, 3, true));
+  g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3, true));
+  g.setAttribute('aMisc', new THREE.BufferAttribute(misc, 3));
+  g.setAttribute('aBone', new THREE.BufferAttribute(bone, 1));
+  return g;
 }

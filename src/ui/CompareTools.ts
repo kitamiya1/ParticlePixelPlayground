@@ -3,7 +3,7 @@
 
 import type { Game } from '../game/Game';
 import type { SceneRenderer } from '../render/SceneRenderer';
-import { cloneSettings, type RenderMethod, type RenderSettings } from '../settings';
+import { RENDER_METHODS, cloneSettings, type RenderMethod, type RenderSettings } from '../settings';
 
 export interface FrameInfo {
   /** 前フレームからの経過（ms） */
@@ -37,14 +37,21 @@ export interface Tool {
   finish(): void;
 }
 
-const METHOD_LABEL: Record<RenderMethod, string> = { points: 'A-points', splats: 'B-splats' };
-const METHOD_JA: Record<RenderMethod, string> = { points: 'A：ポイント', splats: 'B：スプラット' };
+const METHOD_LABEL: Record<RenderMethod, string> = { points: 'A-points', splats: 'B-splats', surfels: 'C-surfels' };
+const METHOD_JA: Record<RenderMethod, string> = { points: 'A：ポイント', splats: 'B：スプラット', surfels: 'C：サーフェル' };
+
+/** 描いた数（粒・スプラット・円盤） */
+function drawnCount(v: SceneRenderer, m: RenderMethod): number {
+  return m === 'splats' ? v.drawnSplats : m === 'surfels' ? v.drawnSurfels : v.drawnParticles;
+}
 
 /** ツールの共通部分：開始時の設定・カメラを保存し、終了時に戻す */
 abstract class BaseTool implements Tool {
   readonly pausesGame = true;
   protected readonly saved: RenderSettings;
   private readonly cam: { yaw: number; pitch: number; zoom: number; target: { x: number; y: number; z: number } };
+  /** 比べる方式（A・B・C すべて） */
+  protected readonly methods: RenderMethod[] = [...RENDER_METHODS];
 
   constructor(protected readonly host: ToolHost) {
     this.saved = cloneSettings(host.settings);
@@ -102,6 +109,8 @@ abstract class BaseTool implements Tool {
 interface Shot {
   method: RenderMethod;
   zoom?: number;
+  /** 見下ろし角（ラジアン） */
+  pitch?: number;
 }
 
 function stamp(): string {
@@ -110,7 +119,7 @@ function stamp(): string {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-/** 同じカメラ・同じ描画解像度で A と B を順に撮影して保存する */
+/** 同じカメラ・同じ描画解像度で A・B・C を順に撮影して保存する */
 export class CaptureTool extends BaseTool {
   private i = 0;
   private frames = 0;
@@ -125,6 +134,7 @@ export class CaptureTool extends BaseTool {
     const shot = this.shots[this.i];
     this.apply({ renderMethod: shot.method, viewMode: 'particles' });
     if (shot.zoom) this.host.game.camera.zoom = shot.zoom;
+    if (shot.pitch) this.host.game.camera.pitch = shot.pitch;
   }
 
   after(): boolean {
@@ -141,7 +151,8 @@ export class CaptureTool extends BaseTool {
     const s = this.host.settings;
     const lr = this.host.view.lowResolution;
     const zoom = this.host.game.camera.zoom;
-    const name = `ppp-${this.time}-${METHOD_LABEL[shot.method]}-px${s.pixelScale}-${lr.w}x${lr.h}-zoom${zoom.toFixed(1)}.png`;
+    const pitch = Math.round((this.host.game.camera.pitch * 180) / Math.PI);
+    const name = `ppp-${this.time}-${METHOD_LABEL[shot.method]}-px${s.pixelScale}-${lr.w}x${lr.h}-zoom${zoom.toFixed(1)}-pitch${pitch}.png`;
     this.host.canvas.toBlob((blob) => {
       if (!blob) return this.host.notify('スクリーンショットに失敗しました');
       const a = document.createElement('a');
@@ -160,14 +171,22 @@ export class CaptureTool extends BaseTool {
   }
 }
 
-export function abShots(): Shot[] {
-  return [{ method: 'points' }, { method: 'splats' }];
+export function methodShots(): Shot[] {
+  return RENDER_METHODS.map((method) => ({ method }));
 }
 
 export function zoomShots(currentZoom: number): Shot[] {
   const zs = [Math.max(5, currentZoom * 0.5), currentZoom, Math.min(70, currentZoom * 2.2)];
   const out: Shot[] = [];
-  for (const method of ['points', 'splats'] as const) for (const zoom of zs) out.push({ method, zoom });
+  for (const method of RENDER_METHODS) for (const zoom of zs) out.push({ method, zoom });
+  return out;
+}
+
+/** 見下ろし角 3 段階（浅い角度では面の向きに沿った円盤が細くなり、隙間が出やすい） */
+export function pitchShots(): Shot[] {
+  const ps = [0.3, 0.7, 1.25];
+  const out: Shot[] = [];
+  for (const method of RENDER_METHODS) for (const pitch of ps) out.push({ method, pitch });
   return out;
 }
 
@@ -196,7 +215,6 @@ export class FlickerTool extends BaseTool {
   private prevSnap = { x: 0, y: 0 };
   private acc = { st: [] as number[], pan: [] as number[] };
   private readonly results: FlickerResult[] = [];
-  private readonly methods: RenderMethod[] = ['points', 'splats'];
   private static readonly WARM = 20;
   private static readonly STATIC = 30;
   private static readonly PAN = 90;
@@ -311,7 +329,6 @@ export class BenchmarkTool extends BaseTool {
   private frame = 0;
   private samples: { f: number[]; c: number[]; g: number[] } = { f: [], c: [], g: [] };
   private readonly results: BenchResult[] = [];
-  private readonly methods: RenderMethod[] = ['points', 'splats'];
   private static readonly WARM = 40;
   private static readonly MEASURE = 240;
 
@@ -345,7 +362,7 @@ export class BenchmarkTool extends BaseTool {
       p95Ms: fs[Math.floor(fs.length * 0.95)],
       cpuMs: this.samples.c.reduce((a, b) => a + b, 0) / this.samples.c.length,
       gpuMs: this.samples.g.length ? this.samples.g.reduce((a, b) => a + b, 0) / this.samples.g.length : null,
-      count: method === 'splats' ? v.drawnSplats : v.drawnParticles,
+      count: drawnCount(v, method),
       frames: fs.length,
     });
     this.samples = { f: [], c: [], g: [] };
@@ -364,6 +381,167 @@ export class BenchmarkTool extends BaseTool {
         `<div class="small">FPS は画面のリフレッシュレートで頭打ちになります。負荷の差は GPUms（GPU 時間）で比べてください</div>` +
         `<div class="small">${env.gpu}<br>キャンバス ${env.canvas} / 描画解像度 ${lr.w}×${lr.h} / DPR ${env.dpr}</div>`,
       { test: 'benchmark', env, lowRes: lr, settings: { pixelScale: this.saved.pixelScale, density: this.saved.density, splatSupersample: this.saved.splatSupersample }, results: this.results },
+    );
+    return false;
+  }
+}
+
+// ---------------- 隙間・重ね塗り解析 ----------------
+
+interface GapResult {
+  method: RenderMethod;
+  /** 基準シルエット（縮めたもの）の内側で、背景が見えている画素の割合（%） */
+  gapPct: number;
+  /** 基準シルエットの内側で、基準形状の表面より奥（DEPTH_GAP 以上）が見えている画素の割合（%）。深度の無い B は null */
+  throughPct: number | null;
+  /** 方式が物体として塗った画素の割合（画面全体に対する %） */
+  coverPct: number;
+  /** 画面 1 画素あたりのラスタライズされた断片数 / 色を書いた断片数 */
+  rasterPerPx: number;
+  writtenPerPx: number;
+  /** 何かが描かれた画素 1 つあたりのラスタライズ断片数（深さ方向の重なり） */
+  rasterPerCovered: number | null;
+  /** 'measured' = GPU で実測 / 'estimated' = CPU で推定 */
+  kind: 'measured' | 'estimated';
+  drawn: number;
+}
+
+/** 2 値画像を半径 r（4 近傍で r 回）だけ縮める */
+function erode(mask: Uint8Array, w: number, h: number, r: number): Uint8Array {
+  let cur = mask;
+  for (let k = 0; k < r; k++) {
+    const next = new Uint8Array(w * h);
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const i = y * w + x;
+        next[i] = cur[i] && cur[i - 1] && cur[i + 1] && cur[i - w] && cur[i + w] ? 1 : 0;
+      }
+    }
+    cur = next;
+  }
+  return cur;
+}
+
+/**
+ * 隙間と重ね塗りの解析（静止状態で A・B・C を順に描いて比べる）。
+ * - 隙間：基準形状（簡易メッシュ）のシルエットを同じカメラ・描画解像度で描き、2 画素縮めた内側で、
+ *   各方式が背景（空）になっている画素の割合。縮めるのは、簡易メッシュと粒の形の差（縁のずれ）を数えないため。
+ * - 重ね塗り：A・C は計測用シェーダーで GPU 上の断片数を実測。B は Spark 内部のシェーダーなので推定。
+ *   推定の確かさは、同じ推定式で A を計算して実測と比べた誤差で示す。
+ */
+export class GapTool extends BaseTool {
+  private mi = 0;
+  private frames = 0;
+  private ref: Uint8Array | null = null;
+  private refW = 0;
+  private refH = 0;
+  private aEstimate: { rasterized: number; pixels: number } | null = null;
+  private refDepth: Float32Array | null = null;
+  private readonly results: GapResult[] = [];
+  private static readonly ERODE = 2;
+  /** 基準形状より奥が見えていると判定する奥行きの差（ワールド単位）。簡易メッシュと粒の形の差より大きくとる */
+  private static readonly DEPTH_GAP = 0.6;
+
+  before() {
+    this.apply({ renderMethod: this.methods[this.mi], viewMode: 'particles', wind: 0 });
+  }
+
+  after(): boolean {
+    const method = this.methods[this.mi];
+    const ready = this.splatReady(method);
+    if (ready === 'fail') {
+      this.failReport('隙間・重ね塗り解析');
+      return false;
+    }
+    if (ready === 'wait') return true;
+    this.frames++;
+    if (!this.settled(this.frames, 8)) return true;
+    const v = this.host.view, s = this.host.settings;
+    if (!this.ref) {
+      const r = v.readReferenceMask();
+      if (!r) return true;
+      const m = new Uint8Array(r.w * r.h);
+      for (let i = 0; i < m.length; i++) m[i] = r.data[i * 4] > 127 ? 1 : 0;
+      this.ref = erode(m, r.w, r.h, GapTool.ERODE);
+      this.refW = r.w;
+      this.refH = r.h;
+      this.refDepth = v.readDepth('reference')?.depth ?? null;
+    }
+    const img = v.readLowRes(s, method, true);
+    if (!img || img.w !== this.refW || img.h !== this.refH) return true;
+    let inside = 0, gaps = 0, cover = 0;
+    for (let i = 0; i < img.w * img.h; i++) {
+      const obj = img.data[i * 4] > 127;
+      if (obj) cover++;
+      if (this.ref[i]) {
+        inside++;
+        if (!obj) gaps++;
+      }
+    }
+    // 円盤・粒の隙間から奥の面が見えている画素（深度を書く A・C だけ）
+    let throughPct: number | null = null;
+    if (method !== 'splats' && this.refDepth) {
+      const md = v.readDepth(method)?.depth;
+      if (md && md.length === this.refDepth.length) {
+        let inside2 = 0, through = 0;
+        for (let i = 0; i < md.length; i++) {
+          if (!this.ref[i] || !Number.isFinite(this.refDepth[i])) continue;
+          inside2++;
+          if (md[i] - this.refDepth[i] > GapTool.DEPTH_GAP) through++;
+        }
+        throughPct = inside2 ? (through / inside2) * 100 : 0;
+      }
+    }
+    let raster = 0, written = 0, perCovered: number | null = null, kind: 'measured' | 'estimated' = 'measured', pixels = img.w * img.h;
+    if (method === 'splats') {
+      const e = v.estimateSplatFragments(s);
+      if (e) {
+        raster = e.rasterized;
+        written = e.written;
+        pixels = e.pixels;
+      }
+      kind = 'estimated';
+    } else {
+      const m = v.measureFragments(method);
+      if (m) {
+        raster = m.rasterized;
+        written = m.written;
+        pixels = m.pixels;
+        perCovered = m.coveredPixels ? m.rasterized / m.coveredPixels : null;
+      }
+      if (method === 'points') this.aEstimate = v.estimatePointFragments(s);
+    }
+    this.results.push({
+      method,
+      gapPct: inside ? (gaps / inside) * 100 : 0,
+      throughPct,
+      coverPct: (cover / (img.w * img.h)) * 100,
+      rasterPerPx: raster / pixels,
+      writtenPerPx: written / pixels,
+      rasterPerCovered: perCovered,
+      kind,
+      drawn: drawnCount(v, method),
+    });
+    this.mi++;
+    this.frames = 0;
+    if (this.mi < this.methods.length) return true;
+
+    const a = this.results.find((r) => r.method === 'points');
+    const aErr = a && this.aEstimate ? ((this.aEstimate.rasterized / this.aEstimate.pixels - a.rasterPerPx) / a.rasterPerPx) * 100 : null;
+    const rows = this.results
+      .map((r) => `<tr><td>${METHOD_JA[r.method]}</td><td>${r.gapPct.toFixed(2)}%</td><td>${r.throughPct === null ? '―' : `${r.throughPct.toFixed(2)}%`}</td><td>${r.coverPct.toFixed(1)}%</td><td>${r.rasterPerPx.toFixed(2)}${r.kind === 'estimated' ? '*' : ''}</td><td>${r.writtenPerPx.toFixed(2)}${r.kind === 'estimated' ? '*' : ''}</td></tr>`)
+      .join('');
+    this.host.report(
+      `<b>隙間・重ね塗り解析</b>（静止・風なし、描画解像度 ${this.refW}×${this.refH}）` +
+        `<table><tr><th></th><th>空が見える</th><th>奥が見える</th><th>被覆</th><th>断片/画素</th><th>書込/画素</th></tr>${rows}</table>` +
+        `<div class="small">空が見える：簡易メッシュのシルエットを ${GapTool.ERODE} 画素縮めた内側で、背景（空）が見えた画素の割合。<br>` +
+        `奥が見える：同じ範囲で、見えている面が簡易メッシュの表面より ${GapTool.DEPTH_GAP} 以上奥にある画素の割合（隙間から奥の面が透けている）。` +
+        `簡易メッシュは形の近似なので、隙間が無くても少し数えられる（方式 A の値が目安）。深度を書かない B は測れない（―）。<br>` +
+        `断片/画素：画面 1 画素あたりのラスタライズされた断片数（深度テスト・破棄の前）。書込/画素：円・楕円の内側など実際に色を書く断片数。<br>` +
+        `A・C は GPU で実測。* は推定値（B は Spark 内部のため、投影した共分散から CPU で算出）。` +
+        (aErr !== null ? `同じ推定式を A に当てた誤差は ${aErr >= 0 ? '+' : ''}${aErr.toFixed(1)}%。` : '') +
+        `</div>`,
+      { test: 'gap-overdraw', erodePx: GapTool.ERODE, depthGap: GapTool.DEPTH_GAP, zoom: this.host.game.camera.zoom, pitch: this.host.game.camera.pitch, lowRes: { w: this.refW, h: this.refH }, aEstimateErrorPct: aErr, results: this.results },
     );
     return false;
   }

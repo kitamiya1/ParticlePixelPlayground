@@ -96,10 +96,11 @@ body.touch #view { cursor: default; }
 #help.fade { opacity: 0; transition: opacity 0.6s; }
 
 /* 描画方式 A/B の区別 */
-.ctl .name .only { display: inline-block; min-width: 16px; margin-right: 5px; padding: 0 4px; border-radius: 3px; font-style: normal;
+.ctl .name .only { display: inline-block; min-width: 16px; margin-right: 3px; padding: 0 4px; border-radius: 3px; font-style: normal;
   font-size: 10px; font-weight: 700; text-align: center; line-height: 15px; vertical-align: 1px; }
 .only-points { background: #3d5a8a; color: #dce8ff; }
 .only-splats { background: #8a4f7a; color: #ffe2f4; }
+.only-surfels { background: #3f7a55; color: #ddf7e6; }
 .ctl.na { opacity: 0.38; }
 .ctl.na .name::after { content: '（この方式では無効）'; color: var(--sub); font-size: 11px; }
 .ctl.na input, .ctl.na select { cursor: not-allowed; }
@@ -118,9 +119,14 @@ body.tool-running #panel .actions button, body.tool-running .report + * { pointe
 
 /* A/B 左右比較 */
 body.compare #app::after { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; background: rgba(255, 255, 255, 0.7); pointer-events: none; }
-body.compare #app::before { content: 'A：ポイント描画　　　　　　B：Gaussian Splats'; position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
-  white-space: pre; background: rgba(0, 0, 0, 0.45); padding: 3px 10px; border-radius: 4px; pointer-events: none; z-index: 1; }
+/* 左右比較の見出し（左右それぞれの方式名。main.ts が中身を更新する） */
+#compare-tag { position: absolute; top: 12px; left: 0; right: 0; display: none; justify-content: space-around; gap: 8px; pointer-events: none; z-index: 1; }
+#compare-tag span { flex: 0 1 auto; max-width: 46%; background: rgba(0, 0, 0, 0.45); padding: 3px 10px; border-radius: 4px; text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* タッチ端末では上端に操作説明と「設定」ボタンがあるので、その下に出す */
+body.touch #compare-tag { top: 96px; }
 body.split.method-splats #app::before { content: 'Gaussian Splats　　　　　　簡易メッシュ'; }
+body.split.method-surfels #app::before { content: 'サーフェル　　　　　　　　簡易メッシュ'; }
 
 /* 方式 B（Spark）の読み込み表示 */
 #splat-status { position: fixed; left: 50%; bottom: 18px; transform: translate(-50%, 20px); opacity: 0; transition: 0.2s; z-index: 6;

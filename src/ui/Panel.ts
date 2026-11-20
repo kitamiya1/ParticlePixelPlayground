@@ -1,27 +1,35 @@
 // 画面右側の日本語調整パネル。設定オブジェクトを直接書き換え、描画側は毎フレームそれを参照する。
 
-import { BUILTIN_PRESETS, DEFAULT_SETTINGS, cloneSettings, type RenderMethod, type RenderSettings } from '../settings';
+import { BUILTIN_PRESETS, DEFAULT_SETTINGS, METHOD_NAME, cloneSettings, type RenderMethod, type RenderSettings } from '../settings';
 import { PALETTES } from '../render/palettes';
 import { builtinPreset, deleteUserPreset, downloadJSON, readJSONFile, saveCurrent, saveUserPreset, userPresets } from './presets';
 
 type Key = keyof RenderSettings;
-/** only: その描画方式でだけ効く設定（もう一方の方式では UI 上で区別して無効表示にする） */
-type Common = { key: Key; label: string; hint?: string; only?: RenderMethod };
+/** only: その描画方式でだけ効く設定（ほかの方式では UI 上で区別して無効表示にする） */
+type Common = { key: Key; label: string; hint?: string; only?: RenderMethod[] };
 type Control =
   | (Common & { type: 'range'; min: number; max: number; step: number; fmt?: (v: number) => string })
   | (Common & { type: 'select'; options: [string | number, string][] })
   | (Common & { type: 'check' });
 
-const A_ONLY = 'points' as const;
-const B_ONLY = 'splats' as const;
+const A_ONLY: RenderMethod[] = ['points'];
+const B_ONLY: RenderMethod[] = ['splats'];
+const C_ONLY: RenderMethod[] = ['surfels'];
+/** 深度を書く方式（A と C）だけで効く設定 */
+const AC: RenderMethod[] = ['points', 'surfels'];
+const METHOD_LETTER: Record<RenderMethod, string> = { points: 'A', splats: 'B', surfels: 'C' };
+const METHOD_OPTIONS: [string, string][] = [['points', 'A：ポイント描画（既存）'], ['splats', 'B：Pixel Art Gaussian Splats'], ['surfels', 'C：サーフェル（円盤＋深度）']];
 
 const SECTIONS: { title: string; open?: boolean; controls: Control[] }[] = [
   {
     title: '表示比較',
     open: true,
     controls: [
-      { type: 'select', key: 'renderMethod', label: '描画方式', options: [['points', 'A：ポイント描画（既存）'], ['splats', 'B：Pixel Art Gaussian Splats']], hint: '切り替えてもカメラとキャラクターの位置は保たれます' },
-      { type: 'select', key: 'viewMode', label: '表示方式', options: [['particles', '選択した描画方式'], ['compare', 'A/B 左右比較（左:A / 右:B）'], ['mesh', '簡易メッシュ'], ['split', '左右比較（左:選択方式 / 右:メッシュ）']] },
+      { type: 'select', key: 'renderMethod', label: '描画方式', options: METHOD_OPTIONS, hint: '切り替えてもカメラとキャラクターの位置は保たれます' },
+      { type: 'select', key: 'viewMode', label: '表示方式', options: [['particles', '選択した描画方式'], ['compare', '方式の左右比較（下で 2 方式を選択）'], ['mesh', '簡易メッシュ'], ['split', '左右比較（左:選択方式 / 右:メッシュ）']] },
+      { type: 'select', key: 'compareLeft', label: '左右比較：左', options: METHOD_OPTIONS },
+      { type: 'select', key: 'compareRight', label: '左右比較：右', options: METHOD_OPTIONS },
+      { type: 'select', key: 'splatSource', label: '形状の生成方法（A・B・C 共通）', options: [['convert', '既存の粒データ'], ['sdf', '樹木・岩・キャラを SDF から生成']], hint: 'SDF：距離関数を合成して表面だけを取り出す手続き的生成。3 方式とも同じ形状データを使います' },
     ],
   },
   {
@@ -32,7 +40,7 @@ const SECTIONS: { title: string; open?: boolean; controls: Control[] }[] = [
       { type: 'range', key: 'pointSize', label: '粒のサイズ', min: 0.3, max: 3, step: 0.05, only: A_ONLY },
       { type: 'range', key: 'density', label: '粒の密度', min: 0.05, max: 1, step: 0.01, fmt: (v) => `${Math.round(v * 100)}%` },
       { type: 'check', key: 'densityComp', label: '密度に応じて粒を大きくする', hint: '方式 B ではスプラットの広がりに掛かります' },
-      { type: 'check', key: 'pointSnap', label: '粒を画素グリッドに吸着（ちらつき軽減）', only: A_ONLY },
+      { type: 'check', key: 'pointSnap', label: '粒・円盤の中心を画素グリッドに吸着（ちらつき軽減）', only: AC },
     ],
   },
   {
@@ -49,7 +57,6 @@ const SECTIONS: { title: string; open?: boolean; controls: Control[] }[] = [
     title: 'Gaussian Splats（方式 B）',
     open: true,
     controls: [
-      { type: 'select', key: 'splatSource', label: '形状の生成方法', options: [['convert', '既存の粒データを変換'], ['sdf', '樹木・岩・キャラを SDF から生成']], only: B_ONLY, hint: 'SDF：距離関数を合成して表面だけを取り出す手続き的生成' },
       { type: 'range', key: 'splatScale', label: 'スプラットの広がり', min: 0.3, max: 3, step: 0.05, only: B_ONLY },
       { type: 'range', key: 'splatFlat', label: '厚み（円盤 ↔ 球）', min: 0.02, max: 1, step: 0.01, only: B_ONLY, hint: '小さいほど面の向きに沿った平たい円盤になります' },
       { type: 'range', key: 'splatAniso', label: '縦方向の伸び（異方性）', min: 0.3, max: 3, step: 0.05, only: B_ONLY, hint: '円盤面内で世界の上方向へ伸ばします' },
@@ -59,6 +66,14 @@ const SECTIONS: { title: string; open?: boolean; controls: Control[] }[] = [
       { type: 'range', key: 'splatCoverage', label: '被覆のしきい値（くっきり表示）', min: 0.05, max: 0.98, step: 0.01, only: B_ONLY },
       { type: 'select', key: 'splatSupersample', label: 'スーパーサンプリング', options: [[1, 'なし（1 画素 1 サンプル）'], [2, '2×2（4 サンプルで判定）']], only: B_ONLY },
       { type: 'range', key: 'splatOpacity', label: 'スプラットの不透明度', min: 0.1, max: 1, step: 0.01, only: B_ONLY },
+    ],
+  },
+  {
+    title: 'サーフェル（方式 C）',
+    open: true,
+    controls: [
+      { type: 'range', key: 'surfelScale', label: '円盤の大きさ', min: 0.3, max: 3, step: 0.05, only: C_ONLY, hint: '1 = 方式 A の粒と同じ直径。大きくすると隙間は減り、重ね塗りは増えます' },
+      { type: 'check', key: 'surfelBillboard', label: '円盤を画面に向ける（比較用：面の向きを無視）', only: C_ONLY, hint: 'オンにすると方式 A に近い「画面に正対した円」になります' },
     ],
   },
   {
@@ -75,7 +90,7 @@ const SECTIONS: { title: string; open?: boolean; controls: Control[] }[] = [
     title: '輪郭',
     controls: [
       { type: 'range', key: 'outline', label: '輪郭の強さ', min: 0, max: 1, step: 0.01 },
-      { type: 'range', key: 'outlineThresh', label: '輪郭を出す奥行き差', min: 0.05, max: 4, step: 0.05, only: A_ONLY, hint: '方式 B は深度を書かないため、シルエット（被覆の境界）で輪郭を出します' },
+      { type: 'range', key: 'outlineThresh', label: '輪郭を出す奥行き差', min: 0.05, max: 4, step: 0.05, only: AC, hint: '方式 B は深度を書かないため、シルエット（被覆の境界）で輪郭を出します' },
       { type: 'range', key: 'outlineDarken', label: '輪郭の明るさ', min: 0, max: 1, step: 0.01 },
     ],
   },
@@ -106,6 +121,8 @@ export interface PanelCallbacks {
   /** 比較・計測ツール */
   onCaptureAB(): void;
   onCaptureZoom(): void;
+  onCapturePitch(): void;
+  onGapAnalysis(): void;
   onFlickerTest(): void;
   onBenchmark(): void;
 }
@@ -193,7 +210,7 @@ export class Panel {
   private buildCompare(): HTMLElement {
     const det = document.createElement('details');
     det.open = true;
-    det.innerHTML = `<summary>A/B 比較・計測</summary>`;
+    det.innerHTML = `<summary>方式の比較・計測（A・B・C）</summary>`;
     const body = document.createElement('div');
     body.className = 'section-body';
     const grid = document.createElement('div');
@@ -205,10 +222,12 @@ export class Panel {
       b.onclick = fn;
       grid.appendChild(b);
     };
-    btn('A/B 同条件で撮影', '同じカメラ位置・描画解像度で A と B のスクリーンショットを続けて保存します', () => this.cb.onCaptureAB());
-    btn('ズーム3段階を撮影', 'A と B をそれぞれズーム 3 段階で保存します（輪郭の変化の確認）', () => this.cb.onCaptureZoom());
-    btn('ちらつき計測', 'カメラを一定速度で平行移動させ、フレーム間で変化した画素の割合を A/B で測ります', () => this.cb.onFlickerTest());
-    btn('性能ベンチマーク', 'カメラを回しながら A/B それぞれの FPS・フレーム時間を測ります', () => this.cb.onBenchmark());
+    btn('A/B/C 同条件で撮影', '同じカメラ位置・描画解像度で A・B・C のスクリーンショットを続けて保存します', () => this.cb.onCaptureAB());
+    btn('ズーム3段階を撮影', 'A・B・C をそれぞれズーム 3 段階で保存します（輪郭の変化の確認）', () => this.cb.onCaptureZoom());
+    btn('見下ろし角3段階を撮影', 'A・B・C をそれぞれ見下ろし角 3 段階で保存します（浅い角度での円盤の隙間の確認）', () => this.cb.onCapturePitch());
+    btn('隙間・重ね塗り解析', '基準形状のシルエットに対する隙間と、1 画素あたりの断片数を A・B・C で比べます', () => this.cb.onGapAnalysis());
+    btn('ちらつき計測', 'カメラを一定速度で平行移動させ、フレーム間で変化した画素の割合を A・B・C で測ります', () => this.cb.onFlickerTest());
+    btn('性能ベンチマーク', 'カメラを回しながら A・B・C それぞれの FPS・フレーム時間・GPU 時間を測ります', () => this.cb.onBenchmark());
     body.appendChild(grid);
     this.reportEl = document.createElement('div');
     this.reportEl.className = 'report';
@@ -363,11 +382,14 @@ export class Panel {
     name.className = 'name';
     name.textContent = ctl.label;
     if (ctl.only) {
-      const tag = document.createElement('em');
-      tag.className = `only only-${ctl.only}`;
-      tag.textContent = ctl.only === 'points' ? 'A' : 'B';
-      tag.title = ctl.only === 'points' ? '方式 A（ポイント描画）でだけ効く設定' : '方式 B（Gaussian Splats）でだけ効く設定';
-      name.prepend(tag);
+      // 効く方式を A / B / C のバッジで示す（複数可）
+      for (const m of [...ctl.only].reverse()) {
+        const tag = document.createElement('em');
+        tag.className = `only only-${m}`;
+        tag.textContent = METHOD_LETTER[m];
+        name.prepend(tag);
+      }
+      row.title = `${ctl.only.map((m) => METHOD_NAME[m]).join('・')} でだけ効く設定${ctl.hint ? `\n${ctl.hint}` : ''}`;
     }
     row.classList.toggle('has-only', Boolean(ctl.only));
     if (ctl.type === 'check') {
@@ -428,10 +450,10 @@ export class Panel {
   /** 選択中の描画方式で効かない設定を区別して表示する（A/B 左右比較中はどちらも有効） */
   private refreshAvailability() {
     const s = this.settings;
-    const active = new Set<RenderMethod>(s.viewMode === 'compare' ? ['points', 'splats'] : s.viewMode === 'mesh' ? [] : [s.renderMethod]);
+    const active = new Set<RenderMethod>(s.viewMode === 'compare' ? [s.compareLeft, s.compareRight] : s.viewMode === 'mesh' ? [] : [s.renderMethod]);
     for (const { el, ctl, row } of this.inputs.values()) {
       if (!ctl.only) continue;
-      const na = !active.has(ctl.only);
+      const na = !ctl.only.some((m) => active.has(m));
       row.classList.toggle('na', na);
       el.disabled = na;
     }
@@ -441,7 +463,16 @@ export class Panel {
       cov.row.classList.add('na');
       cov.el.disabled = true;
     }
+    // 左右比較の左右の選択は、左右比較のときだけ有効
+    for (const key of ['compareLeft', 'compareRight'] as const) {
+      const c = this.inputs.get(key);
+      if (!c) continue;
+      const na = s.viewMode !== 'compare';
+      c.row.classList.toggle('na', na);
+      c.el.disabled = na;
+    }
     document.body.classList.toggle('method-splats', s.renderMethod === 'splats');
+    document.body.classList.toggle('method-surfels', s.renderMethod === 'surfels');
   }
 
   /** 設定値 → UI へ反映 */

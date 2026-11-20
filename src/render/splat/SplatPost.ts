@@ -27,6 +27,7 @@ uniform float uPaletteSize;
 uniform float uPaletteSpread;
 uniform vec3 uSkyTop;
 uniform vec3 uSkyHorizon;
+uniform float uMaskOut;
 ${BAYER}
 
 // 1 サンプル：Spark は線形化した色を乗算済みアルファで出力するので、元の色空間へ戻す
@@ -81,6 +82,11 @@ void main() {
     // やわらか：ガウスの濃淡（アルファ）のまま空と合成する
     obj = a >= 0.5;
     col = mix(sky, softCol, a);
+  }
+  if (uMaskOut > 0.5) {
+    // 隙間の評価用：物体と判定した画素 = 白、背景 = 黒
+    gl_FragColor = vec4(vec3(obj ? 1.0 : 0.0), 1.0);
+    return;
   }
   if (obj && uOutline > 0.0) {
     // 輪郭：シルエットの縁（4 近傍のどれかが背景）を暗くする
@@ -148,6 +154,7 @@ export class SplatPost {
         uDither: { value: 0.5 },
         uDitherMatrix: { value: 4 },
         uLevels: { value: 6 },
+        uMaskOut: { value: 0 },
       },
     });
     this.tri = new THREE.BufferGeometry();
@@ -176,7 +183,7 @@ export class SplatPost {
    * 合成して画面（または解析用ターゲット）へ描く。
    * raw=true なら低解像度画素 1 つを 1 画素として、ずらし補正なしで描く（ちらつき計測用）。
    */
-  composite(renderer: THREE.WebGLRenderer, s: RenderSettings, offset: THREE.Vector2, target: THREE.WebGLRenderTarget | null = null, raw = false) {
+  composite(renderer: THREE.WebGLRenderer, s: RenderSettings, offset: THREE.Vector2, target: THREE.WebGLRenderTarget | null = null, raw = false, mask = false) {
     this.pipeline.updatePalette(s.palette);
     const p = this.pipeline;
     const u = this.material.uniforms;
@@ -199,8 +206,10 @@ export class SplatPost {
     u.uDither.value = s.dither;
     u.uDitherMatrix.value = s.ditherMatrix;
     u.uLevels.value = s.colorLevels;
+    u.uMaskOut.value = mask ? 1 : 0;
     renderer.setRenderTarget(target);
     renderer.render(this.scene, this.cam);
+    u.uMaskOut.value = 0;
   }
 
   dispose() {

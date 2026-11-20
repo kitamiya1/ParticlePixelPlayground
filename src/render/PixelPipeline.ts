@@ -14,6 +14,7 @@ export class PixelPipeline {
   canvasLowH = 0;
   scale = 1;
   private readonly postScene = new THREE.Scene();
+  private readonly tri: THREE.BufferGeometry;
   private readonly postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   readonly post: THREE.ShaderMaterial;
   private readonly paletteTex: THREE.DataTexture;
@@ -50,9 +51,11 @@ export class PixelPipeline {
         uPaletteSpread: { value: 0.1 },
         uSkyTop: { value: new THREE.Color('#6fa8dc') },
         uSkyHorizon: { value: new THREE.Color('#d4e8f4') },
+        uMaskOut: { value: 0 },
       },
     });
     const tri = new THREE.BufferGeometry();
+    this.tri = tri;
     tri.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
     const mesh = new THREE.Mesh(tri, this.post);
     mesh.frustumCulled = false;
@@ -115,7 +118,7 @@ export class PixelPipeline {
    * 後処理して画面へ描く。target / raw は解析用（ちらつき計測）：
    * raw=true なら低解像度画素 1 つを 1 画素として、ずらし補正なしで target に描く。
    */
-  composite(renderer: THREE.WebGLRenderer, s: RenderSettings, camera: THREE.OrthographicCamera | THREE.PerspectiveCamera, offset: THREE.Vector2, target: THREE.WebGLRenderTarget | null = null, raw = false) {
+  composite(renderer: THREE.WebGLRenderer, s: RenderSettings, camera: THREE.OrthographicCamera | THREE.PerspectiveCamera, offset: THREE.Vector2, target: THREE.WebGLRenderTarget | null = null, raw = false, mask = false) {
     this.updatePalette(s.palette);
     const u = this.post.uniforms;
     u.tColor.value = this.rt!.texture;
@@ -139,7 +142,20 @@ export class PixelPipeline {
     u.uDither.value = s.dither;
     u.uDitherMatrix.value = s.ditherMatrix;
     u.uLevels.value = s.colorLevels;
+    u.uMaskOut.value = mask ? 1 : 0;
     renderer.setRenderTarget(target);
     renderer.render(this.postScene, this.postCam);
+    u.uMaskOut.value = 0;
+  }
+
+  /** GPU 資源を解放する（方式 C が独自に持つ低解像度ターゲット用。方式 A の本体は常駐） */
+  dispose() {
+    this.rt?.depthTexture?.dispose();
+    this.rt?.dispose();
+    this.rt = null;
+    this.lowW = this.lowH = 0;
+    this.paletteTex.dispose();
+    this.post.dispose();
+    this.tri.dispose();
   }
 }

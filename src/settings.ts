@@ -2,8 +2,11 @@
 
 export type ViewMode = 'particles' | 'mesh' | 'split' | 'compare';
 export type Projection = 'ortho' | 'perspective';
-/** 描画方式 A: 既存のポイント描画 / B: Pixel Art Gaussian Splats（Spark） */
-export type RenderMethod = 'points' | 'splats';
+/** 描画方式 A: 既存のポイント描画 / B: Pixel Art Gaussian Splats（Spark） / C: サーフェル（不透明な円盤 + 深度） */
+export type RenderMethod = 'points' | 'splats' | 'surfels';
+export const RENDER_METHODS: RenderMethod[] = ['points', 'splats', 'surfels'];
+/** 画面表示用の短い名前 */
+export const METHOD_NAME: Record<RenderMethod, string> = { points: 'A：ポイント', splats: 'B：Gaussian Splats', surfels: 'C：サーフェル' };
 /** スプラットの形状ソース: 既存の粒データを変換 / 樹木・岩・キャラクターを SDF から生成 */
 export type SplatSource = 'convert' | 'sdf';
 
@@ -41,6 +44,9 @@ export interface RenderSettings {
   // 表示
   viewMode: ViewMode;
   renderMethod: RenderMethod;
+  /** 左右比較の左・右に描く方式 */
+  compareLeft: RenderMethod;
+  compareRight: RenderMethod;
   // Gaussian Splats（方式 B）
   splatSource: SplatSource;
   splatScale: number;
@@ -52,6 +58,9 @@ export interface RenderSettings {
   splatCoverage: number;
   splatSupersample: number;
   splatOpacity: number;
+  // サーフェル（方式 C）
+  surfelScale: number;
+  surfelBillboard: boolean;
 }
 
 export const DEFAULT_SETTINGS: RenderSettings = {
@@ -81,6 +90,8 @@ export const DEFAULT_SETTINGS: RenderSettings = {
   cameraSnap: true,
   viewMode: 'particles',
   renderMethod: 'points',
+  compareLeft: 'points',
+  compareRight: 'splats',
   splatSource: 'convert',
   splatScale: 1,
   splatFlat: 0.2,
@@ -91,6 +102,8 @@ export const DEFAULT_SETTINGS: RenderSettings = {
   splatCoverage: 0.5,
   splatSupersample: 2,
   splatOpacity: 1,
+  surfelScale: 1,
+  surfelBillboard: false,
 };
 
 export function cloneSettings(s: RenderSettings): RenderSettings {
@@ -109,7 +122,9 @@ export function sanitizeSettings(raw: unknown): RenderSettings {
   }
   // 列挙値は既知のものだけ受け付ける
   if (!['particles', 'mesh', 'split', 'compare'].includes(out.viewMode)) out.viewMode = DEFAULT_SETTINGS.viewMode;
-  if (!['points', 'splats'].includes(out.renderMethod)) out.renderMethod = DEFAULT_SETTINGS.renderMethod;
+  if (!RENDER_METHODS.includes(out.renderMethod)) out.renderMethod = DEFAULT_SETTINGS.renderMethod;
+  if (!RENDER_METHODS.includes(out.compareLeft)) out.compareLeft = DEFAULT_SETTINGS.compareLeft;
+  if (!RENDER_METHODS.includes(out.compareRight)) out.compareRight = DEFAULT_SETTINGS.compareRight;
   if (!['convert', 'sdf'].includes(out.splatSource)) out.splatSource = DEFAULT_SETTINGS.splatSource;
   return out;
 }
@@ -126,4 +141,7 @@ export const BUILTIN_PRESETS: Record<string, Partial<RenderSettings>> = {
   'スプラット：くっきりドット': { renderMethod: 'splats', pixelScale: 4, splatFalloff: 0, splatCrisp: true, splatCoverage: 0.5, splatScale: 1, splatFlat: 0.2, outline: 1, outlineDarken: 0.4, dither: 0.3, lightSteps: 3 },
   'スプラット：やわらかガウス': { renderMethod: 'splats', pixelScale: 2, splatFalloff: 1, splatCrisp: false, splatScale: 1.25, splatFlat: 0.6, splatStdDev: 2.8, palette: 'none', dither: 0.15, outline: 0.3, lightSteps: 0 },
   'スプラット：SDF生成': { renderMethod: 'splats', splatSource: 'sdf', splatFalloff: 0.15, splatCrisp: true },
+  // 方式 C 用
+  'サーフェル：標準': { renderMethod: 'surfels', surfelScale: 1, surfelBillboard: false },
+  'サーフェル：隙間を埋める': { renderMethod: 'surfels', surfelScale: 1.4, surfelBillboard: false },
 };
