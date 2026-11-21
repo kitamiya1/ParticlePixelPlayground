@@ -12,6 +12,8 @@ import { createParticleMaterial, createSharedUniforms } from './ParticleMaterial
 import { PixelPipeline } from './PixelPipeline';
 import { mergeAndShuffle, pointSetFromBuilder, pointSetFromGeometry, type SplatPointSet } from './shared/PointSet';
 import { SurfelRenderer } from './surfel/SurfelRenderer';
+import { buildVoxelCharacter, buildVoxelWorld, type VoxelCharacter, type VoxelWorld } from './voxel/VoxelGrid';
+import { VoxelRenderer } from './voxel/VoxelRenderer';
 // 方式 B（Spark）は型だけを静的に参照し、実体は必要になったときに動的 import で読み込む
 import type { SplatRenderer } from './splat/SplatRenderer';
 
@@ -56,6 +58,19 @@ export class SceneRenderer {
   surfelRebuilds = 0;
   /** 最後に描いたサーフェル数（方式 C） */
   drawnSurfels = 0;
+  /** 方式 D の描画一式（使っていない間は null = GPU 資源を持たない） */
+  voxel: VoxelRenderer | null = null;
+  private voxelWorldKey = '';
+  private voxelCharKey = '';
+  /** 方式 D を作り直した回数（浮き島 / キャラクター。GPU 資源の蓄積確認用） */
+  voxelRebuilds = 0;
+  voxelCharRebuilds = 0;
+  /** 最後に描いた面の数（方式 D。ボクセル数ではない） */
+  drawnVoxelFaces = 0;
+  /** 方式 D の CPU 側のボクセル（直前に作ったもの。方式を戻したときに作り直さずに GPU へ上げ直す） */
+  private voxelCache: { world?: { key: string; data: VoxelWorld }; char?: { key: string; data: VoxelCharacter } } = {};
+  /** 草花・雲の粒（方式 D の立体化用。カテゴリで取り出して CPU 側に保持） */
+  private decorPoints: { decor: SplatPointSet; clouds: SplatPointSet } | null = null;
   /** 方式 B の生成にかかった時間（点群の用意 / GPU 側の構築） */
   splatPrepMs = 0;
   splatBuildMs = 0;
@@ -258,14 +273,16 @@ export class SceneRenderer {
     r.setScissorTest(false);
     r.setViewport(0, 0, cw / r.getPixelRatio(), ch / r.getPixelRatio());
 
-    // 方式 B・C は必要なときだけ GPU 資源を持つ（使わなくなったら解放する）
+    // 方式 B・C・D は必要なときだけ GPU 資源を持つ（使わなくなったら解放する）
     const wanted = this.wantedMethods(s);
     this.syncSplat(wanted.includes('splats'), s.splatSource, game.layout);
     this.syncSurfel(wanted.includes('surfels'), s.splatSource, game.layout);
+    this.syncVoxel(wanted.includes('voxels'), s, game.layout);
     const shown = this.shownMethods(s);
     this.drawnParticles = shown.includes('points') ? n + this.charTotal : 0;
     this.drawnSplats = 0;
     this.drawnSurfels = 0;
+    this.drawnVoxelFaces = 0;
 
     if (shown.length) {
       const cam = this.setupCamera(game, s, true);
@@ -285,6 +302,11 @@ export class SceneRenderer {
         this.surfel.update(s, this.rig, comp, this.pipeline.lowW, this.pipeline.lowH);
         this.surfel.renderScene(r, cam, cw, ch, scale);
         this.drawnSurfels = this.surfel.drawn;
+      }
+      if (shown.includes('voxels') && this.voxel) {
+        this.voxel.update(s, this.rig, cam);
+        this.voxel.renderScene(r, cam, cw, ch, scale);
+        this.drawnVoxelFaces = this.voxel.drawnFaces;
       }
       const pr = r.getPixelRatio();
       const W = cw / pr, H = ch / pr;
@@ -326,6 +348,7 @@ export class SceneRenderer {
   ) {
     if (m === 'splats' && this.splat) this.splat.post.composite(this.renderer, s, offset, target, raw, mask);
     else if (m === 'surfels' && this.surfel) this.surfel.pipeline.composite(this.renderer, s, cam, offset, target, raw, mask);
+    else if (m === 'voxels' && this.voxel) this.voxel.pipeline.composite(this.renderer, s, cam, offset, target, raw, mask);
     else this.pipeline.composite(this.renderer, s, cam, offset, target, raw, mask);
   }
 
@@ -436,6 +459,50 @@ export class SceneRenderer {
     this.surfelRebuilds++;
   }
 
+  /**
+   * 方式 D の GPU 資源を必要に応じて作成・破棄する。浮き島とキャラクターは別々に作り直す
+   * （キャラクターの粒度だけを変えたときに浮き島まで作り直さない）。
+   */
+  private syncVoxel(want: boolean, s: RenderSettings, layout: IslandLayout) {
+    if (!want) {
+      if (this.voxel) {
+        this.voxel.dispose();
+        this.voxel = null;
+        this.voxelWorldKey = this.voxelCharKey = '';
+      }
+      return;
+    }
+    if (!this.voxel) this.voxel = new VoxelRenderer(this.uniforms, this.rig);
+    const wKey = `${s.splatSource}|${s.voxelSize}|${s.voxelDecor}|${s.voxelFlowers}`;
+    if (wKey !== this.voxelWorldKey) {
+      this.voxelWorldKey = wKey;
+      const d = this.shapeSource(s.splatSource, layout);
+      if (!this.decorPoints) {
+        const names = (this.visuals.world.userData.catNames as string[] | undefined) ?? [];
+        const only = (keep: string) => pointSetFromGeometry(this.visuals.world, names.filter((n) => n !== keep));
+        this.decorPoints = { decor: only('草花'), clouds: only('雲') };
+      }
+      let w = this.voxelCache.world;
+      if (w?.key !== wKey) {
+        w = { key: wKey, data: buildVoxelWorld(layout, d.world, this.decorPoints.decor, this.decorPoints.clouds, { size: s.voxelSize, decor: s.voxelDecor, flowers: s.voxelFlowers }) };
+        this.voxelCache.world = w;
+        this.voxelRebuilds++;
+      }
+      this.voxel.setWorld(w.data);
+    }
+    const cKey = String(s.voxelCharSize);
+    if (cKey !== this.voxelCharKey) {
+      this.voxelCharKey = cKey;
+      let c = this.voxelCache.char;
+      if (c?.key !== cKey) {
+        c = { key: cKey, data: buildVoxelCharacter(s.voxelCharSize) };
+        this.voxelCache.char = c;
+        this.voxelCharRebuilds++;
+      }
+      this.voxel.setCharacter(c.data);
+    }
+  }
+
   /** 形状データの点数（統計表示用） */
   splatSourceInfo(src: SplatSource) {
     const d = this.shapeSources.get(src);
@@ -460,6 +527,7 @@ export class SceneRenderer {
     if (!this.lastLowCam || !p.rt) return null;
     if (method === 'splats' && !this.splat) return null;
     if (method === 'surfels' && !this.surfel) return null;
+    if (method === 'voxels' && !this.voxel) return null;
     const w = p.lowW, h = p.lowH;
     const rt = this.ensureAnalysisRT(w, h);
     const r = this.renderer;
@@ -507,11 +575,11 @@ export class SceneRenderer {
   }
 
   /**
-   * 重ね塗り（ラスタライズされた断片数）の実測。方式 A・C だけが対象（方式 B は Spark 内部のシェーダーなので
+   * 重ね塗り（ラスタライズされた断片数）の実測。方式 A・C・D が対象（方式 B は Spark 内部のシェーダーなので
    * 同じ方法では数えられず、CPU 側の推定値を使う）。計測用シェーダーに差し替え、深度テストなし・加算合成で
    * 1 断片 = 1 を半精度浮動小数点のターゲットに積算し、読み出して合計する。
    */
-  measureFragments(method: 'points' | 'surfels'): { rasterized: number; written: number; coveredPixels: number; pixels: number } | null {
+  measureFragments(method: 'points' | 'surfels' | 'voxels'): { rasterized: number; written: number; coveredPixels: number; pixels: number } | null {
     const p = this.pipeline;
     const cam = this.lastLowCam;
     if (!cam) return null;
@@ -522,6 +590,9 @@ export class SceneRenderer {
     if (method === 'surfels') {
       if (!this.surfel) return null;
       this.surfel.renderCount(r, cam, rt);
+    } else if (method === 'voxels') {
+      if (!this.voxel) return null;
+      this.voxel.renderCount(r, cam, rt);
     } else {
       const objs = [this.worldPoints, this.charPoints];
       const saved = objs.map((o) => o.material as THREE.ShaderMaterial);
@@ -676,9 +747,9 @@ export class SceneRenderer {
 
   /**
    * 深度テクスチャを、カメラからの奥行き（ワールド単位）として読み出す。背景（深度なし）は Infinity。
-   * source: 'points' / 'surfels' はその方式の低解像度ターゲット、'reference' は基準形状（簡易メッシュ）。
+   * source: 'points' / 'surfels' / 'voxels' はその方式の低解像度ターゲット、'reference' は基準形状（簡易メッシュ）。
    */
-  readDepth(source: 'points' | 'surfels' | 'reference'): { w: number; h: number; depth: Float32Array } | null {
+  readDepth(source: 'points' | 'surfels' | 'voxels' | 'reference'): { w: number; h: number; depth: Float32Array } | null {
     const cam = this.lastLowCam;
     const p = this.pipeline;
     if (!cam || !p.rt) return null;
@@ -688,6 +759,7 @@ export class SceneRenderer {
     let tex: THREE.DepthTexture | null = null;
     if (source === 'points') tex = p.rt.depthTexture;
     else if (source === 'surfels') tex = this.surfel?.pipeline.rt?.depthTexture ?? null;
+    else if (source === 'voxels') tex = this.voxel?.pipeline.rt?.depthTexture ?? null;
     else {
       // 基準形状をこのフレームと同じカメラ・解像度で描き、その深度を使う
       if (!this.refRT || this.refRT.width !== w || this.refRT.height !== h) {

@@ -23,7 +23,7 @@ function trunkPoint(plan: TreePlan, f: number): [number, number, number] {
 }
 
 /** 幹と枝の SDF */
-function barkSdf(plan: TreePlan) {
+export function barkSdf(plan: TreePlan) {
   const segs: { a: number[]; b: number[]; ra: number; rb: number }[] = [];
   const n = 6;
   for (let i = 0; i < n; i++) {
@@ -43,7 +43,7 @@ function barkSdf(plan: TreePlan) {
 }
 
 /** 樹冠の SDF（球のなめらかな和集合 + ノイズのでこぼこ） */
-function canopySdf(plan: TreePlan) {
+export function canopySdf(plan: TreePlan) {
   const mainR = plan.blobs[0]?.r ?? 1;
   return (x: number, y: number, z: number) => {
     let d = Infinity;
@@ -54,7 +54,7 @@ function canopySdf(plan: TreePlan) {
   };
 }
 
-function treeBox(plan: TreePlan): Box3Like {
+export function treeBox(plan: TreePlan): Box3Like {
   let r = plan.trunkR * 3;
   let top = plan.y + plan.trunkH;
   let x0 = plan.x - r, x1 = plan.x + r, z0 = plan.z - r, z1 = plan.z + r;
@@ -106,11 +106,11 @@ function emitSdfTree(b: ParticleBuilder, plan: TreePlan, rng: Rng) {
 const ROCK_COL: RGB[] = ['#9a958f', '#86817c', '#aaa59d', '#7a7570'].map(hex);
 const MOSS = hex('#6f9a4a');
 
-function emitSdfRock(b: ParticleBuilder, plan: RockPlan, layout: IslandLayout, rng: Rng) {
-  b.setCategory('岩');
+/** 岩の SDF（楕円体 + 低周波ノイズの変位 + 角ばり） */
+export function rockSdf(plan: RockPlan) {
   const c = Math.cos(plan.rot), s = Math.sin(plan.rot);
   const minR = Math.min(plan.rx, plan.ry, plan.rz);
-  const sdf = (x: number, y: number, z: number) => {
+  return (x: number, y: number, z: number) => {
     const wx = x - plan.x, wz = z - plan.z;
     const lx = (wx * c + wz * s) / plan.rx, ly = (y - plan.y) / plan.ry, lz = (-wx * s + wz * c) / plan.rz;
     const l = Math.hypot(lx, ly, lz) || 1e-6;
@@ -120,8 +120,17 @@ function emitSdfRock(b: ParticleBuilder, plan: RockPlan, layout: IslandLayout, r
     const facet = Math.max(Math.abs(dx), Math.abs(dy) * 1.2, Math.abs(dz));
     return (l - disp * (0.82 + 0.18 / Math.max(0.6, facet))) * minR;
   };
+}
+
+export function rockBox(plan: RockPlan): Box3Like {
   const m = Math.max(plan.rx, plan.ry, plan.rz) * 1.7;
-  const box: Box3Like = { min: [plan.x - m, plan.y - m, plan.z - m], max: [plan.x + m, plan.y + m, plan.z + m] };
+  return { min: [plan.x - m, plan.y - m, plan.z - m], max: [plan.x + m, plan.y + m, plan.z + m] };
+}
+
+function emitSdfRock(b: ParticleBuilder, plan: RockPlan, layout: IslandLayout, rng: Rng) {
+  b.setCategory('岩');
+  const sdf = rockSdf(plan);
+  const box = rockBox(plan);
   const t = layout.terrain;
   sampleSdfSurface(sdf, box, ROCK_STEP, rng, (x, y, z, nx, ny, nz) => {
     if (y < t.heightRaw(x, z) - 0.05) return;
@@ -167,11 +176,15 @@ export interface CharacterSplatSource {
   weight0: Float32Array;
 }
 
-interface Part {
+/** キャラクターの部位 SDF（1 部位 = 1 ボーン。色は表面の位置と法線から決める） */
+export interface CharacterSdfPart {
   bone: number;
   d: (x: number, y: number, z: number) => number;
   color: (x: number, y: number, z: number, nx: number, ny: number, nz: number) => RGB;
 }
+
+/** 部位同士をなめらかにつなぐ幅（smin の k） */
+export const CHARACTER_BLEND = 0.035;
 
 /**
  * キャラクターを部位 SDF のなめらかな和集合として生成する。
@@ -180,37 +193,8 @@ interface Part {
  */
 export function buildSdfCharacter(seed = 5): CharacterSplatSource {
   const rng = mulberry32(seed);
-  const parts: Part[] = [
-    {
-      bone: BONE.body,
-      d: (x, y, z) => smin(sdEllipsoid(x, y, z, 0, 0.66, 0, 0.19, 0.2, 0.15), sdCapsule(x, y, z, 0.06, 0.8, -0.14, 0.1, 0.62, -0.2, 0.035), 0.03),
-      color: (_x, y, _z, _nx, ny) => (y > 0.8 ? C.scarf : Math.abs(y - 0.53) < 0.03 ? C.belt : ny < -0.3 ? C.tunicDark : C.tunic),
-    },
-    {
-      bone: BONE.head,
-      d: (x, y, z) => smin(sdEllipsoid(x, y, z, 0, 1.06, 0.01, 0.21, 0.2, 0.2), sdCapsule(x, y, z, 0, 1.25, 0.02, -0.04, 1.33, -0.03, 0.025), 0.02),
-      color: (x, y, _z, _nx, ny, nz) => {
-        if (y > 1.24) return C.hair;
-        const front = nz > 0.55;
-        if (front && Math.abs(Math.abs(x) - 0.075) < 0.03 && Math.abs(y - 1.05) < 0.04) return C.eye;
-        if (front && Math.abs(Math.abs(x) - 0.12) < 0.035 && Math.abs(y - 0.99) < 0.025) return C.cheek;
-        if (ny > 0.25 || nz < -0.2 || (ny > -0.1 && nz < 0.35)) return C.hair;
-        if (front && y > 1.14) return C.hair;
-        return C.skin;
-      },
-    },
-  ];
-  for (const [bone, sx] of [[BONE.armL, 1], [BONE.armR, -1]] as const) {
-    parts.push({ bone, d: (x, y, z) => sdCapsule(x, y, z, 0.24 * sx, 0.78, 0, 0.27 * sx, 0.53, 0, 0.055), color: (_x, y) => (y < 0.56 ? C.skin : C.tunic) });
-  }
-  for (const [bone, sx] of [[BONE.legL, 1], [BONE.legR, -1]] as const) {
-    parts.push({
-      bone,
-      d: (x, y, z) => smin(sdCapsule(x, y, z, 0.09 * sx, 0.46, 0, 0.09 * sx, 0.07, 0.02, 0.068), sdEllipsoid(x, y, z, 0.09 * sx, 0.05, 0.05, 0.075, 0.05, 0.11), 0.03),
-      color: (_x, y) => (y < 0.17 ? C.boots : C.pants),
-    });
-  }
-  const K = 0.035; // 部位同士の継ぎ目の丸み
+  const parts = characterSdfParts();
+  const K = CHARACTER_BLEND; // 部位同士の継ぎ目の丸み
   const union = (x: number, y: number, z: number) => {
     let d = Infinity;
     for (const p of parts) d = smin(d, p.d(x, y, z), K);
@@ -248,6 +232,41 @@ export function buildSdfCharacter(seed = 5): CharacterSplatSource {
     bone1: Uint8Array.from(out.b1),
     weight0: Float32Array.from(out.w0),
   };
+}
+
+/** キャラクターの部位 SDF（方式 B・C の SDF 生成と方式 D のボクセル化で共有） */
+export function characterSdfParts(): CharacterSdfPart[] {
+  const parts: CharacterSdfPart[] = [
+    {
+      bone: BONE.body,
+      d: (x, y, z) => smin(sdEllipsoid(x, y, z, 0, 0.66, 0, 0.19, 0.2, 0.15), sdCapsule(x, y, z, 0.06, 0.8, -0.14, 0.1, 0.62, -0.2, 0.035), 0.03),
+      color: (_x, y, _z, _nx, ny) => (y > 0.8 ? C.scarf : Math.abs(y - 0.53) < 0.03 ? C.belt : ny < -0.3 ? C.tunicDark : C.tunic),
+    },
+    {
+      bone: BONE.head,
+      d: (x, y, z) => smin(sdEllipsoid(x, y, z, 0, 1.06, 0.01, 0.21, 0.2, 0.2), sdCapsule(x, y, z, 0, 1.25, 0.02, -0.04, 1.33, -0.03, 0.025), 0.02),
+      color: (x, y, _z, _nx, ny, nz) => {
+        if (y > 1.24) return C.hair;
+        const front = nz > 0.55;
+        if (front && Math.abs(Math.abs(x) - 0.075) < 0.03 && Math.abs(y - 1.05) < 0.04) return C.eye;
+        if (front && Math.abs(Math.abs(x) - 0.12) < 0.035 && Math.abs(y - 0.99) < 0.025) return C.cheek;
+        if (ny > 0.25 || nz < -0.2 || (ny > -0.1 && nz < 0.35)) return C.hair;
+        if (front && y > 1.14) return C.hair;
+        return C.skin;
+      },
+    },
+  ];
+  for (const [bone, sx] of [[BONE.armL, 1], [BONE.armR, -1]] as const) {
+    parts.push({ bone, d: (x, y, z) => sdCapsule(x, y, z, 0.24 * sx, 0.78, 0, 0.27 * sx, 0.53, 0, 0.055), color: (_x, y) => (y < 0.56 ? C.skin : C.tunic) });
+  }
+  for (const [bone, sx] of [[BONE.legL, 1], [BONE.legR, -1]] as const) {
+    parts.push({
+      bone,
+      d: (x, y, z) => smin(sdCapsule(x, y, z, 0.09 * sx, 0.46, 0, 0.09 * sx, 0.07, 0.02, 0.068), sdEllipsoid(x, y, z, 0.09 * sx, 0.05, 0.05, 0.075, 0.05, 0.11), 0.03),
+      color: (_x, y) => (y < 0.17 ? C.boots : C.pants),
+    });
+  }
+  return parts;
 }
 
 /** 既存の粒版キャラクター（ボーン支点からの相対座標）を、スプラット用の静止姿勢データに変換する */

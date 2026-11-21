@@ -6,7 +6,7 @@ import { SceneRenderer } from './render/SceneRenderer';
 import { paletteById } from './render/palettes';
 import { Panel } from './ui/Panel';
 import { BenchmarkTool, CaptureTool, FlickerTool, GapTool, methodShots, pitchShots, zoomShots, type Tool, type ToolHost } from './ui/CompareTools';
-import { METHOD_NAME } from './settings';
+import { METHOD_LETTER, METHOD_NAME } from './settings';
 import { loadCurrent, saveCurrent } from './ui/presets';
 import { isTouchDevice, TouchControls } from './ui/TouchControls';
 import { buildWorldVisuals } from './visual/WorldVisualBuilder';
@@ -22,6 +22,8 @@ function boot() {
   const visuals = buildWorldVisuals(game.layout);
   const view = new SceneRenderer(canvas, visuals);
 
+  // デバッグ・自動検証用（最後のツール結果も置き、ブラウザ自動操作から読めるようにする）
+  const debug: Record<string, unknown> = { lastReport: null };
   let shotRequested = false;
   // 比較・計測ツール（実行中はゲーム更新を止めて同条件で描き比べる）
   let tool: Tool | null = null;
@@ -30,7 +32,10 @@ function boot() {
     view,
     settings,
     canvas,
-    report: (html, json) => panel.setReport(html, json),
+    report: (html, json) => {
+      panel.setReport(html, json);
+      debug.lastReport = json ?? null;
+    },
     notify: (m) => panel.notify(m),
     syncUI: () => panel.sync(),
   };
@@ -44,7 +49,7 @@ function boot() {
     onScreenshot: () => (shotRequested = true),
     onToggleViewing: () => game.toggleViewing(),
     onToggleAutoRotate: () => (game.camera.autoRotate = !game.camera.autoRotate),
-    onCaptureAB: () => startTool(() => new CaptureTool(host, methodShots(), 'A/B/C 同条件スクリーンショット'), '撮影中'),
+    onCaptureAB: () => startTool(() => new CaptureTool(host, methodShots(), 'A/B/C/D 同条件スクリーンショット'), '撮影中'),
     onCaptureZoom: () => startTool(() => new CaptureTool(host, zoomShots(game.camera.zoom), 'ズーム 3 段階スクリーンショット'), '撮影中'),
     onCapturePitch: () => startTool(() => new CaptureTool(host, pitchShots(), '見下ろし角 3 段階スクリーンショット'), '撮影中'),
     onGapAnalysis: () => startTool(() => new GapTool(host), '隙間・重ね塗りを解析中'),
@@ -148,7 +153,7 @@ function boot() {
     }
     if (shotRequested) {
       shotRequested = false;
-      saveScreenshot(canvas, panel, settings.renderMethod);
+      saveScreenshot(canvas, panel, settings.viewMode === 'compare' ? `${METHOD_LETTER[settings.compareLeft]}${METHOD_LETTER[settings.compareRight]}` : METHOD_LETTER[settings.renderMethod]);
     }
     const cpu = performance.now() - t0;
     if (tool && !tool.after({ frameMs: dtRaw * 1000, cpuMs: cpu, gpuMs: g })) {
@@ -181,6 +186,7 @@ function boot() {
       const shown = view.shownMethods(settings);
       const methodLabel = settings.viewMode === 'mesh' ? '簡易メッシュ' : settings.viewMode === 'compare' ? `${METHOD_NAME[settings.compareLeft]} | ${METHOD_NAME[settings.compareRight]}` : METHOD_NAME[settings.renderMethod];
       const sf = view.surfel;
+      const vx = view.voxel?.stats;
       panel.setStats(`
         <div class="big"><span>描画方式</span><b class="method">${methodLabel}</b></div>
         <div class="big"><span>FPS</span><b>${fps.toFixed(1)}</b></div>
@@ -193,11 +199,13 @@ function boot() {
         <div><span>描画中のスプラット数（B）</span><b>${sp ? view.drawnSplats.toLocaleString() : '―'}</b></div>
         <div><span>円盤の総数（C）</span><b>${sf ? (sf.worldTotal + sf.charTotal).toLocaleString() : '―'}</b></div>
         <div><span>描画中の円盤数（C）</span><b>${sf ? view.drawnSurfels.toLocaleString() : '―'}</b></div>
+        <div><span>表面のボクセル数（D）</span><b>${vx ? (vx.worldSurface + vx.charSurface).toLocaleString() : '―'}</b></div>
+        <div><span>描画中の面数（D）</span><b>${vx ? view.drawnVoxelFaces.toLocaleString() : '―'}</b></div>
         <div><span>GPU 資源（テクスチャ / 形状）</span><b>${mem.textures} / ${mem.geometries}</b></div>
         <div><span>描画解像度</span><b>${settings.viewMode === 'mesh' ? 'ネイティブ' : `${lr.w}×${lr.h}`}</b></div>
         <div><span>パレット</span><b>${pal.colors.length ? `${pal.colors.length}色` : settings.palette === 'levels' ? `${settings.colorLevels ** 3}色` : '制限なし'}</b></div>
         <div><span>キャラクター</span><b>${MOVE_STATE_LABEL[game.character.state]}</b></div>
-        <div class="small">${cats}<br>生成時間 ${visuals.buildMs.toFixed(0)} ms<br>B：Spark モジュール ${{ idle: '未読み込み', loading: '読み込み中', ready: `読み込み済み（${view.splatLoadMs.toFixed(0)} ms）`, error: '読み込み失敗' }[view.splatStatus]}${sp ? `<br>B：点群の用意 ${view.splatPrepMs.toFixed(0)} ms / Spark 構築 ${view.splatBuildMs.toFixed(0)} ms（構築 ${view.splatRebuilds} 回目）<br>B：キャラ ${sp.charTotal.toLocaleString()} スプラット（SplatSkinning ${settings.splatSource === 'sdf' ? '2 ボーン重み' : '1 ボーン'}）` : ''}${sf ? `<br>C：構築 ${view.surfelBuildMs.toFixed(0)} ms（構築 ${view.surfelRebuilds} 回目）、Spark 不使用` : ''}</div>`);
+        <div class="small">${cats}<br>生成時間 ${visuals.buildMs.toFixed(0)} ms<br>B：Spark モジュール ${{ idle: '未読み込み', loading: '読み込み中', ready: `読み込み済み（${view.splatLoadMs.toFixed(0)} ms）`, error: '読み込み失敗' }[view.splatStatus]}${sp ? `<br>B：点群の用意 ${view.splatPrepMs.toFixed(0)} ms / Spark 構築 ${view.splatBuildMs.toFixed(0)} ms（構築 ${view.splatRebuilds} 回目）<br>B：キャラ ${sp.charTotal.toLocaleString()} スプラット（SplatSkinning ${settings.splatSource === 'sdf' ? '2 ボーン重み' : '1 ボーン'}）` : ''}${sf ? `<br>C：構築 ${view.surfelBuildMs.toFixed(0)} ms（構築 ${view.surfelRebuilds} 回目）、Spark 不使用` : ''}${vx ? `<br>D：浮き島 一辺 ${settings.voxelSize} / 占有 ${vx.worldSolid.toLocaleString()} / 表面 ${vx.worldSurface.toLocaleString()} / 面 ${vx.worldFaces.toLocaleString()}（生成 ${vx.worldBuildMs.toFixed(0)} ms、${view.voxelRebuilds} 回目）<br>D：キャラ 一辺 ${settings.voxelCharSize} / 占有 ${vx.charSolid.toLocaleString()} / 面 ${vx.charFaces.toLocaleString()}（生成 ${vx.charBuildMs.toFixed(0)} ms）、面の組 ${view.voxel!.drawnGroups}/6 を描画<br>D の「面」は四角形の数で、A〜C の粒数とは単位が違います` : ''}</div>`);
       modeTag.textContent = game.camera.viewing ? '鑑賞モード' : '';
       modeTag.style.display = game.camera.viewing ? 'block' : 'none';
       document.body.classList.toggle('split', settings.viewMode === 'split');
@@ -214,14 +222,14 @@ function boot() {
   requestAnimationFrame(loop);
 
   // デバッグ・自動検証用
-  (window as unknown as Record<string, unknown>).__ppp = { game, view, settings };
+  (window as unknown as Record<string, unknown>).__ppp = Object.assign(debug, { game, view, settings });
 }
 
 function escapeHtml(t: string): string {
   return t.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
 
-function saveScreenshot(canvas: HTMLCanvasElement, panel: Panel, method: string) {
+function saveScreenshot(canvas: HTMLCanvasElement, panel: Panel, letter: string) {
   // 描画直後（同じタスク内）なら preserveDrawingBuffer なしでも内容を取得できる
   canvas.toBlob((blob) => {
     if (!blob) return panel.notify('スクリーンショットに失敗しました');
@@ -229,7 +237,7 @@ function saveScreenshot(canvas: HTMLCanvasElement, panel: Panel, method: string)
     const p = (n: number) => String(n).padStart(2, '0');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `particle-pixel-${method === 'splats' ? 'B' : 'A'}-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.png`;
+    a.download = `particle-pixel-${letter}-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.png`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     panel.notify('スクリーンショットを保存しました');

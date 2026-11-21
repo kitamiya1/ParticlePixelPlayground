@@ -2,11 +2,13 @@
 
 export type ViewMode = 'particles' | 'mesh' | 'split' | 'compare';
 export type Projection = 'ortho' | 'perspective';
-/** 描画方式 A: 既存のポイント描画 / B: Pixel Art Gaussian Splats（Spark） / C: サーフェル（不透明な円盤 + 深度） */
-export type RenderMethod = 'points' | 'splats' | 'surfels';
-export const RENDER_METHODS: RenderMethod[] = ['points', 'splats', 'surfels'];
+/** 描画方式 A: 既存のポイント描画 / B: Pixel Art Gaussian Splats（Spark） / C: サーフェル（不透明な円盤 + 深度） / D: ボクセル（立方体の集合 + 深度） */
+export type RenderMethod = 'points' | 'splats' | 'surfels' | 'voxels';
+export const RENDER_METHODS: RenderMethod[] = ['points', 'splats', 'surfels', 'voxels'];
 /** 画面表示用の短い名前 */
-export const METHOD_NAME: Record<RenderMethod, string> = { points: 'A：ポイント', splats: 'B：Gaussian Splats', surfels: 'C：サーフェル' };
+export const METHOD_NAME: Record<RenderMethod, string> = { points: 'A：ポイント', splats: 'B：Gaussian Splats', surfels: 'C：サーフェル', voxels: 'D：ボクセル' };
+/** 方式の記号（ファイル名など） */
+export const METHOD_LETTER: Record<RenderMethod, string> = { points: 'A', splats: 'B', surfels: 'C', voxels: 'D' };
 /** スプラットの形状ソース: 既存の粒データを変換 / 樹木・岩・キャラクターを SDF から生成 */
 export type SplatSource = 'convert' | 'sdf';
 
@@ -61,6 +63,21 @@ export interface RenderSettings {
   // サーフェル（方式 C）
   surfelScale: number;
   surfelBillboard: boolean;
+  // ボクセル（方式 D）
+  /** 浮き島のボクセルの一辺（ワールド単位。変えると作り直す） */
+  voxelSize: number;
+  /** キャラクターのボクセルの一辺（変えると作り直す） */
+  voxelCharSize: number;
+  /** 草の粒を立体ボクセルにする割合（変えると作り直す） */
+  voxelDecor: number;
+  /** 花の粒を立体ボクセルにする（変えると作り直す） */
+  voxelFlowers: boolean;
+  /** 立方体の縁の暗さ */
+  voxelEdge: number;
+  /** 隅の遮蔽（AO）の強さ */
+  voxelAO: number;
+  /** カメラから見て裏向きの面の組を描かない */
+  voxelCull: boolean;
 }
 
 export const DEFAULT_SETTINGS: RenderSettings = {
@@ -104,7 +121,19 @@ export const DEFAULT_SETTINGS: RenderSettings = {
   splatOpacity: 1,
   surfelScale: 1,
   surfelBillboard: false,
+  voxelSize: 0.2,
+  voxelCharSize: 0.06,
+  voxelDecor: 0,
+  voxelFlowers: true,
+  voxelEdge: 0.15,
+  voxelAO: 0.6,
+  voxelCull: true,
 };
+
+/** 方式 D の作り直しが必要な設定の選択肢（連続値にすると操作のたびに作り直しが走るため段階で選ぶ） */
+export const VOXEL_SIZES = [0.1, 0.14, 0.2, 0.28, 0.4];
+export const VOXEL_CHAR_SIZES = [0.04, 0.06, 0.08, 0.12];
+export const VOXEL_DECOR_LEVELS = [0, 0.1, 0.25, 0.5, 1];
 
 export function cloneSettings(s: RenderSettings): RenderSettings {
   return { ...s };
@@ -126,6 +155,10 @@ export function sanitizeSettings(raw: unknown): RenderSettings {
   if (!RENDER_METHODS.includes(out.compareLeft)) out.compareLeft = DEFAULT_SETTINGS.compareLeft;
   if (!RENDER_METHODS.includes(out.compareRight)) out.compareRight = DEFAULT_SETTINGS.compareRight;
   if (!['convert', 'sdf'].includes(out.splatSource)) out.splatSource = DEFAULT_SETTINGS.splatSource;
+  // 方式 D の作り直しが必要な設定は選択肢の値だけ受け付ける（任意の値で極端に重い生成をさせない）
+  if (!VOXEL_SIZES.includes(out.voxelSize)) out.voxelSize = DEFAULT_SETTINGS.voxelSize;
+  if (!VOXEL_CHAR_SIZES.includes(out.voxelCharSize)) out.voxelCharSize = DEFAULT_SETTINGS.voxelCharSize;
+  if (!VOXEL_DECOR_LEVELS.includes(out.voxelDecor)) out.voxelDecor = DEFAULT_SETTINGS.voxelDecor;
   return out;
 }
 
@@ -144,4 +177,8 @@ export const BUILTIN_PRESETS: Record<string, Partial<RenderSettings>> = {
   // 方式 C 用
   'サーフェル：標準': { renderMethod: 'surfels', surfelScale: 1, surfelBillboard: false },
   'サーフェル：隙間を埋める': { renderMethod: 'surfels', surfelScale: 1.4, surfelBillboard: false },
+  // 方式 D 用
+  'ボクセル：標準': { renderMethod: 'voxels', voxelSize: 0.2, voxelCharSize: 0.06, voxelDecor: 0, voxelFlowers: true, voxelEdge: 0.15, voxelAO: 0.6 },
+  'ボクセル：細かい': { renderMethod: 'voxels', voxelSize: 0.1, voxelCharSize: 0.04, voxelDecor: 0.25, voxelFlowers: true, voxelEdge: 0, voxelAO: 0.5 },
+  'ボクセル：粗いブロック': { renderMethod: 'voxels', voxelSize: 0.4, voxelCharSize: 0.08, voxelDecor: 0, voxelFlowers: false, voxelEdge: 0.3, voxelAO: 0.8 },
 };

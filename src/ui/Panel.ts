@@ -1,6 +1,6 @@
 // 画面右側の日本語調整パネル。設定オブジェクトを直接書き換え、描画側は毎フレームそれを参照する。
 
-import { BUILTIN_PRESETS, DEFAULT_SETTINGS, METHOD_NAME, cloneSettings, type RenderMethod, type RenderSettings } from '../settings';
+import { BUILTIN_PRESETS, DEFAULT_SETTINGS, METHOD_LETTER, METHOD_NAME, VOXEL_CHAR_SIZES, VOXEL_DECOR_LEVELS, VOXEL_SIZES, cloneSettings, type RenderMethod, type RenderSettings } from '../settings';
 import { PALETTES } from '../render/palettes';
 import { builtinPreset, deleteUserPreset, downloadJSON, readJSONFile, saveCurrent, saveUserPreset, userPresets } from './presets';
 
@@ -15,10 +15,14 @@ type Control =
 const A_ONLY: RenderMethod[] = ['points'];
 const B_ONLY: RenderMethod[] = ['splats'];
 const C_ONLY: RenderMethod[] = ['surfels'];
-/** 深度を書く方式（A と C）だけで効く設定 */
+const D_ONLY: RenderMethod[] = ['voxels'];
+/** 点（粒・スプラット・円盤）で描く方式（A・B・C）だけで効く設定。D は格子なので点の密度・吸着の概念がない */
+const ABC: RenderMethod[] = ['points', 'splats', 'surfels'];
+/** 粒・円盤の中心を吸着する方式（A と C） */
 const AC: RenderMethod[] = ['points', 'surfels'];
-const METHOD_LETTER: Record<RenderMethod, string> = { points: 'A', splats: 'B', surfels: 'C' };
-const METHOD_OPTIONS: [string, string][] = [['points', 'A：ポイント描画（既存）'], ['splats', 'B：Pixel Art Gaussian Splats'], ['surfels', 'C：サーフェル（円盤＋深度）']];
+/** 深度を書く方式（A・C・D）だけで効く設定 */
+const ACD: RenderMethod[] = ['points', 'surfels', 'voxels'];
+const METHOD_OPTIONS: [string, string][] = [['points', 'A：ポイント描画（既存）'], ['splats', 'B：Pixel Art Gaussian Splats'], ['surfels', 'C：サーフェル（円盤＋深度）'], ['voxels', 'D：ボクセル（立方体＋深度）']];
 
 const SECTIONS: { title: string; open?: boolean; controls: Control[] }[] = [
   {
@@ -29,7 +33,7 @@ const SECTIONS: { title: string; open?: boolean; controls: Control[] }[] = [
       { type: 'select', key: 'viewMode', label: '表示方式', options: [['particles', '選択した描画方式'], ['compare', '方式の左右比較（下で 2 方式を選択）'], ['mesh', '簡易メッシュ'], ['split', '左右比較（左:選択方式 / 右:メッシュ）']] },
       { type: 'select', key: 'compareLeft', label: '左右比較：左', options: METHOD_OPTIONS },
       { type: 'select', key: 'compareRight', label: '左右比較：右', options: METHOD_OPTIONS },
-      { type: 'select', key: 'splatSource', label: '形状の生成方法（A・B・C 共通）', options: [['convert', '既存の粒データ'], ['sdf', '樹木・岩・キャラを SDF から生成']], hint: 'SDF：距離関数を合成して表面だけを取り出す手続き的生成。3 方式とも同じ形状データを使います' },
+      { type: 'select', key: 'splatSource', label: '形状の生成方法（A・B・C 共通）', options: [['convert', '既存の粒データ'], ['sdf', '樹木・岩・キャラを SDF から生成']], hint: 'SDF：距離関数を合成して表面だけを取り出す手続き的生成。A・B・C は同じ形状データを使います。D は樹木・岩・キャラの立体を常に SDF の内外判定で作り、ここでは色を写す元の点群だけが変わります' },
     ],
   },
   {
@@ -38,8 +42,8 @@ const SECTIONS: { title: string; open?: boolean; controls: Control[] }[] = [
     controls: [
       { type: 'range', key: 'pixelScale', label: '画素サイズ（描画解像度）', min: 1, max: 8, step: 1, fmt: (v) => `${v}倍`, hint: '大きいほど粗いドットになります' },
       { type: 'range', key: 'pointSize', label: '粒のサイズ', min: 0.3, max: 3, step: 0.05, only: A_ONLY },
-      { type: 'range', key: 'density', label: '粒の密度', min: 0.05, max: 1, step: 0.01, fmt: (v) => `${Math.round(v * 100)}%` },
-      { type: 'check', key: 'densityComp', label: '密度に応じて粒を大きくする', hint: '方式 B ではスプラットの広がりに掛かります' },
+      { type: 'range', key: 'density', label: '粒の密度', min: 0.05, max: 1, step: 0.01, fmt: (v) => `${Math.round(v * 100)}%`, only: ABC },
+      { type: 'check', key: 'densityComp', label: '密度に応じて粒を大きくする', hint: '方式 B ではスプラットの広がりに掛かります', only: ABC },
       { type: 'check', key: 'pointSnap', label: '粒・円盤の中心を画素グリッドに吸着（ちらつき軽減）', only: AC },
     ],
   },
@@ -77,6 +81,19 @@ const SECTIONS: { title: string; open?: boolean; controls: Control[] }[] = [
     ],
   },
   {
+    title: 'ボクセル（方式 D）',
+    open: true,
+    controls: [
+      { type: 'select', key: 'voxelSize', label: '粒度（浮き島のボクセルの大きさ）', options: VOXEL_SIZES.map((v) => [v, `${v}（${v <= 0.1 ? '細かい・生成が重い' : v >= 0.4 ? '粗いブロック' : '中間'}）`]), only: D_ONLY, hint: '1 個の立方体の一辺（ワールド単位）。変えるとボクセルを作り直します' },
+      { type: 'select', key: 'voxelCharSize', label: 'キャラクターの粒度', options: VOXEL_CHAR_SIZES.map((v) => [v, String(v)]), only: D_ONLY, hint: 'キャラクターは浮き島とは別の細かさでボクセル化します（粗すぎると手足が消えます）' },
+      { type: 'check', key: 'voxelFlowers', label: '花を立方体で立てる', only: D_ONLY, hint: '花の粒（緑以外の色）を、地面から立つ立方体にします。オフなら地面の色だけ' },
+      { type: 'select', key: 'voxelDecor', label: '草の立体化（表示密度）', options: VOXEL_DECOR_LEVELS.map((v) => [v, v === 0 ? 'なし（地面の色だけ）' : `${Math.round(v * 100)}%`]), only: D_ONLY, hint: '草の粒のうち、立方体として地面から立てる割合。増やすと地面がでこぼこになり、側面の影で暗い点が増えます' },
+      { type: 'range', key: 'voxelEdge', label: '立方体の縁の暗さ', min: 0, max: 0.6, step: 0.01, only: D_ONLY, hint: '面の縁 1 画素を暗くして、立方体の区切りを見せます' },
+      { type: 'range', key: 'voxelAO', label: '隅の陰（AO）', min: 0, max: 1, step: 0.01, only: D_ONLY, hint: '隣のボクセルに囲まれた角ほど暗くします（立体感）' },
+      { type: 'check', key: 'voxelCull', label: '裏向きの面の組を描かない（高速化）', only: D_ONLY, hint: '面を向きごとに 6 組に分け、カメラから見て裏向きの組を丸ごと省きます。見た目は変わりません' },
+    ],
+  },
+  {
     title: '色数・ディザリング',
     open: true,
     controls: [
@@ -90,7 +107,7 @@ const SECTIONS: { title: string; open?: boolean; controls: Control[] }[] = [
     title: '輪郭',
     controls: [
       { type: 'range', key: 'outline', label: '輪郭の強さ', min: 0, max: 1, step: 0.01 },
-      { type: 'range', key: 'outlineThresh', label: '輪郭を出す奥行き差', min: 0.05, max: 4, step: 0.05, only: AC, hint: '方式 B は深度を書かないため、シルエット（被覆の境界）で輪郭を出します' },
+      { type: 'range', key: 'outlineThresh', label: '輪郭を出す奥行き差', min: 0.05, max: 4, step: 0.05, only: ACD, hint: '方式 B は深度を書かないため、シルエット（被覆の境界）で輪郭を出します' },
       { type: 'range', key: 'outlineDarken', label: '輪郭の明るさ', min: 0, max: 1, step: 0.01 },
     ],
   },
@@ -210,7 +227,7 @@ export class Panel {
   private buildCompare(): HTMLElement {
     const det = document.createElement('details');
     det.open = true;
-    det.innerHTML = `<summary>方式の比較・計測（A・B・C）</summary>`;
+    det.innerHTML = `<summary>方式の比較・計測（A・B・C・D）</summary>`;
     const body = document.createElement('div');
     body.className = 'section-body';
     const grid = document.createElement('div');
@@ -222,12 +239,12 @@ export class Panel {
       b.onclick = fn;
       grid.appendChild(b);
     };
-    btn('A/B/C 同条件で撮影', '同じカメラ位置・描画解像度で A・B・C のスクリーンショットを続けて保存します', () => this.cb.onCaptureAB());
-    btn('ズーム3段階を撮影', 'A・B・C をそれぞれズーム 3 段階で保存します（輪郭の変化の確認）', () => this.cb.onCaptureZoom());
-    btn('見下ろし角3段階を撮影', 'A・B・C をそれぞれ見下ろし角 3 段階で保存します（浅い角度での円盤の隙間の確認）', () => this.cb.onCapturePitch());
-    btn('隙間・重ね塗り解析', '基準形状のシルエットに対する隙間と、1 画素あたりの断片数を A・B・C で比べます', () => this.cb.onGapAnalysis());
-    btn('ちらつき計測', 'カメラを一定速度で平行移動させ、フレーム間で変化した画素の割合を A・B・C で測ります', () => this.cb.onFlickerTest());
-    btn('性能ベンチマーク', 'カメラを回しながら A・B・C それぞれの FPS・フレーム時間・GPU 時間を測ります', () => this.cb.onBenchmark());
+    btn('A/B/C/D 同条件で撮影', '同じカメラ位置・描画解像度で A・B・C・D のスクリーンショットを続けて保存します', () => this.cb.onCaptureAB());
+    btn('ズーム3段階を撮影', 'A・B・C・D をそれぞれズーム 3 段階で保存します（輪郭の変化の確認）', () => this.cb.onCaptureZoom());
+    btn('見下ろし角3段階を撮影', 'A・B・C・D をそれぞれ見下ろし角 3 段階で保存します（浅い角度での円盤の隙間の確認）', () => this.cb.onCapturePitch());
+    btn('隙間・重ね塗り解析', '基準形状のシルエットに対する隙間と、1 画素あたりの断片数を A・B・C・D で比べます', () => this.cb.onGapAnalysis());
+    btn('ちらつき計測', 'カメラを一定速度で平行移動させ、フレーム間で変化した画素の割合を A・B・C・D で測ります', () => this.cb.onFlickerTest());
+    btn('性能ベンチマーク', 'カメラを回しながら A・B・C・D それぞれの FPS・フレーム時間・GPU 時間を測ります', () => this.cb.onBenchmark());
     body.appendChild(grid);
     this.reportEl = document.createElement('div');
     this.reportEl.className = 'report';
@@ -473,6 +490,7 @@ export class Panel {
     }
     document.body.classList.toggle('method-splats', s.renderMethod === 'splats');
     document.body.classList.toggle('method-surfels', s.renderMethod === 'surfels');
+    document.body.classList.toggle('method-voxels', s.renderMethod === 'voxels');
   }
 
   /** 設定値 → UI へ反映 */

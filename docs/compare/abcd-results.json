@@ -1,0 +1,846 @@
+{
+  "device": {
+    "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER (0x00001F06) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36",
+    "canvas": "950x800",
+    "dpr": 1
+  },
+  "runs": [
+    {
+      "prog": 11,
+      "name": "gap-default",
+      "view": {
+        "yaw": 0.75,
+        "pitch": 0.6,
+        "zoom": 15
+      },
+      "set": {},
+      "wallMs": 2554,
+      "memAfter": {
+        "tex": 8,
+        "geo": 116
+      },
+      "report": {
+        "test": "gap-overdraw",
+        "erodePx": 2,
+        "depthGap": 0.6,
+        "zoom": 15,
+        "pitch": 0.6,
+        "lowRes": {
+          "w": 321,
+          "h": 271
+        },
+        "aEstimateErrorPct": 0.004554695483707513,
+        "results": [
+          {
+            "method": "points",
+            "gapPct": 0,
+            "throughPct": 0.005907442195678115,
+            "coverPct": 100,
+            "rasterPerPx": 18.724500235656564,
+            "writtenPerPx": 16.499120598682623,
+            "rasterPerCovered": 18.724500235656564,
+            "kind": "measured",
+            "drawn": 424897,
+            "drawnUnit": "粒"
+          },
+          {
+            "method": "splats",
+            "gapPct": 0,
+            "throughPct": null,
+            "coverPct": 100,
+            "rasterPerPx": 29.04609000914452,
+            "writtenPerPx": 22.812745747067673,
+            "rasterPerCovered": null,
+            "kind": "estimated",
+            "drawn": 424897,
+            "drawnUnit": "スプラット"
+          },
+          {
+            "method": "surfels",
+            "gapPct": 0.0011814884391356231,
+            "throughPct": 0.3237278323231607,
+            "coverPct": 99.99885045579427,
+            "rasterPerPx": 9.12023082847651,
+            "writtenPerPx": 7.378924256532285,
+            "rasterPerCovered": 9.120335670766755,
+            "kind": "measured",
+            "drawn": 424897,
+            "drawnUnit": "円盤"
+          },
+          {
+            "method": "voxels",
+            "gapPct": 0.0011814884391356231,
+            "throughPct": 0.4028875577452474,
+            "coverPct": 99.99885045579427,
+            "rasterPerPx": 1.9727443068823212,
+            "writtenPerPx": 1.9727443068823212,
+            "rasterPerCovered": 1.9727669847108864,
+            "kind": "measured",
+            "drawn": 205053,
+            "drawnUnit": "面"
+          }
+        ]
+      }
+    },
+    {
+      "prog": 11,
+      "name": "gap-pitch-low",
+      "view": {
+        "yaw": 0.75,
+        "pitch": 0.3,
+        "zoom": 15
+      },
+      "set": {},
+      "wallMs": 1796,
+      "memAfter": {
+        "tex": 8,
+        "geo": 116
+      },
+      "report": {
+        "test": "gap-overdraw",
+        "erodePx": 2,
+        "depthGap": 0.6,
+        "zoom": 15,
+        "pitch": 0.3,
+        "lowRes": {
+          "w": 321,
+          "h": 271
+        },
+        "aEstimateErrorPct": 0.0005579642515692404,
+        "results": [
+          {
+            "method": "points",
+            "gapPct": 0.023816985271074897,
+            "throughPct": 2.3290504544030086,
+            "coverPct": 95.65472290236922,
+            "rasterPerPx": 27.153337701601316,
+            "writtenPerPx": 23.422779367980596,
+            "rasterPerCovered": 28.37557061169574,
+            "kind": "measured",
+            "drawn": 424897,
+            "drawnUnit": "粒"
+          },
+          {
+            "method": "splats",
+            "gapPct": 0.025070510811657787,
+            "throughPct": null,
+            "coverPct": 95.50758124403674,
+            "rasterPerPx": 34.2738303067824,
+            "writtenPerPx": 26.91860337553296,
+            "rasterPerCovered": null,
+            "kind": "estimated",
+            "drawn": 424897,
+            "drawnUnit": "スプラット"
+          },
+          {
+            "method": "surfels",
+            "gapPct": 0.13287370730178627,
+            "throughPct": 3.231588843622689,
+            "coverPct": 95.08569852053661,
+            "rasterPerPx": 10.544309181409572,
+            "writtenPerPx": 8.065328597211206,
+            "rasterPerCovered": 11.07507667044988,
+            "kind": "measured",
+            "drawn": 424897,
+            "drawnUnit": "円盤"
+          },
+          {
+            "method": "voxels",
+            "gapPct": 0.03635224067690379,
+            "throughPct": 2.6574741460357254,
+            "coverPct": 95.33285052476693,
+            "rasterPerPx": 2.625685415732662,
+            "writtenPerPx": 2.625685415732662,
+            "rasterPerCovered": 2.7542294196380124,
+            "kind": "measured",
+            "drawn": 205053,
+            "drawnUnit": "面"
+          }
+        ]
+      }
+    },
+    {
+      "prog": 13,
+      "name": "flicker-default",
+      "view": {
+        "yaw": 0.75,
+        "pitch": 0.6,
+        "zoom": 15
+      },
+      "set": {},
+      "wallMs": 7877,
+      "memAfter": {
+        "tex": 11,
+        "geo": 121
+      },
+      "report": {
+        "test": "flicker",
+        "settings": {
+          "pixelScale": 3,
+          "projection": "ortho",
+          "cameraSnap": true,
+          "pointSnap": true,
+          "alphaDither": true,
+          "dither": 0.35,
+          "palette": "meadow32",
+          "splatCrisp": true,
+          "splatSupersample": 2
+        },
+        "results": [
+          {
+            "method": "points",
+            "staticPct": 0,
+            "panPct": 9.806890348442117,
+            "panMaxPct": 27.2391549945942,
+            "frames": 91
+          },
+          {
+            "method": "splats",
+            "staticPct": 0,
+            "panPct": 7.853854953082406,
+            "panMaxPct": 22.620537178537152,
+            "frames": 91
+          },
+          {
+            "method": "surfels",
+            "staticPct": 0,
+            "panPct": 7.322064832481625,
+            "panMaxPct": 20.563903837510175,
+            "frames": 91
+          },
+          {
+            "method": "voxels",
+            "staticPct": 0,
+            "panPct": 7.814240206519024,
+            "panMaxPct": 21.614694056050244,
+            "frames": 91
+          }
+        ]
+      }
+    },
+    {
+      "prog": 13,
+      "name": "bench-default",
+      "view": {
+        "yaw": 0.75,
+        "pitch": 0.6,
+        "zoom": 15
+      },
+      "set": {},
+      "wallMs": 15265,
+      "memAfter": {
+        "tex": 11,
+        "geo": 123
+      },
+      "report": {
+        "test": "benchmark",
+        "env": {
+          "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER (0x00001F06) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36",
+          "canvas": "950×800",
+          "dpr": 1,
+          "touch": false
+        },
+        "lowRes": {
+          "w": 321,
+          "h": 271
+        },
+        "settings": {
+          "pixelScale": 3,
+          "density": 1,
+          "splatSupersample": 2,
+          "voxelSize": 0.2,
+          "voxelCharSize": 0.06,
+          "voxelDecor": 0,
+          "voxelFlowers": true,
+          "voxelCull": true
+        },
+        "results": [
+          {
+            "method": "points",
+            "fps": 74.9961101602614,
+            "frameMs": 13.33402489626556,
+            "p95Ms": 13.400000000001455,
+            "cpuMs": 0.28091285980588665,
+            "gpuMs": 2.759328132780083,
+            "count": 424897,
+            "countUnit": "粒",
+            "voxels": null,
+            "frames": 241
+          },
+          {
+            "method": "splats",
+            "fps": 74.9961101602614,
+            "frameMs": 13.33402489626556,
+            "p95Ms": 13.400000000001455,
+            "cpuMs": 0.5659751001730005,
+            "gpuMs": 2.451177866666666,
+            "count": 424897,
+            "countUnit": "スプラット",
+            "voxels": null,
+            "frames": 241
+          },
+          {
+            "method": "surfels",
+            "fps": 74.9961101602614,
+            "frameMs": 13.33402489626556,
+            "p95Ms": 13.400000000001455,
+            "cpuMs": 0.30497925706918805,
+            "gpuMs": 2.4377155186721997,
+            "count": 424897,
+            "countUnit": "円盤",
+            "voxels": null,
+            "frames": 241
+          },
+          {
+            "method": "voxels",
+            "fps": 74.99844401568429,
+            "frameMs": 13.33360995850623,
+            "p95Ms": 13.400000000001455,
+            "cpuMs": 0.25975104337905947,
+            "gpuMs": 1.6026148381742742,
+            "count": 205053,
+            "countUnit": "面",
+            "voxels": {
+              "solid": 1798325,
+              "surface": 231800,
+              "faces": 409444,
+              "groups": 3
+            },
+            "frames": 241
+          }
+        ]
+      }
+    },
+    {
+      "prog": 13,
+      "name": "bench-far",
+      "view": {
+        "yaw": 0.75,
+        "pitch": 0.6,
+        "zoom": 33
+      },
+      "set": {},
+      "wallMs": 15269,
+      "memAfter": {
+        "tex": 11,
+        "geo": 123
+      },
+      "report": {
+        "test": "benchmark",
+        "env": {
+          "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER (0x00001F06) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36",
+          "canvas": "950×800",
+          "dpr": 1,
+          "touch": false
+        },
+        "lowRes": {
+          "w": 321,
+          "h": 271
+        },
+        "settings": {
+          "pixelScale": 3,
+          "density": 1,
+          "splatSupersample": 2,
+          "voxelSize": 0.2,
+          "voxelCharSize": 0.06,
+          "voxelDecor": 0,
+          "voxelFlowers": true,
+          "voxelCull": true
+        },
+        "results": [
+          {
+            "method": "points",
+            "fps": 74.99844401568429,
+            "frameMs": 13.33360995850623,
+            "p95Ms": 13.400000000001455,
+            "cpuMs": 0.31410787956348596,
+            "gpuMs": 3.2110426556016605,
+            "count": 424897,
+            "countUnit": "粒",
+            "voxels": null,
+            "frames": 241
+          },
+          {
+            "method": "splats",
+            "fps": 74.9961101602614,
+            "frameMs": 13.33402489626556,
+            "p95Ms": 13.400000000001455,
+            "cpuMs": 0.5344398353109716,
+            "gpuMs": 2.8584034522821593,
+            "count": 424897,
+            "countUnit": "スプラット",
+            "voxels": null,
+            "frames": 241
+          },
+          {
+            "method": "surfels",
+            "fps": 74.9961101602614,
+            "frameMs": 13.33402489626556,
+            "p95Ms": 13.400000000001455,
+            "cpuMs": 0.20041493113110173,
+            "gpuMs": 2.315002157676347,
+            "count": 424897,
+            "countUnit": "円盤",
+            "voxels": null,
+            "frames": 241
+          },
+          {
+            "method": "voxels",
+            "fps": 74.9961101602614,
+            "frameMs": 13.33402489626556,
+            "p95Ms": 13.400000000001455,
+            "cpuMs": 0.25477178759594676,
+            "gpuMs": 1.6211978091286308,
+            "count": 205053,
+            "countUnit": "面",
+            "voxels": {
+              "solid": 1798325,
+              "surface": 231800,
+              "faces": 409444,
+              "groups": 3
+            },
+            "frames": 241
+          }
+        ]
+      }
+    },
+    {
+      "prog": 13,
+      "name": "bench-default-D0.1",
+      "view": {
+        "yaw": 0.75,
+        "pitch": 0.6,
+        "zoom": 15
+      },
+      "set": {
+        "voxelSize": 0.1,
+        "voxelCharSize": 0.04
+      },
+      "wallMs": 17934,
+      "memAfter": {
+        "tex": 11,
+        "geo": 123
+      },
+      "report": {
+        "test": "benchmark",
+        "env": {
+          "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER (0x00001F06) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36",
+          "canvas": "950×800",
+          "dpr": 1,
+          "touch": false
+        },
+        "lowRes": {
+          "w": 321,
+          "h": 271
+        },
+        "settings": {
+          "pixelScale": 3,
+          "density": 1,
+          "splatSupersample": 2,
+          "voxelSize": 0.1,
+          "voxelCharSize": 0.04,
+          "voxelDecor": 0,
+          "voxelFlowers": true,
+          "voxelCull": true
+        },
+        "results": [
+          {
+            "method": "points",
+            "fps": 74.9961101602614,
+            "frameMs": 13.33402489626556,
+            "p95Ms": 13.400000000001455,
+            "cpuMs": 0.25850622436317666,
+            "gpuMs": 2.759168265560166,
+            "count": 424897,
+            "countUnit": "粒",
+            "voxels": null,
+            "frames": 241
+          },
+          {
+            "method": "splats",
+            "fps": 74.99844401568429,
+            "frameMs": 13.33360995850623,
+            "p95Ms": 13.400000000001455,
+            "cpuMs": 0.427800833436958,
+            "gpuMs": 2.5171678008298763,
+            "count": 424897,
+            "countUnit": "スプラット",
+            "voxels": null,
+            "frames": 241
+          },
+          {
+            "method": "surfels",
+            "fps": 74.9961101602614,
+            "frameMs": 13.33402489626556,
+            "p95Ms": 13.400000000001455,
+            "cpuMs": 0.2481327788958411,
+            "gpuMs": 2.121411717842324,
+            "count": 424897,
+            "countUnit": "円盤",
+            "voxels": null,
+            "frames": 241
+          },
+          {
+            "method": "voxels",
+            "fps": 74.99844401568429,
+            "frameMs": 13.33360995850623,
+            "p95Ms": 13.400000000001455,
+            "cpuMs": 0.26058091019199103,
+            "gpuMs": 1.9313153858921162,
+            "count": 839791,
+            "countUnit": "面",
+            "voxels": {
+              "solid": 14370475,
+              "surface": 964347,
+              "faces": 1678012,
+              "groups": 3
+            },
+            "frames": 241
+          }
+        ]
+      }
+    },
+    {
+      "prog": 13,
+      "name": "bench-default-D0.4",
+      "view": {
+        "yaw": 0.75,
+        "pitch": 0.6,
+        "zoom": 15
+      },
+      "set": {
+        "voxelSize": 0.4,
+        "voxelCharSize": 0.08
+      },
+      "wallMs": 15560,
+      "memAfter": {
+        "tex": 11,
+        "geo": 123
+      },
+      "report": {
+        "test": "benchmark",
+        "env": {
+          "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER (0x00001F06) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36",
+          "canvas": "950×800",
+          "dpr": 1,
+          "touch": false
+        },
+        "lowRes": {
+          "w": 321,
+          "h": 271
+        },
+        "settings": {
+          "pixelScale": 3,
+          "density": 1,
+          "splatSupersample": 2,
+          "voxelSize": 0.4,
+          "voxelCharSize": 0.08,
+          "voxelDecor": 0,
+          "voxelFlowers": true,
+          "voxelCull": true
+        },
+        "results": [
+          {
+            "method": "points",
+            "fps": 74.9961101602614,
+            "frameMs": 13.33402489626556,
+            "p95Ms": 13.400000000008731,
+            "cpuMs": 0.2182572610150729,
+            "gpuMs": 2.753349443983401,
+            "count": 424897,
+            "countUnit": "粒",
+            "voxels": null,
+            "frames": 241
+          },
+          {
+            "method": "splats",
+            "fps": 74.9961101602614,
+            "frameMs": 13.33402489626556,
+            "p95Ms": 13.400000000008731,
+            "cpuMs": 0.3842323662334458,
+            "gpuMs": 2.730737925311202,
+            "count": 424897,
+            "countUnit": "スプラット",
+            "voxels": null,
+            "frames": 241
+          },
+          {
+            "method": "surfels",
+            "fps": 74.99844401568411,
+            "frameMs": 13.33360995850626,
+            "p95Ms": 13.400000000008731,
+            "cpuMs": 0.22531120262699997,
+            "gpuMs": 2.0468954024896266,
+            "count": 424897,
+            "countUnit": "円盤",
+            "voxels": null,
+            "frames": 241
+          },
+          {
+            "method": "voxels",
+            "fps": 74.9961101602614,
+            "frameMs": 13.33402489626556,
+            "p95Ms": 13.400000000008731,
+            "cpuMs": 0.23734440002203977,
+            "gpuMs": 1.1653372282157677,
+            "count": 49620,
+            "countUnit": "面",
+            "voxels": {
+              "solid": 226349,
+              "surface": 49329,
+              "faces": 98878,
+              "groups": 3
+            },
+            "frames": 241
+          }
+        ]
+      }
+    },
+    {
+      "prog": 11,
+      "name": "bench-default-Dnocull",
+      "view": {
+        "yaw": 0.75,
+        "pitch": 0.6,
+        "zoom": 15
+      },
+      "set": {
+        "voxelSize": 0.2,
+        "voxelCharSize": 0.06,
+        "voxelCull": false
+      },
+      "wallMs": 15865,
+      "memAfter": {
+        "tex": 11,
+        "geo": 124
+      },
+      "report": {
+        "test": "benchmark",
+        "env": {
+          "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER (0x00001F06) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36",
+          "canvas": "950×800",
+          "dpr": 1,
+          "touch": false
+        },
+        "lowRes": {
+          "w": 321,
+          "h": 271
+        },
+        "settings": {
+          "pixelScale": 3,
+          "density": 1,
+          "splatSupersample": 2,
+          "voxelSize": 0.2,
+          "voxelCharSize": 0.06,
+          "voxelDecor": 0,
+          "voxelFlowers": true,
+          "voxelCull": false
+        },
+        "results": [
+          {
+            "method": "points",
+            "fps": 74.9961101602614,
+            "frameMs": 13.33402489626556,
+            "p95Ms": 13.400000000008731,
+            "cpuMs": 0.20995850731228397,
+            "gpuMs": 2.7465040995850614,
+            "count": 424897,
+            "countUnit": "粒",
+            "voxels": null,
+            "frames": 241
+          },
+          {
+            "method": "splats",
+            "fps": 74.9961101602614,
+            "frameMs": 13.33402489626556,
+            "p95Ms": 13.400000000008731,
+            "cpuMs": 0.39751037571934744,
+            "gpuMs": 2.7007081333333316,
+            "count": 424897,
+            "countUnit": "スプラット",
+            "voxels": null,
+            "frames": 241
+          },
+          {
+            "method": "surfels",
+            "fps": 74.9961101602614,
+            "frameMs": 13.33402489626556,
+            "p95Ms": 13.400000000008731,
+            "cpuMs": 0.2639004140473995,
+            "gpuMs": 1.8464725333333336,
+            "count": 424897,
+            "countUnit": "円盤",
+            "voxels": null,
+            "frames": 241
+          },
+          {
+            "method": "voxels",
+            "fps": 74.9961101602614,
+            "frameMs": 13.33402489626556,
+            "p95Ms": 13.400000000008731,
+            "cpuMs": 0.23485477039922817,
+            "gpuMs": 1.8258157676348534,
+            "count": 409444,
+            "countUnit": "面",
+            "voxels": {
+              "solid": 1798325,
+              "surface": 231800,
+              "faces": 409444,
+              "groups": 6
+            },
+            "frames": 241
+          }
+        ]
+      }
+    },
+    {
+      "prog": 13,
+      "name": "flicker-D0.1",
+      "view": {
+        "yaw": 0.75,
+        "pitch": 0.6,
+        "zoom": 15
+      },
+      "set": {
+        "voxelSize": 0.1,
+        "voxelCharSize": 0.04,
+        "voxelCull": true
+      },
+      "wallMs": 10838,
+      "memAfter": {
+        "tex": 11,
+        "geo": 121
+      },
+      "report": {
+        "test": "flicker",
+        "settings": {
+          "pixelScale": 3,
+          "projection": "ortho",
+          "cameraSnap": true,
+          "pointSnap": true,
+          "alphaDither": true,
+          "dither": 0.35,
+          "palette": "meadow32",
+          "splatCrisp": true,
+          "splatSupersample": 2
+        },
+        "results": [
+          {
+            "method": "points",
+            "staticPct": 0,
+            "panPct": 9.80729082746843,
+            "panMaxPct": 27.241584567353833,
+            "frames": 91
+          },
+          {
+            "method": "splats",
+            "staticPct": 0,
+            "panPct": 7.8532749785329115,
+            "panMaxPct": 22.615678033017893,
+            "frames": 91
+          },
+          {
+            "method": "surfels",
+            "staticPct": 0,
+            "panPct": 7.320970189809705,
+            "panMaxPct": 20.559044691990913,
+            "frames": 91
+          },
+          {
+            "method": "voxels",
+            "staticPct": 0,
+            "panPct": 7.642674991646676,
+            "panMaxPct": 21.21259976433144,
+            "frames": 91
+          }
+        ]
+      }
+    },
+    {
+      "prog": 11,
+      "name": "gap-default-again",
+      "view": {
+        "yaw": 0.75,
+        "pitch": 0.6,
+        "zoom": 15
+      },
+      "set": {
+        "voxelSize": 0.2,
+        "voxelCharSize": 0.06
+      },
+      "wallMs": 2728,
+      "memAfter": {
+        "tex": 8,
+        "geo": 116
+      },
+      "report": {
+        "test": "gap-overdraw",
+        "erodePx": 2,
+        "depthGap": 0.6,
+        "zoom": 15,
+        "pitch": 0.6,
+        "lowRes": {
+          "w": 321,
+          "h": 271
+        },
+        "aEstimateErrorPct": 0.004554695483707513,
+        "results": [
+          {
+            "method": "points",
+            "gapPct": 0,
+            "throughPct": 0.005907442195678115,
+            "coverPct": 100,
+            "rasterPerPx": 18.724500235656564,
+            "writtenPerPx": 16.499120598682623,
+            "rasterPerCovered": 18.724500235656564,
+            "kind": "measured",
+            "drawn": 424897,
+            "drawnUnit": "粒"
+          },
+          {
+            "method": "splats",
+            "gapPct": 0,
+            "throughPct": null,
+            "coverPct": 100,
+            "rasterPerPx": 29.04609000914452,
+            "writtenPerPx": 22.812745747067673,
+            "rasterPerCovered": null,
+            "kind": "estimated",
+            "drawn": 424897,
+            "drawnUnit": "スプラット"
+          },
+          {
+            "method": "surfels",
+            "gapPct": 0.0011814884391356231,
+            "throughPct": 0.3237278323231607,
+            "coverPct": 99.99885045579427,
+            "rasterPerPx": 9.12034578289708,
+            "writtenPerPx": 7.378924256532285,
+            "rasterPerCovered": 9.120450626508793,
+            "kind": "measured",
+            "drawn": 424897,
+            "drawnUnit": "円盤"
+          },
+          {
+            "method": "voxels",
+            "gapPct": 0.0011814884391356231,
+            "throughPct": 0.4040690461843831,
+            "coverPct": 99.99885045579427,
+            "rasterPerPx": 1.9727098205561495,
+            "writtenPerPx": 1.9727098205561495,
+            "rasterPerCovered": 1.9727324979882745,
+            "kind": "measured",
+            "drawn": 205053,
+            "drawnUnit": "面"
+          }
+        ]
+      }
+    }
+  ]
+}
