@@ -15,6 +15,18 @@ export const METHOD_NAME: Record<RenderMethod, string> = { points: 'A：ポイ�
 export const METHOD_LETTER: Record<RenderMethod, string> = { points: 'A', splats: 'B', surfels: 'C', voxels: 'D', pixelmesh: 'E', hybrid: 'F' };
 /** 方式 F で幹・枝をどちらで描くか（mesh = E 側のメッシュ / surfel = C 側の円盤） */
 export type HybridTrunk = 'mesh' | 'surfel';
+/**
+ * 方式 F の道・地面の配色（v2）。legacy = v1 と同じ（地形の網の頂点に点群の色を写すだけ。道に大きな色むらが出る）。
+ * それ以外は地面を画素ごとに塗る（道は道の距離場 + 石畳の模様、草地は細かな色の揺らぎ）。
+ */
+export type HybridRoad = 'legacy' | 'cobble' | 'slate' | 'sandstone' | 'dirt';
+export const HYBRID_ROADS: [HybridRoad, string][] = [
+  ['legacy', '改善前（点群の色を写す）'],
+  ['cobble', '石畳：灰（推奨）'],
+  ['slate', '石畳：青灰・暗め'],
+  ['sandstone', '石畳：砂岩（暖色）'],
+  ['dirt', '土の小道（小石まじり）'],
+];
 /** スプラットの形状ソース: 既存の粒データを変換 / 樹木・岩・キャラクターを SDF から生成 */
 export type SplatSource = 'convert' | 'sdf';
 
@@ -94,6 +106,24 @@ export interface RenderSettings {
   // ハイブリッド（方式 F。形状の細かさ・フラットシェーディングは E、円盤の大きさ・密度は C の設定を共用）
   /** 幹・枝を E（メッシュ）と C（円盤）のどちらで描くか（変えると C 側の円盤を作り直す） */
   hybridTrunk: HybridTrunk;
+  /** 道・地面の配色（legacy = v1 のまま） */
+  hybridRoad: HybridRoad;
+  /** 草の葉の表示密度（0..1。1 = v1 と同じ全部。房ではなく葉 1 枚単位で間引く。作り直さない） */
+  hybridGrass: number;
+  /** 草の根元の色を地面の色へ寄せる量（0 = v1） */
+  hybridGrassBlend: number;
+  /** 草の円盤の大きさ（C の「円盤の大きさ」に掛ける。1 = v1） */
+  hybridGrassSize: number;
+  /** 遠景で残す草の割合（1 = 間引かない = v1） */
+  hybridGrassFar: number;
+  /** 草地の地面の細かな色の揺らぎ（0 = v1。legacy 以外の配色で有効） */
+  hybridGroundDetail: number;
+  /** キャラクターの足元の草を押し倒す強さ（0 = v1） */
+  hybridTrample: number;
+  /** キャラクターの明るさの持ち上げと縁の光（0 = v1） */
+  hybridCharLift: number;
+  /** 足元の接地影（地面だけ。0 = v1。legacy 以外の配色で有効） */
+  hybridContact: number;
 }
 
 export const DEFAULT_SETTINGS: RenderSettings = {
@@ -148,6 +178,21 @@ export const DEFAULT_SETTINGS: RenderSettings = {
   meshFlat: false,
   meshGrass: 1,
   hybridTrunk: 'mesh',
+  hybridRoad: 'cobble',
+  hybridGrass: 0.7,
+  hybridGrassBlend: 0.45,
+  hybridGrassSize: 1,
+  hybridGrassFar: 0.5,
+  hybridGroundDetail: 0.5,
+  hybridTrample: 0.8,
+  hybridCharLift: 0.2,
+  hybridContact: 0.5,
+};
+
+/** 方式 F の v1（改善前）の見た目を再現する値（プリセット「ハイブリッド：改善前（v1）」と比較撮影で使う） */
+export const HYBRID_V1: Partial<RenderSettings> = {
+  hybridRoad: 'legacy', hybridGrass: 1, hybridGrassBlend: 0, hybridGrassSize: 1, hybridGrassFar: 1,
+  hybridGroundDetail: 0, hybridTrample: 0, hybridCharLift: 0, hybridContact: 0,
 };
 
 /** 方式 D の作り直しが必要な設定の選択肢（連続値にすると操作のたびに作り直しが走るため段階で選ぶ） */
@@ -181,6 +226,7 @@ export function sanitizeSettings(raw: unknown): RenderSettings {
   if (!RENDER_METHODS.includes(out.compareLeft)) out.compareLeft = DEFAULT_SETTINGS.compareLeft;
   if (!RENDER_METHODS.includes(out.compareRight)) out.compareRight = DEFAULT_SETTINGS.compareRight;
   if (!['mesh', 'surfel'].includes(out.hybridTrunk)) out.hybridTrunk = DEFAULT_SETTINGS.hybridTrunk;
+  if (!HYBRID_ROADS.some(([k]) => k === out.hybridRoad)) out.hybridRoad = DEFAULT_SETTINGS.hybridRoad;
   if (!['convert', 'sdf'].includes(out.splatSource)) out.splatSource = DEFAULT_SETTINGS.splatSource;
   // 方式 D の作り直しが必要な設定は選択肢の値だけ受け付ける（任意の値で極端に重い生成をさせない）
   if (!VOXEL_SIZES.includes(out.voxelSize)) out.voxelSize = DEFAULT_SETTINGS.voxelSize;
@@ -216,4 +262,5 @@ export const BUILTIN_PRESETS: Record<string, Partial<RenderSettings>> = {
   // 方式 F 用
   'ハイブリッド：標準（幹は E）': { renderMethod: 'hybrid', meshDetail: 0.14, meshFlat: false, surfelScale: 1, hybridTrunk: 'mesh' },
   'ハイブリッド：幹も C': { renderMethod: 'hybrid', meshDetail: 0.14, meshFlat: false, surfelScale: 1, hybridTrunk: 'surfel' },
+  'ハイブリッド：改善前（v1）': { renderMethod: 'hybrid', meshDetail: 0.14, meshFlat: false, surfelScale: 1, hybridTrunk: 'mesh', ...HYBRID_V1 },
 };

@@ -56,7 +56,7 @@ function drawnCount(v: SceneRenderer, m: RenderMethod): number {
 function hybridCounts(v: SceneRenderer, m: RenderMethod) {
   const h = m === 'hybrid' ? v.hybrid : null;
   const br = h?.mesh.breakdown;
-  return h && br ? { tris: v.drawnHybridTris, surfels: v.drawnHybridSurfels, surfelTotal: h.surfel?.worldTotal ?? 0, terrainTris: br.terrain, rockTris: br.objects, trunkTris: br.trunks, cloudTris: br.clouds, trunk: h.mesh.trunksVisible ? 'mesh' : 'surfel' } : null;
+  return h && br ? { tris: v.drawnHybridTris, surfels: v.drawnHybridSurfels, surfelTotal: (h.surfel?.worldTotal ?? 0) + (h.grass?.worldTotal ?? 0), grassDrawn: h.drawnGrass, terrainTris: br.terrain, rockTris: br.objects, trunkTris: br.trunks, cloudTris: br.clouds, trunk: h.mesh.trunksVisible ? 'mesh' : 'surfel' } : null;
 }
 
 /** 方式 E のメッシュの内訳（E 以外は null） */
@@ -101,6 +101,12 @@ abstract class BaseTool implements Tool {
 
   abstract before(): void;
   abstract after(info: FrameInfo): boolean;
+
+  /** 比べる方式を絞る（自動計測用。window.__ppp.runTool から使う） */
+  onlyMethods(ms: RenderMethod[]): this {
+    this.methods.splice(0, this.methods.length, ...ms.filter((m) => RENDER_METHODS.includes(m)));
+    return this;
+  }
 
   finish() {
     Object.assign(this.host.settings, this.saved);
@@ -425,7 +431,7 @@ export class BenchmarkTool extends BaseTool {
         (msh ? `<div class="small">E の「数」は三角形の数です。E のメッシュ：浮き島 ${msh.worldTris.toLocaleString()} 三角形（頂点 ${msh.worldVerts.toLocaleString()}）+ 草の帯 ${msh.blades.toLocaleString()} 本 + 花 ${msh.heads.toLocaleString()} 輪、キャラ ${msh.charTris.toLocaleString()} 三角形</div>` : '') +
         (hyb ? `<div class="small">F の「数」は E 側の三角形 ${hyb.tris.toLocaleString()}（地形 ${hyb.terrainTris.toLocaleString()} / 岩 ${hyb.rockTris.toLocaleString()} / 幹 ${hyb.trunk === 'mesh' ? hyb.trunkTris.toLocaleString() : '0（C 側）'} / 雲 ${hyb.cloudTris.toLocaleString()} / キャラ）+ C 側の円盤 ${hyb.surfels.toLocaleString()}（草花・葉${hyb.trunk === 'surfel' ? '・幹' : ''}）の合計です</div>` : '') +
         `<div class="small">${env.gpu}<br>キャンバス ${env.canvas} / 描画解像度 ${lr.w}×${lr.h} / DPR ${env.dpr}</div>`,
-      { test: 'benchmark', env, lowRes: lr, settings: { pixelScale: this.saved.pixelScale, density: this.saved.density, splatSupersample: this.saved.splatSupersample, voxelSize: this.saved.voxelSize, voxelCharSize: this.saved.voxelCharSize, voxelDecor: this.saved.voxelDecor, voxelFlowers: this.saved.voxelFlowers, voxelCull: this.saved.voxelCull, meshDetail: this.saved.meshDetail, meshFlat: this.saved.meshFlat, meshGrass: this.saved.meshGrass, surfelScale: this.saved.surfelScale, hybridTrunk: this.saved.hybridTrunk }, results: this.results },
+      { test: 'benchmark', env, lowRes: lr, settings: { pixelScale: this.saved.pixelScale, density: this.saved.density, splatSupersample: this.saved.splatSupersample, voxelSize: this.saved.voxelSize, voxelCharSize: this.saved.voxelCharSize, voxelDecor: this.saved.voxelDecor, voxelFlowers: this.saved.voxelFlowers, voxelCull: this.saved.voxelCull, meshDetail: this.saved.meshDetail, meshFlat: this.saved.meshFlat, meshGrass: this.saved.meshGrass, surfelScale: this.saved.surfelScale, hybridTrunk: this.saved.hybridTrunk, hybridRoad: this.saved.hybridRoad, hybridGrass: this.saved.hybridGrass, hybridGrassFar: this.saved.hybridGrassFar, hybridGrassSize: this.saved.hybridGrassSize }, results: this.results },
     );
     return false;
   }

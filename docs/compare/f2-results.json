@@ -1,0 +1,1204 @@
+{
+  "date": "2026-11-21",
+  "branch": "feat/hybrid-quality",
+  "env": {
+    "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER (0x00001F06) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "canvas": [
+      950,
+      800
+    ],
+    "dpr": 1,
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36"
+  },
+  "configs": [
+    {
+      "name": "v1",
+      "set": {
+        "hybridRoad": "legacy",
+        "hybridGrass": 1,
+        "hybridGrassBlend": 0,
+        "hybridGrassSize": 1,
+        "hybridGrassFar": 1,
+        "hybridGroundDetail": 0,
+        "hybridTrample": 0,
+        "hybridCharLift": 0,
+        "hybridContact": 0
+      }
+    },
+    {
+      "name": "v2-100",
+      "set": {
+        "hybridGrass": 1
+      }
+    },
+    {
+      "name": "v2-80",
+      "set": {
+        "hybridGrass": 0.8
+      }
+    },
+    {
+      "name": "v2-70",
+      "set": {
+        "hybridGrass": 0.7
+      }
+    },
+    {
+      "name": "v2-60",
+      "set": {
+        "hybridGrass": 0.6
+      }
+    },
+    {
+      "name": "ref-EC",
+      "methods": [
+        "pixelmesh",
+        "surfels"
+      ]
+    }
+  ],
+  "views": [
+    {
+      "name": "std",
+      "zoom": 15
+    },
+    {
+      "name": "far",
+      "zoom": 33
+    }
+  ],
+  "bench": [
+    {
+      "rep": 0,
+      "view": "std",
+      "cfg": "v1",
+      "method": "hybrid",
+      "gpuMs": 1.2357810456431535,
+      "cpuMs": 0.28921161548725305,
+      "fps": 74.99844401568433,
+      "count": 385816,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 167524,
+        "surfelTotal": 167524,
+        "grassDrawn": 70656,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 0,
+      "view": "std",
+      "cfg": "v2-100",
+      "method": "hybrid",
+      "gpuMs": 1.1818841493775933,
+      "cpuMs": 0.2966804999038886,
+      "fps": 74.68931106083618,
+      "count": 385816,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 167524,
+        "surfelTotal": 167524,
+        "grassDrawn": 70656,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 0,
+      "view": "std",
+      "cfg": "v2-80",
+      "method": "hybrid",
+      "gpuMs": 1.1429995020746877,
+      "cpuMs": 0.30290456233677526,
+      "fps": 74.99377645008717,
+      "count": 371685,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 153393,
+        "surfelTotal": 167524,
+        "grassDrawn": 56525,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 0,
+      "view": "std",
+      "cfg": "v2-70",
+      "method": "hybrid",
+      "gpuMs": 1.1417750041493777,
+      "cpuMs": 0.3029045643153527,
+      "fps": 74.99844401568429,
+      "count": 364619,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 146327,
+        "surfelTotal": 167524,
+        "grassDrawn": 49459,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 0,
+      "view": "std",
+      "cfg": "v2-60",
+      "method": "hybrid",
+      "gpuMs": 1.1958506224066388,
+      "cpuMs": 0.2966805013878217,
+      "fps": 74.99377645008708,
+      "count": 357554,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 139262,
+        "surfelTotal": 167524,
+        "grassDrawn": 42394,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 0,
+      "view": "std",
+      "cfg": "ref-EC",
+      "method": "pixelmesh",
+      "gpuMs": 0.7258675518672197,
+      "cpuMs": 0.24356846196028206,
+      "fps": 74.99377645008708,
+      "count": 457889,
+      "hybrid": null
+    },
+    {
+      "rep": 0,
+      "view": "std",
+      "cfg": "ref-EC",
+      "method": "surfels",
+      "gpuMs": 1.205970058091285,
+      "cpuMs": 0.2207468916271732,
+      "fps": 74.99844401568429,
+      "count": 424897,
+      "hybrid": null
+    },
+    {
+      "rep": 0,
+      "view": "far",
+      "cfg": "v1",
+      "method": "hybrid",
+      "gpuMs": 1.3144317344398349,
+      "cpuMs": 0.2630705353630034,
+      "fps": 74.9961101602614,
+      "count": 385816,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 167524,
+        "surfelTotal": 167524,
+        "grassDrawn": 70656,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 0,
+      "view": "far",
+      "cfg": "v2-100",
+      "method": "hybrid",
+      "gpuMs": 1.3227122987551867,
+      "cpuMs": 0.281327798158796,
+      "fps": 74.9961101602614,
+      "count": 385816,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 167524,
+        "surfelTotal": 167524,
+        "grassDrawn": 70656,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 0,
+      "view": "far",
+      "cfg": "v2-80",
+      "method": "hybrid",
+      "gpuMs": 1.4531994024896269,
+      "cpuMs": 0.29999999980214226,
+      "fps": 74.99844401568429,
+      "count": 371685,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 153393,
+        "surfelTotal": 167524,
+        "grassDrawn": 56525,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 0,
+      "view": "far",
+      "cfg": "v2-70",
+      "method": "hybrid",
+      "gpuMs": 1.4436725643153516,
+      "cpuMs": 0.3033194972271741,
+      "fps": 74.9961101602614,
+      "count": 364619,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 146327,
+        "surfelTotal": 167524,
+        "grassDrawn": 49459,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 0,
+      "view": "far",
+      "cfg": "v2-60",
+      "method": "hybrid",
+      "gpuMs": 1.4396226390041498,
+      "cpuMs": 0.29751037463112984,
+      "fps": 74.99844401568446,
+      "count": 357554,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 139262,
+        "surfelTotal": 167524,
+        "grassDrawn": 42394,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 0,
+      "view": "far",
+      "cfg": "ref-EC",
+      "method": "pixelmesh",
+      "gpuMs": 0.6953204315352699,
+      "cpuMs": 0.2618257262400077,
+      "fps": 74.9961101602614,
+      "count": 457889,
+      "hybrid": null
+    },
+    {
+      "rep": 0,
+      "view": "far",
+      "cfg": "ref-EC",
+      "method": "surfels",
+      "gpuMs": 1.506901775933611,
+      "cpuMs": 0.23195021231639434,
+      "fps": 74.99844401568446,
+      "count": 424897,
+      "hybrid": null
+    },
+    {
+      "rep": 1,
+      "view": "std",
+      "cfg": "ref-EC",
+      "method": "pixelmesh",
+      "gpuMs": 0.6598524813278003,
+      "cpuMs": 0.24896264917128313,
+      "fps": 74.9961101602614,
+      "count": 457889,
+      "hybrid": null
+    },
+    {
+      "rep": 1,
+      "view": "std",
+      "cfg": "ref-EC",
+      "method": "surfels",
+      "gpuMs": 1.5293066887966793,
+      "cpuMs": 0.23526970627891572,
+      "fps": 74.9961101602614,
+      "count": 424897,
+      "hybrid": null
+    },
+    {
+      "rep": 1,
+      "view": "std",
+      "cfg": "v2-60",
+      "method": "hybrid",
+      "gpuMs": 1.1253709543568469,
+      "cpuMs": 0.310788380654521,
+      "fps": 74.9961101602614,
+      "count": 357554,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 139262,
+        "surfelTotal": 167524,
+        "grassDrawn": 42394,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 1,
+      "view": "std",
+      "cfg": "v2-70",
+      "method": "hybrid",
+      "gpuMs": 1.1908109543568468,
+      "cpuMs": 0.3037344425051044,
+      "fps": 74.9961101602614,
+      "count": 364619,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 146327,
+        "surfelTotal": 167524,
+        "grassDrawn": 49459,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 1,
+      "view": "std",
+      "cfg": "v2-80",
+      "method": "hybrid",
+      "gpuMs": 1.193445576763486,
+      "cpuMs": 0.31037344378554477,
+      "fps": 74.99844401568411,
+      "count": 371685,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 153393,
+        "surfelTotal": 167524,
+        "grassDrawn": 56525,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 1,
+      "view": "std",
+      "cfg": "v2-100",
+      "method": "hybrid",
+      "gpuMs": 1.2869137261410775,
+      "cpuMs": 0.2883817442225223,
+      "fps": 74.99844401568446,
+      "count": 385816,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 167524,
+        "surfelTotal": 167524,
+        "grassDrawn": 70656,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 1,
+      "view": "std",
+      "cfg": "v1",
+      "method": "hybrid",
+      "gpuMs": 1.1628364481327795,
+      "cpuMs": 0.2995850649117434,
+      "fps": 74.9961101602614,
+      "count": 385816,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 167524,
+        "surfelTotal": 167524,
+        "grassDrawn": 70656,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 1,
+      "view": "far",
+      "cfg": "ref-EC",
+      "method": "pixelmesh",
+      "gpuMs": 0.6807876514522819,
+      "cpuMs": 0.25477178264950323,
+      "fps": 74.99844401568446,
+      "count": 457889,
+      "hybrid": null
+    },
+    {
+      "rep": 1,
+      "view": "far",
+      "cfg": "ref-EC",
+      "method": "surfels",
+      "gpuMs": 1.7930166970954362,
+      "cpuMs": 0.22323651630354124,
+      "fps": 74.99844401568446,
+      "count": 424897,
+      "hybrid": null
+    },
+    {
+      "rep": 1,
+      "view": "far",
+      "cfg": "v2-60",
+      "method": "hybrid",
+      "gpuMs": 1.2574057427385894,
+      "cpuMs": 0.2941908762168093,
+      "fps": 74.9961101602614,
+      "count": 357554,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 139262,
+        "surfelTotal": 167524,
+        "grassDrawn": 42394,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 1,
+      "view": "far",
+      "cfg": "v2-70",
+      "method": "hybrid",
+      "gpuMs": 1.2091162821576757,
+      "cpuMs": 0.291701245604709,
+      "fps": 74.9961101602614,
+      "count": 364619,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 146327,
+        "surfelTotal": 167524,
+        "grassDrawn": 49459,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 1,
+      "view": "far",
+      "cfg": "v2-80",
+      "method": "hybrid",
+      "gpuMs": 1.1860012614107884,
+      "cpuMs": 0.2850622423456912,
+      "fps": 74.9961101602614,
+      "count": 371685,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 153393,
+        "surfelTotal": 167524,
+        "grassDrawn": 56525,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 1,
+      "view": "far",
+      "cfg": "v2-100",
+      "method": "hybrid",
+      "gpuMs": 1.2634720663900416,
+      "cpuMs": 0.28547717476286827,
+      "fps": 74.9961101602614,
+      "count": 385816,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 167524,
+        "surfelTotal": 167524,
+        "grassDrawn": 70656,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 1,
+      "view": "far",
+      "cfg": "v1",
+      "method": "hybrid",
+      "gpuMs": 1.030550970954356,
+      "cpuMs": 0.2585062238685323,
+      "fps": 74.99844401568411,
+      "count": 385816,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 167524,
+        "surfelTotal": 167524,
+        "grassDrawn": 70656,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 2,
+      "view": "std",
+      "cfg": "v1",
+      "method": "hybrid",
+      "gpuMs": 1.1090885311203322,
+      "cpuMs": 0.27427386050402375,
+      "fps": 74.99611016026105,
+      "count": 385816,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 167524,
+        "surfelTotal": 167524,
+        "grassDrawn": 70656,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 2,
+      "view": "std",
+      "cfg": "v2-100",
+      "method": "hybrid",
+      "gpuMs": 1.2443277012448135,
+      "cpuMs": 0.27344398429284944,
+      "fps": 74.9961101602614,
+      "count": 385816,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 167524,
+        "surfelTotal": 167524,
+        "grassDrawn": 70656,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 2,
+      "view": "std",
+      "cfg": "v2-80",
+      "method": "hybrid",
+      "gpuMs": 1.135341543568464,
+      "cpuMs": 0.2792531113406929,
+      "fps": 74.993776450087,
+      "count": 371685,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 153393,
+        "surfelTotal": 167524,
+        "grassDrawn": 56525,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 2,
+      "view": "std",
+      "cfg": "v2-70",
+      "method": "hybrid",
+      "gpuMs": 1.2149554190871374,
+      "cpuMs": 0.2630705383308696,
+      "fps": 74.99844401568446,
+      "count": 364619,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 146327,
+        "surfelTotal": 167524,
+        "grassDrawn": 49459,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 2,
+      "view": "std",
+      "cfg": "v2-60",
+      "method": "hybrid",
+      "gpuMs": 1.1826675518672194,
+      "cpuMs": 0.28921161499260867,
+      "fps": 74.99377645008768,
+      "count": 357554,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 139262,
+        "surfelTotal": 167524,
+        "grassDrawn": 42394,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 2,
+      "view": "std",
+      "cfg": "ref-EC",
+      "method": "pixelmesh",
+      "gpuMs": 0.7275554522821575,
+      "cpuMs": 0.23360996028694375,
+      "fps": 74.9961101602614,
+      "count": 457889,
+      "hybrid": null
+    },
+    {
+      "rep": 2,
+      "view": "std",
+      "cfg": "ref-EC",
+      "method": "surfels",
+      "gpuMs": 1.3603249128630708,
+      "cpuMs": 0.198340244807643,
+      "fps": 74.9961101602614,
+      "count": 424897,
+      "hybrid": null
+    },
+    {
+      "rep": 2,
+      "view": "far",
+      "cfg": "v1",
+      "method": "hybrid",
+      "gpuMs": 1.1747338091286315,
+      "cpuMs": 0.25518672298098993,
+      "fps": 74.9961101602614,
+      "count": 385816,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 167524,
+        "surfelTotal": 167524,
+        "grassDrawn": 70656,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 2,
+      "view": "far",
+      "cfg": "v2-100",
+      "method": "hybrid",
+      "gpuMs": 1.2442602489626557,
+      "cpuMs": 0.28381743520127295,
+      "fps": 74.9961101602614,
+      "count": 385816,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 167524,
+        "surfelTotal": 167524,
+        "grassDrawn": 70656,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 2,
+      "view": "far",
+      "cfg": "v2-80",
+      "method": "hybrid",
+      "gpuMs": 1.2620126804979266,
+      "cpuMs": 0.27883817447171666,
+      "fps": 74.99844401568377,
+      "count": 371685,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 153393,
+        "surfelTotal": 167524,
+        "grassDrawn": 56525,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 2,
+      "view": "far",
+      "cfg": "v2-70",
+      "method": "hybrid",
+      "gpuMs": 1.205310406639005,
+      "cpuMs": 0.27800829924983106,
+      "fps": 74.9961101602614,
+      "count": 364619,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 146327,
+        "surfelTotal": 167524,
+        "grassDrawn": 49459,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 2,
+      "view": "far",
+      "cfg": "v2-60",
+      "method": "hybrid",
+      "gpuMs": 1.173947485477178,
+      "cpuMs": 0.28838174026536745,
+      "fps": 74.9961101602614,
+      "count": 357554,
+      "hybrid": {
+        "tris": 218292,
+        "surfels": 139262,
+        "surfelTotal": 167524,
+        "grassDrawn": 42394,
+        "terrainTris": 171910,
+        "rockTris": 14060,
+        "trunkTris": 12346,
+        "cloudTris": 15960,
+        "trunk": "mesh"
+      }
+    },
+    {
+      "rep": 2,
+      "view": "far",
+      "cfg": "ref-EC",
+      "method": "pixelmesh",
+      "gpuMs": 0.6786919834024893,
+      "cpuMs": 0.2336099573190776,
+      "fps": 74.9961101602614,
+      "count": 457889,
+      "hybrid": null
+    },
+    {
+      "rep": 2,
+      "view": "far",
+      "cfg": "ref-EC",
+      "method": "surfels",
+      "gpuMs": 1.5708799999999985,
+      "cpuMs": 0.2029045676789343,
+      "fps": 74.99844401568446,
+      "count": 424897,
+      "hybrid": null
+    }
+  ],
+  "flicker": [
+    {
+      "view": "std",
+      "cfg": "v1",
+      "method": "hybrid",
+      "staticPct": 0,
+      "panPct": 7.983455944437008,
+      "panMaxPct": 22.335062379280604,
+      "frames": 91
+    },
+    {
+      "view": "std",
+      "cfg": "v2-100",
+      "method": "hybrid",
+      "staticPct": 0,
+      "panPct": 7.5798131338164625,
+      "panMaxPct": 21.19680754139385,
+      "frames": 91
+    },
+    {
+      "view": "std",
+      "cfg": "v2-80",
+      "method": "hybrid",
+      "staticPct": 0,
+      "panPct": 7.58971831506726,
+      "panMaxPct": 21.229606773648854,
+      "frames": 91
+    },
+    {
+      "view": "std",
+      "cfg": "v2-70",
+      "method": "hybrid",
+      "staticPct": 0,
+      "panPct": 7.606044510039943,
+      "panMaxPct": 21.268479937802937,
+      "frames": 91
+    },
+    {
+      "view": "std",
+      "cfg": "v2-60",
+      "method": "hybrid",
+      "staticPct": 0,
+      "panPct": 7.6265223375853965,
+      "panMaxPct": 21.320715752134987,
+      "frames": 91
+    },
+    {
+      "view": "std",
+      "cfg": "ref-EC",
+      "method": "pixelmesh",
+      "staticPct": 0,
+      "panPct": 7.812531496006755,
+      "panMaxPct": 21.61590884243006,
+      "frames": 91
+    },
+    {
+      "view": "std",
+      "cfg": "ref-EC",
+      "method": "surfels",
+      "staticPct": 0,
+      "panPct": 7.321424066039526,
+      "panMaxPct": 20.560259478370728,
+      "frames": 91
+    },
+    {
+      "view": "far",
+      "cfg": "v1",
+      "method": "hybrid",
+      "staticPct": 0,
+      "panPct": 9.173546117629499,
+      "panMaxPct": 25.372028328818374,
+      "frames": 91
+    },
+    {
+      "view": "far",
+      "cfg": "v2-100",
+      "method": "hybrid",
+      "staticPct": 0,
+      "panPct": 9.249196605699966,
+      "panMaxPct": 25.59190466356491,
+      "frames": 91
+    },
+    {
+      "view": "far",
+      "cfg": "v2-80",
+      "method": "hybrid",
+      "staticPct": 0,
+      "panPct": 9.283864740077766,
+      "panMaxPct": 25.72674595172439,
+      "frames": 91
+    },
+    {
+      "view": "far",
+      "cfg": "v2-70",
+      "method": "hybrid",
+      "staticPct": 0,
+      "panPct": 9.296613322415384,
+      "panMaxPct": 25.76683390225829,
+      "frames": 91
+    },
+    {
+      "view": "far",
+      "cfg": "v2-60",
+      "method": "hybrid",
+      "staticPct": 0,
+      "panPct": 9.295011406310136,
+      "panMaxPct": 25.75590082483995,
+      "frames": 91
+    },
+    {
+      "view": "far",
+      "cfg": "ref-EC",
+      "method": "pixelmesh",
+      "staticPct": 0,
+      "panPct": 9.250558234389429,
+      "panMaxPct": 25.595549022704354,
+      "frames": 91
+    },
+    {
+      "view": "far",
+      "cfg": "ref-EC",
+      "method": "surfels",
+      "staticPct": 0,
+      "panPct": 9.03212362413762,
+      "panMaxPct": 24.98937061917662,
+      "frames": 91
+    }
+  ],
+  "gap": [
+    {
+      "view": "std",
+      "cfg": "v1",
+      "results": [
+        {
+          "method": "hybrid",
+          "gapPct": 0,
+          "throughPct": 0.20085303465305593,
+          "coverPct": 100,
+          "rasterPerPx": 4.043061925946362,
+          "writtenPerPx": 3.3355404582083206,
+          "rasterPerCovered": 4.043061925946362,
+          "kind": "measured",
+          "drawn": 385816,
+          "drawnUnit": "三角形+円盤"
+        }
+      ]
+    },
+    {
+      "view": "std",
+      "cfg": "v2-100",
+      "results": [
+        {
+          "method": "hybrid",
+          "gapPct": 0,
+          "throughPct": 0.20321601153132718,
+          "coverPct": 100,
+          "rasterPerPx": 4.043061925946362,
+          "writtenPerPx": 3.3355404582083206,
+          "rasterPerCovered": 4.043061925946362,
+          "kind": "measured",
+          "drawn": 385816,
+          "drawnUnit": "三角形+円盤"
+        }
+      ]
+    },
+    {
+      "view": "std",
+      "cfg": "v2-80",
+      "results": [
+        {
+          "method": "hybrid",
+          "gapPct": 0,
+          "throughPct": 0.20203452309219155,
+          "coverPct": 100,
+          "rasterPerPx": 3.9573749008518124,
+          "writtenPerPx": 3.293846489866768,
+          "rasterPerCovered": 3.9573749008518124,
+          "kind": "measured",
+          "drawn": 371685,
+          "drawnUnit": "三角形+円盤"
+        }
+      ]
+    },
+    {
+      "view": "std",
+      "cfg": "v2-70",
+      "results": [
+        {
+          "method": "hybrid",
+          "gapPct": 0,
+          "throughPct": 0.19967154621392028,
+          "coverPct": 100,
+          "rasterPerPx": 3.9139451207596188,
+          "writtenPerPx": 3.2723500132197585,
+          "rasterPerCovered": 3.9139451207596188,
+          "kind": "measured",
+          "drawn": 364619,
+          "drawnUnit": "三角形+円盤"
+        }
+      ]
+    },
+    {
+      "view": "std",
+      "cfg": "v2-60",
+      "results": [
+        {
+          "method": "hybrid",
+          "gapPct": 0,
+          "throughPct": 0.20321601153132718,
+          "coverPct": 100,
+          "rasterPerPx": 3.8687795289167846,
+          "writtenPerPx": 3.2502787644698876,
+          "rasterPerCovered": 3.8687795289167846,
+          "kind": "measured",
+          "drawn": 357554,
+          "drawnUnit": "三角形+円盤"
+        }
+      ]
+    },
+    {
+      "view": "std",
+      "cfg": "ref-EC",
+      "results": [
+        {
+          "method": "pixelmesh",
+          "gapPct": 0,
+          "throughPct": 0.6876262715769326,
+          "coverPct": 100,
+          "rasterPerPx": 1.6258578473635203,
+          "writtenPerPx": 1.6258578473635203,
+          "rasterPerCovered": 1.6258578473635203,
+          "kind": "measured",
+          "drawn": 457889,
+          "drawnUnit": "三角形"
+        },
+        {
+          "method": "surfels",
+          "gapPct": 0.0011814884391356231,
+          "throughPct": 0.3237278323231607,
+          "coverPct": 99.99885045579427,
+          "rasterPerPx": 9.12034578289708,
+          "writtenPerPx": 7.378924256532285,
+          "rasterPerCovered": 9.120450626508793,
+          "kind": "measured",
+          "drawn": 424897,
+          "drawnUnit": "円盤"
+        }
+      ]
+    },
+    {
+      "view": "far",
+      "cfg": "v1",
+      "results": [
+        {
+          "method": "hybrid",
+          "gapPct": 1.0346861094730069,
+          "throughPct": 1.7280508944048323,
+          "coverPct": 76.99876998769987,
+          "rasterPerPx": 3.044268947362371,
+          "writtenPerPx": 2.808187053833155,
+          "rasterPerCovered": 3.953541144153828,
+          "kind": "measured",
+          "drawn": 385816,
+          "drawnUnit": "三角形+円盤"
+        }
+      ]
+    },
+    {
+      "view": "far",
+      "cfg": "v2-100",
+      "results": [
+        {
+          "method": "hybrid",
+          "gapPct": 1.0346861094730069,
+          "throughPct": 1.7244768491216784,
+          "coverPct": 76.99876998769987,
+          "rasterPerPx": 2.704337230288191,
+          "writtenPerPx": 2.468255336758975,
+          "rasterPerCovered": 3.5120775110474143,
+          "kind": "measured",
+          "drawn": 385816,
+          "drawnUnit": "三角形+円盤"
+        }
+      ]
+    },
+    {
+      "view": "far",
+      "cfg": "v2-80",
+      "results": [
+        {
+          "method": "hybrid",
+          "gapPct": 1.0346861094730069,
+          "throughPct": 1.7244768491216784,
+          "coverPct": 76.99762044349416,
+          "rasterPerPx": 2.6168799071168283,
+          "writtenPerPx": 2.3807980135876123,
+          "rasterPerCovered": 3.3985488855381214,
+          "kind": "measured",
+          "drawn": 371685,
+          "drawnUnit": "三角形+円盤"
+        }
+      ]
+    },
+    {
+      "view": "far",
+      "cfg": "v2-70",
+      "results": [
+        {
+          "method": "hybrid",
+          "gapPct": 1.0346861094730069,
+          "throughPct": 1.7280508944048323,
+          "coverPct": 76.99762044349416,
+          "rasterPerPx": 2.5759101516248806,
+          "writtenPerPx": 2.339828258095665,
+          "rasterPerCovered": 3.3453413552692473,
+          "kind": "measured",
+          "drawn": 364619,
+          "drawnUnit": "三角形+円盤"
+        }
+      ]
+    },
+    {
+      "view": "far",
+      "cfg": "v2-60",
+      "results": [
+        {
+          "method": "hybrid",
+          "gapPct": 1.0346861094730069,
+          "throughPct": 1.726263871763255,
+          "coverPct": 76.99762044349416,
+          "rasterPerPx": 2.530054833258613,
+          "writtenPerPx": 2.293972939729397,
+          "rasterPerCovered": 3.285788931519938,
+          "kind": "measured",
+          "drawn": 357554,
+          "drawnUnit": "三角形+円盤"
+        }
+      ]
+    },
+    {
+      "view": "far",
+      "cfg": "ref-EC",
+      "results": [
+        {
+          "method": "pixelmesh",
+          "gapPct": 0.9757143623009704,
+          "throughPct": 1.4367662038278024,
+          "coverPct": 76.94474141003093,
+          "rasterPerPx": 1.2399328666183858,
+          "writtenPerPx": 1.2399328666183858,
+          "rasterPerCovered": 1.6114588780159858,
+          "kind": "measured",
+          "drawn": 457889,
+          "drawnUnit": "三角形"
+        },
+        {
+          "method": "surfels",
+          "gapPct": 0.9792884075841242,
+          "throughPct": 2.2802408906520846,
+          "coverPct": 77.63331838925865,
+          "rasterPerPx": 8.467519628467313,
+          "writtenPerPx": 7.6491820992976285,
+          "rasterPerCovered": 10.902387401388333,
+          "kind": "measured",
+          "drawn": 424897,
+          "drawnUnit": "円盤"
+        }
+      ]
+    }
+  ]
+}

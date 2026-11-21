@@ -1,6 +1,6 @@
 // 草・草花・崖から垂れるツタ。どれも風で揺れる（wind 属性）。
 
-import { fbm2, hex, mixRGB, pick, scaleRGB, type RGB, type Rng } from '../../core/math';
+import { fbm2, hash2, hex, mixRGB, pick, scaleRGB, type RGB, type Rng } from '../../core/math';
 import type { IslandLayout, Placement } from '../../world/IslandLayout';
 import type { ParticleBuilder } from '../ParticleBuilder';
 import type { MeshHints } from '../meshHints';
@@ -42,12 +42,15 @@ export function emitGrass(b: ParticleBuilder, layout: IslandLayout, rng: Rng, hi
         const baseC = pick(BLADE_BASE, rng());
         const tipC = pick(BLADE_TIP, rng());
         hints?.blades.push({ x: bx, y: base, z: bz, len, leanX: lean, leanZ, base: baseC, tip: tipC });
+        // 葉ごとの順位（方式 F の間引き用）。乱数列を消費しないよう、根元の位置のハッシュで決める
+        const grassRank = hash2(Math.round(bx * 997), Math.round(bz * 991), 4243);
         for (let sgi = 1; sgi <= segs; sgi++) {
           const f = sgi / segs;
           const c = mixRGB(baseC, tipC, f);
           b.push(bx + lean * f * f * len * 2, base + len * f, bz + leanZ * f * f * len * 2, c, lean, 1, leanZ, {
             size: 0.1 - f * 0.02,
             wind: Math.pow(f, 1.4),
+            grassRank,
           });
         }
       }

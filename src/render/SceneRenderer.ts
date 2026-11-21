@@ -17,7 +17,8 @@ import { VoxelRenderer } from './voxel/VoxelRenderer';
 import { buildPixelMeshCharacter, buildPixelMeshWorld, buildPointIndex, type PixelMeshCharacter, type PixelMeshWorld } from './pixelmesh/MeshBuild';
 import type { PointIndex } from './pixelmesh/PointIndex';
 import { PixelMeshRenderer } from './pixelmesh/PixelMeshRenderer';
-import { HybridRenderer, hybridSurfelSet } from './hybrid/HybridRenderer';
+import { buildGroundField, HybridRenderer, hybridSurfelSets, type HybridSurfelSets } from './hybrid/HybridRenderer';
+import type { GroundField } from './pixelmesh/PixelMeshRenderer';
 // 方式 B（Spark）は型だけを静的に参照し、実体は必要になったときに動的 import で読み込む
 import type { SplatRenderer } from './splat/SplatRenderer';
 
@@ -90,11 +91,13 @@ export class SceneRenderer {
   private hybridCharKey = '';
   /** 方式 F の E 側を作り直した回数（浮き島） */
   hybridRebuilds = 0;
+  /** 方式 F の地面用の距離場を焼いた時間（初回のみ） */
+  hybridGroundMs = 0;
   /** 最後に描いた三角形・円盤の数（方式 F の E 側 / C 側） */
   drawnHybridTris = 0;
   drawnHybridSurfels = 0;
   /** 方式 F の CPU 側のメッシュ（樹冠なし・幹は別。直前に作ったもの）と C 側の点群（幹の扱いごと） */
-  private hybridCache: { world?: { key: string; data: PixelMeshWorld }; surfels: Map<string, SplatPointSet> } = { surfels: new Map() };
+  private hybridCache: { world?: { key: string; data: PixelMeshWorld }; surfels: Map<string, HybridSurfelSets>; ground?: GroundField } = { surfels: new Map() };
   /** 草花・雲の粒（方式 D の立体化用。カテゴリで取り出して CPU 側に保持） */
   private decorPoints: { decor: SplatPointSet; clouds: SplatPointSet } | null = null;
   /** 方式 B の生成にかかった時間（点群の用意 / GPU 側の構築） */
@@ -615,7 +618,16 @@ export class SceneRenderer {
       }
       return;
     }
-    if (!this.hybrid) this.hybrid = new HybridRenderer(this.uniforms, this.rig);
+    if (!this.hybrid) {
+      this.hybrid = new HybridRenderer(this.uniforms, this.rig);
+      // 地面用の距離場（道の距離・草の多さ）。地形は変わらないので CPU 側は 1 回だけ作って使い回す
+      if (!this.hybridCache.ground) {
+        const t0 = performance.now();
+        this.hybridCache.ground = buildGroundField(layout.terrain);
+        this.hybridGroundMs = performance.now() - t0;
+      }
+      this.hybrid.setGroundField(this.hybridCache.ground);
+    }
     const wKey = `${s.splatSource}|${s.meshDetail}`;
     if (wKey !== this.hybridWorldKey) {
       this.hybridWorldKey = wKey;
@@ -646,7 +658,7 @@ export class SceneRenderer {
     this.hybrid.setSurfels(sKey, () => {
       let set = this.hybridCache.surfels.get(sKey);
       if (!set) {
-        set = hybridSurfelSet(this.visuals.world, trunk);
+        set = hybridSurfelSets(this.visuals.world, trunk);
         this.hybridCache.surfels.set(sKey, set);
       }
       return set;

@@ -26,6 +26,15 @@ uniform mat4 uBones[${BONE_COUNT}];
 uniform vec3 uPivots[${BONE_COUNT}];
 #endif
 
+#ifdef USE_GRASS
+// 方式 F の草の層：葉 1 枚単位の順位（0..1。並びはこの昇順）、根元の色合わせ・足元の押し倒し・遠景の間引き
+attribute float iRank;
+uniform vec3 uGroundTone;
+uniform float uGrassBlend;
+uniform float uTrample;
+uniform float uGrassFar;
+uniform float uDrawFrac;
+#endif
 uniform float uSurfelRadius; // 直径 → 半径の換算と「円盤の大きさ」「密度補正」を掛けた係数
 uniform float uBillboard;
 uniform float uSnap;
@@ -49,7 +58,19 @@ void main() {
 #endif
   vec4 wp = modelMatrix * vec4(p, 1.0);
   vec3 wn = normalize(mat3(modelMatrix) * n);
-  vColor = pppWorldLit(iPos, wp, wn, iColor, iMisc.y, iMisc.z);
+  vec3 baseColor = iColor;
+#ifdef USE_GRASS
+  // 草の粒の風の影響度 = 葉の根元からの高さの割合^1.4。根元ほど地面の色へ寄せる
+  float hW = iMisc.y;
+  baseColor = mix(iColor, uGroundTone, uGrassBlend * (1.0 - hW));
+  // キャラクターの足元の草を外側・下へ押し倒す（高い所ほど大きく動く）
+  vec2 dc = wp.xz - uCharPos.xz;
+  float dist = length(dc);
+  float tr = uTrample * (1.0 - smoothstep(0.16, 0.55, dist)) * step(abs(wp.y - uCharPos.y), 1.0);
+  wp.xz += dc / max(dist, 1e-4) * tr * hW * 0.16;
+  wp.y -= tr * hW * 0.22;
+#endif
+  vColor = pppWorldLit(iPos, wp, wn, baseColor, iMisc.y, iMisc.z);
 
   // 円盤の面内の 2 軸：法線に垂直（世界の上方向を面に投影した向きを縦に）。比較用に画面正対も選べる
   vec3 T, B;
@@ -73,6 +94,12 @@ void main() {
       clip.xy += d * clip.w;
     }
   }
+#ifdef USE_GRASS
+  // 遠景の間引き：1 ワールド単位が画面で少ない画素になるほど、順位の後ろの葉を描かない（三角形をつぶす）
+  float pxPerUnit = projectionMatrix[1][1] * uRes.y * 0.5 / max(clip.w, 1e-4);
+  float keep = mix(1.0, uGrassFar, smoothstep(16.0, 6.0, pxPerUnit)); // 標準視点（約 18 画素/単位）ではほぼ間引かない
+  if (iRank > uDrawFrac * keep) clip = vec4(2.0, 2.0, 2.0, 1.0);
+#endif
   gl_Position = clip;
 }
 `;
@@ -133,8 +160,24 @@ export class SurfelRenderer {
   private disposed = false;
   drawn = 0;
 
-  /** charSrc = null ならキャラクターを持たない（方式 F：キャラクターは E のメッシュで描く） */
-  constructor(shared: SharedUniforms, rig: CharacterRig, worldSet: SplatPointSet, charSrc: CharacterSplatSource | null) {
+  /** 方式 F の草の層のユニフォーム（grassRanks を渡したときだけ使う） */
+  readonly grassU = {
+    uGroundTone: { value: new THREE.Vector3(0.36, 0.6, 0.27) },
+    uGrassBlend: { value: 0 },
+    uTrample: { value: 0 },
+    uGrassFar: { value: 1 },
+    uDrawFrac: { value: 1 },
+  };
+  private readonly isGrass: boolean;
+  /** 草の層の円盤の大きさ（C の「円盤の大きさ」に掛ける） */
+  grassSize = 1;
+
+  /**
+   * charSrc = null ならキャラクターを持たない（方式 F：キャラクターは E のメッシュで描く）。
+   * grassRanks を渡すと方式 F の草の層になる（worldSet は葉の順位の昇順。先頭から N 個描けば葉 1 枚単位で均一に間引ける）
+   */
+  constructor(shared: SharedUniforms, rig: CharacterRig, worldSet: SplatPointSet, charSrc: CharacterSplatSource | null, grassRanks?: Float32Array) {
+    this.isGrass = !!grassRanks;
     const t0 = performance.now();
     // 浮き島
     const misc = new Float32Array(worldSet.count * 3);
@@ -144,8 +187,9 @@ export class SurfelRenderer {
       misc[i * 3 + 2] = worldSet.sun[i];
     }
     this.worldGeo = instancedFrom(worldSet, misc);
+    if (grassRanks) this.worldGeo.setAttribute('iRank', new THREE.InstancedBufferAttribute(grassRanks, 1));
     this.worldTotal = worldSet.count;
-    this.worldMat = this.material(shared, { receiveBlob: true });
+    this.worldMat = this.material(shared, { receiveBlob: true, grass: !!grassRanks });
     this.worldMesh = new THREE.Mesh(this.worldGeo, this.worldMat);
     this.worldMesh.frustumCulled = false;
 
@@ -179,10 +223,14 @@ export class SurfelRenderer {
     this.buildMs = performance.now() - t0;
   }
 
-  private material(shared: SharedUniforms, opts: { bones?: THREE.Matrix4[]; receiveBlob?: boolean }) {
+  private material(shared: SharedUniforms, opts: { bones?: THREE.Matrix4[]; receiveBlob?: boolean; grass?: boolean }) {
     // 方式 A のマテリアルと同じく、共有ユニフォームは同じオブジェクトを参照させる
     const uniforms: Record<string, THREE.IUniform> = { ...shared, ...this.own, uReceiveBlob: { value: opts.receiveBlob ? 1 : 0 } };
     const defines: Record<string, string> = {};
+    if (opts.grass) {
+      Object.assign(uniforms, this.grassU);
+      defines.USE_GRASS = '';
+    }
     if (opts.bones) {
       uniforms.uBones = { value: opts.bones };
       uniforms.uPivots = { value: BONE_PIVOTS.map((p) => new THREE.Vector3(...p)) };
@@ -199,11 +247,14 @@ export class SurfelRenderer {
     });
   }
 
-  /** 設定・キャラクターの姿勢を反映する */
-  update(s: RenderSettings, rig: CharacterRig, densityComp: number, lowW: number, lowH: number) {
-    this.worldGeo.instanceCount = Math.max(1, Math.round(this.worldTotal * s.density));
+  /** 設定・キャラクターの姿勢を反映する（countScale：密度にさらに掛ける割合。方式 F の草の層の密度） */
+  update(s: RenderSettings, rig: CharacterRig, densityComp: number, lowW: number, lowH: number, countScale = 1) {
+    const frac = Math.max(0, Math.min(1, s.density * countScale));
+    this.worldGeo.instanceCount = Math.max(this.isGrass ? 0 : 1, Math.round(this.worldTotal * frac));
+    this.worldMesh.visible = this.worldGeo.instanceCount > 0;
     this.drawn = this.worldGeo.instanceCount + this.charTotal;
-    this.own.uSurfelRadius.value = 0.5 * s.surfelScale * densityComp;
+    this.grassU.uDrawFrac.value = frac;
+    this.own.uSurfelRadius.value = 0.5 * s.surfelScale * densityComp * (this.isGrass ? this.grassSize : 1);
     this.own.uBillboard.value = s.surfelBillboard ? 1 : 0;
     this.own.uSnap.value = s.pointSnap ? 1 : 0;
     this.own.uRes.value.set(lowW, lowH);

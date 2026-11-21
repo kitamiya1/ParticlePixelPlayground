@@ -10,6 +10,11 @@ export interface ParticleOptions {
   wind?: number;
   /** ボーン番号（キャラクター用） */
   bone?: number;
+  /**
+   * 草の葉の順位（0..1。同じ葉の粒は同じ値）。描画方式 F で草を葉 1 枚単位に間引くための CPU 側データで、
+   * シェーダーには渡さない（未指定 = -1 = 草の葉ではない）。
+   */
+  grassRank?: number;
 }
 
 export class ParticleBuilder {
@@ -23,6 +28,8 @@ export class ParticleBuilder {
   bone: Float32Array | null;
   /** 粒ごとのカテゴリ番号（catNames の添字。描画方式 B の形状差し替えに使う） */
   cat: Uint8Array;
+  /** 草の葉の順位（ParticleOptions.grassRank。-1 = 草の葉ではない） */
+  grassRank: Float32Array;
   /** カテゴリ番号 → 名前 */
   readonly catNames: string[] = [];
   /** カテゴリ別の粒数（統計表示用） */
@@ -38,6 +45,7 @@ export class ParticleBuilder {
     this.misc = new Float32Array(initialCap * 3);
     this.bone = withBones ? new Float32Array(initialCap) : null;
     this.cat = new Uint8Array(initialCap);
+    this.grassRank = new Float32Array(initialCap);
   }
 
   setCategory(name: string) {
@@ -60,6 +68,7 @@ export class ParticleBuilder {
     this.misc = g(this.misc, 3);
     if (this.bone) this.bone = g(this.bone, 1);
     this.cat = g(this.cat, 1);
+    this.grassRank = g(this.grassRank, 1);
     this.cap = cap;
   }
 
@@ -83,6 +92,7 @@ export class ParticleBuilder {
     if (this.bone) this.bone[i] = o.bone ?? 0;
     if (this.catIndex < 0) this.setCategory(this.category);
     this.cat[i] = this.catIndex;
+    this.grassRank[i] = o.grassRank ?? -1;
     this.categories.set(this.category, (this.categories.get(this.category) ?? 0) + 1);
   }
 
@@ -118,6 +128,9 @@ export class ParticleBuilder {
     const tc = this.cat[i];
     this.cat[i] = this.cat[j];
     this.cat[j] = tc;
+    const tr = this.grassRank[i];
+    this.grassRank[i] = this.grassRank[j];
+    this.grassRank[j] = tr;
   }
 
   toGeometry(): THREE.BufferGeometry {
@@ -131,6 +144,7 @@ export class ParticleBuilder {
     // シェーダーでは使わない。描画方式 B（スプラット）への変換時にカテゴリを判別するための CPU 側データ
     g.userData.cat = this.cat.slice(0, n);
     g.userData.catNames = [...this.catNames];
+    g.userData.grassRank = this.grassRank.slice(0, n);
     g.computeBoundingSphere();
     return g;
   }

@@ -6,7 +6,7 @@ import { SceneRenderer } from './render/SceneRenderer';
 import { paletteById } from './render/palettes';
 import { Panel } from './ui/Panel';
 import { BenchmarkTool, CaptureTool, FlickerTool, GapTool, methodShots, pitchShots, zoomShots, type Tool, type ToolHost } from './ui/CompareTools';
-import { METHOD_LETTER, METHOD_NAME } from './settings';
+import { METHOD_LETTER, METHOD_NAME, type RenderMethod } from './settings';
 import { loadCurrent, saveCurrent } from './ui/presets';
 import { isTouchDevice, TouchControls } from './ui/TouchControls';
 import { buildWorldVisuals } from './visual/WorldVisualBuilder';
@@ -139,7 +139,8 @@ function boot() {
     last = now;
     const dt = Math.min(dtRaw, 0.05);
     const t0 = performance.now();
-    const paused = tool?.pausesGame ?? false;
+    // debug.freeze（自動撮影用）：ゲームの更新を止め、dt = 0 で描く（キャラの姿勢・カメラ・時刻を撮影スクリプトが決めた値のまま保つ）
+    const paused = (tool?.pausesGame ?? false) || debug.freeze === true;
     if (!paused) game.update(dt);
     else game.input.consume(); // 計測中の入力は捨てる（カメラを動かさない）
     tool?.before();
@@ -226,7 +227,13 @@ function boot() {
   requestAnimationFrame(loop);
 
   // デバッグ・自動検証用
-  (window as unknown as Record<string, unknown>).__ppp = Object.assign(debug, { game, view, settings });
+  // runTool：比較ツールを方式を絞って起動する（自動計測用。結果は lastReport に入る）
+  const runTool = (kind: 'benchmark' | 'flicker' | 'gap', methods?: RenderMethod[]) => {
+    debug.lastReport = null;
+    const make = kind === 'benchmark' ? () => new BenchmarkTool(host) : kind === 'flicker' ? () => new FlickerTool(host) : () => new GapTool(host);
+    startTool(() => (methods ? make().onlyMethods(methods) : make()), '自動計測中');
+  };
+  (window as unknown as Record<string, unknown>).__ppp = Object.assign(debug, { game, view, settings, runTool });
 }
 
 function escapeHtml(t: string): string {

@@ -98,9 +98,112 @@ void main() {
 }
 `;
 
+/**
+ * 方式 F の地面（USE_GROUND。地形の網だけに使う）：頂点の色の補間ではなく画素ごとに塗る。
+ * - 道：道の符号付き距離（tPath。CPU の Terrain.pathSignedDistance を焼いたテクスチャ）の内側に、
+ *   ボロノイの石・目地・土・苔を描く。石の縁は法線を外へ傾けて、光の段階化で石ごとの明暗（凹凸）を出す。
+ * - 道のふち：土の帯（幅に揺らぎ）。
+ * - 草地：頂点の色に、ワールド座標に固定した細かな 3 段の明暗を足す（C の草の粒と質感を揃える）。
+ *   画素より細かくなる遠景では消す（ちらつき防止）。
+ * - キャラクターの足元の接地影。
+ */
+const GROUND_CHUNK = /* glsl */ `
+uniform sampler2D tPath;
+uniform vec2 uPathMin;
+uniform vec2 uPathSize;
+uniform vec3 uStone0;
+uniform vec3 uStone1;
+uniform vec3 uStone2;
+uniform vec3 uMortar;
+uniform vec3 uDirt;
+uniform vec3 uMoss;
+uniform vec4 uRoad;     // x: 石の細かさ（1 単位あたりのセル数）, y: 目地の幅, z: 土のセルの割合, w: 石の明るさのばらつき
+uniform float uRelief;  // 石の縁の法線の傾き
+uniform float uGroundDetail;
+uniform float uContact;
+float gHash12(vec2 p) { vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
+vec2 gHash22(vec2 p) { vec3 q = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); q += dot(q, q.yzx + 33.33); return fract((q.xx + q.yz) * q.zy); }
+// ボロノイ：x = 境界までの距離（セル単位）, yz = 点からいちばん近いセル中心へのベクトル。cellId に格子番号
+vec3 gVoronoi(vec2 x, out vec2 cellId) {
+  vec2 n = floor(x), f = fract(x);
+  vec2 mg = vec2(0.0), mr = vec2(0.0);
+  float md = 8.0;
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+    vec2 g = vec2(float(i), float(j));
+    vec2 r = g + 0.12 + 0.76 * gHash22(n + g) - f;
+    float d = dot(r, r);
+    if (d < md) { md = d; mr = r; mg = g; }
+  }
+  md = 8.0;
+  for (int j = -2; j <= 2; j++) for (int i = -2; i <= 2; i++) {
+    vec2 g = mg + vec2(float(i), float(j));
+    vec2 r = g + 0.12 + 0.76 * gHash22(n + g) - f;
+    if (dot(mr - r, mr - r) > 1e-5) md = min(md, dot(0.5 * (mr + r), normalize(r - mr)));
+  }
+  cellId = n + mg;
+  return vec3(md, mr);
+}
+void pppGround(inout vec3 col, inout vec3 n, vec3 wpos) {
+  if (n.y < 0.3) return; // 島の縁の側面は頂点の色のまま
+  vec2 p = wpos.xz;
+  vec4 pt = texture2D(tPath, (p - uPathMin) / uPathSize);
+  float sd = pt.r * 4.0 - 2.0;
+  // 1 画素あたりのワールド長（画素が地面に落ちる面積の平方根。浅い角度で奥行き方向だけ伸びても細部を消しすぎない）
+  vec2 px = dFdx(p), py = dFdy(p);
+  float fw = sqrt(max(abs(px.x * py.y - px.y * py.x), 1e-8));
+  float detail = 1.0 - smoothstep(0.08, 0.17, fw);
+  float jit = (gHash12(floor(p * 5.0)) - 0.5) * 0.12;
+  // 草地：細かな 3 段の明暗 + 草の多い所はわずかに暗く
+  float gh = gHash12(floor(p * 7.0));
+  float q = gh < 0.3 ? -1.0 : (gh > 0.78 ? 1.0 : 0.0);
+  vec3 grass = col * (1.0 + q * 0.1 * uGroundDetail * detail) * (1.0 - pt.g * 0.14 * uGroundDetail);
+  // 道のふちの土（幅に揺らぎ）
+  float verge = 1.0 - smoothstep(0.0, 0.4 + jit * 2.0, sd);
+  vec3 dirt = uDirt * (1.0 + (gHash12(floor(p * 9.0)) - 0.5) * 0.14 * detail);
+  vec3 c = mix(grass, dirt, verge * 0.85);
+  if (sd + jit < 0.0) {
+    vec2 cid;
+    vec3 v = gVoronoi(p * uRoad.x, cid);
+    float h1 = gHash12(cid * 1.37 + 3.1), h2 = gHash12(cid * 2.11 + 7.7), h3 = gHash12(cid * 0.73 + 11.3);
+    vec3 stone = h1 < 0.4 ? uStone0 : (h1 < 0.75 ? uStone1 : uStone2);
+    stone *= 1.0 + (h2 - 0.5) * uRoad.w;
+    // 道の外側ほど土のセルが増える（石が端でまばらになる）
+    bool isDirt = h3 < uRoad.z + smoothstep(-0.45, 0.0, sd) * 0.55;
+    float lod = smoothstep(0.45, 0.9, fw * uRoad.x); // 石が 1〜2 画素より小さい遠景では平均色へ
+    vec3 avg = mix((uStone0 + uStone1 + uStone2) / 3.0, uMortar, 0.25);
+    // 遠景でも一色の面にならないよう、石より大きな単位（約 1.4 単位）の明るさの揺らぎを残す
+    avg *= 1.0 + (gHash12(floor(p * 0.7)) - 0.5) * 0.22;
+    vec3 rc;
+    if (isDirt) {
+      rc = dirt;
+      // 土のセルにも小石を少し
+      if (gHash12(floor(p * 11.0)) > 0.9) rc = mix(rc, uStone1, 0.7);
+      avg = mix(avg, uDirt, uRoad.z);
+    } else if (v.x < uRoad.y) {
+      rc = mix(uMortar, uMoss, step(0.82, gHash12(floor(p * 8.0))) * 0.55);
+    } else {
+      rc = stone;
+      float bev = (1.0 - smoothstep(uRoad.y, uRoad.y + 0.17, v.x)) * (1.0 - lod);
+      vec2 dir = -v.yz / max(length(v.yz), 1e-4);
+      n = normalize(n + vec3(dir.x, 0.0, dir.y) * bev * uRelief);
+    }
+    c = mix(rc, avg, lod);
+  }
+  // 接地影：キャラクターの足元を少し暗く（地面だけ。円の外は変えない）
+  float cd = length(p - uCharPos.xz);
+  float dy = uCharPos.y - wpos.y;
+  c *= 1.0 - uContact * 0.4 * (1.0 - smoothstep(0.1, 0.3, cd)) * step(-0.3, dy) * step(dy, 0.6);
+  col = c;
+}
+`;
+
 const meshFragment = /* glsl */ `
 uniform float uFlat;
+uniform float uCharLift;
 ${LIGHTING_CHUNK}
+#ifdef USE_GROUND
+${GROUND_CHUNK}
+#endif
 varying vec3 vColor;
 varying vec3 vWorld;
 varying vec3 vNormal;
@@ -118,7 +221,18 @@ void main() {
     n = dot(fn, n) < 0.0 ? -fn : fn;
   }
   vec4 wp = vec4(vWorld, 1.0);
-  gl_FragColor = vec4(pppWorldLit(vec3(0.0), wp, n, vColor, 0.0, vSun), 1.0);
+  vec3 base = vColor;
+#ifdef USE_GROUND
+  pppGround(base, n, vWorld);
+#endif
+  vec3 c = pppWorldLit(vec3(0.0), wp, n, base, 0.0, vSun);
+#ifdef USE_BONES
+  // 方式 F：キャラクターを背景から浮かせる（明るさの持ち上げ + 輪郭側の縁の光。E では 0 なので変わらない）
+  vec3 vd = normalize(cameraPosition - vWorld);
+  float rim = pow(1.0 - clamp(dot(n, vd), 0.0, 1.0), 2.0);
+  c = c * (1.0 + uCharLift) + uCharLift * 0.04 + rim * uCharLift * 2.2 * vec3(1.0, 0.94, 0.82);
+#endif
+  gl_FragColor = vec4(c, 1.0);
 }
 `;
 
@@ -159,17 +273,49 @@ export interface PixelMeshStats {
   detail: number;
 }
 
+/** 方式 F の地面用：道の符号付き距離・草の多さを上から見た格子に焼いたもの（R = 距離 -2..2 を 0..255, G = 草の多さ 0..1） */
+export interface GroundField {
+  data: Uint8Array;
+  w: number;
+  h: number;
+  /** 格子の左下（x, z）と大きさ（ワールド単位） */
+  min: [number, number];
+  size: [number, number];
+}
+
 export class PixelMeshRenderer {
   readonly scene = new THREE.Scene();
   /** 方式 E 専用の低解像度ターゲットと後処理（中身は方式 A と同じ PixelPipeline） */
   readonly pipeline = new PixelPipeline();
-  private world: { data: PixelMeshWorld; meshes: THREE.Mesh[]; geos: THREE.BufferGeometry[]; blade: THREE.Mesh | null; bladeGeo: THREE.InstancedBufferGeometry | null; trunks: THREE.Mesh | null } | null = null;
+  private world: { data: PixelMeshWorld; meshes: THREE.Mesh[]; geos: THREE.BufferGeometry[]; blade: THREE.Mesh | null; bladeGeo: THREE.InstancedBufferGeometry | null; trunks: THREE.Mesh | null; terrain: THREE.Mesh } | null = null;
   private char: { data: PixelMeshCharacter; mesh: THREE.Mesh; geo: THREE.BufferGeometry } | null = null;
   private readonly worldMat: THREE.ShaderMaterial;
   private readonly charMat: THREE.ShaderMaterial;
   private readonly bladeMat: THREE.ShaderMaterial;
   private readonly headMat: THREE.ShaderMaterial;
-  private readonly look = { uFlat: { value: 0 } };
+  private readonly look = { uFlat: { value: 0 }, uCharLift: { value: 0 } };
+  /** 方式 F の地面（setGroundField で用意。無ければ地形も worldMat で描く） */
+  private ground: { mat: THREE.ShaderMaterial; tex: THREE.DataTexture } | null = null;
+  /** 地面の塗り方のユニフォーム（方式 F の HybridRenderer が毎フレーム設定する） */
+  readonly groundU = {
+    tPath: { value: null as THREE.Texture | null },
+    uPathMin: { value: new THREE.Vector2() },
+    uPathSize: { value: new THREE.Vector2(1, 1) },
+    uStone0: { value: new THREE.Vector3() },
+    uStone1: { value: new THREE.Vector3() },
+    uStone2: { value: new THREE.Vector3() },
+    uMortar: { value: new THREE.Vector3() },
+    uDirt: { value: new THREE.Vector3() },
+    uMoss: { value: new THREE.Vector3() },
+    uRoad: { value: new THREE.Vector4(2.2, 0.08, 0, 0.12) },
+    uRelief: { value: 0.6 },
+    uGroundDetail: { value: 0 },
+    uContact: { value: 0 },
+  };
+  /** 地形を地面用のマテリアルで描くか（false なら E と同じ worldMat = v1 の見た目） */
+  groundActive = false;
+  /** キャラクターの明るさの持ち上げ（方式 F のみ。E では 0） */
+  charLift = 0;
   private disposed = false;
   /** 最後に描いた三角形の数（静的メッシュ + 帯・花の頭のインスタンス分 + キャラクター） */
   drawnTris = 0;
@@ -178,7 +324,10 @@ export class PixelMeshRenderer {
   /** 幹・枝のメッシュ（方式 F で別に作ったときだけ）を描くか */
   trunksVisible = true;
 
+  private readonly sharedRef: SharedUniforms;
+
   constructor(shared: SharedUniforms, rig: CharacterRig) {
+    this.sharedRef = shared;
     this.worldMat = this.material(shared, { receiveBlob: true });
     this.charMat = this.material(shared, { bones: rig.bones });
     this.bladeMat = this.material(shared, { receiveBlob: true, define: 'USE_BLADE' });
@@ -194,9 +343,27 @@ export class PixelMeshRenderer {
       defines.USE_BONES = '';
     }
     if (opts.define) defines[opts.define] = '';
+    if (opts.define === 'USE_GROUND') Object.assign(uniforms, this.groundU);
     // 草の帯・花の頭は薄い板なので両面、それ以外は閉じた立体なので表だけ
-    const side = opts.define ? THREE.DoubleSide : THREE.FrontSide;
+    const side = opts.define && opts.define !== 'USE_GROUND' ? THREE.DoubleSide : THREE.FrontSide;
     return new THREE.ShaderMaterial({ uniforms, defines, vertexShader: meshVertex, fragmentShader: meshFragment, side, depthTest: true, depthWrite: true });
+  }
+
+  /** 方式 F の地面用の距離場を用意する（前のものは解放する）。以後 groundActive = true で地形をこれで塗る */
+  setGroundField(f: GroundField) {
+    if (this.ground) {
+      this.ground.tex.dispose();
+    } else {
+      this.ground = { mat: this.material(this.sharedRef, { receiveBlob: true, define: 'USE_GROUND' }), tex: null as unknown as THREE.DataTexture };
+    }
+    const tex = new THREE.DataTexture(f.data, f.w, f.h, THREE.RGBAFormat);
+    tex.magFilter = tex.minFilter = THREE.LinearFilter;
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.needsUpdate = true;
+    this.ground.tex = tex;
+    this.groundU.tPath.value = tex;
+    this.groundU.uPathMin.value.set(f.min[0], f.min[1]);
+    this.groundU.uPathSize.value.set(f.size[0], f.size[1]);
   }
 
   /**
@@ -226,7 +393,7 @@ export class PixelMeshRenderer {
     }
     for (const m of meshes) m.frustumCulled = false;
     this.scene.add(...meshes);
-    this.world = { data, meshes, geos, blade, bladeGeo, trunks };
+    this.world = { data, meshes, geos, blade, bladeGeo, trunks, terrain: meshes[0] };
   }
 
   /** キャラクターのメッシュを差し替える */
@@ -261,8 +428,10 @@ export class PixelMeshRenderer {
   /** 設定・キャラクターの姿勢を反映する */
   update(s: RenderSettings, rig: CharacterRig) {
     this.look.uFlat.value = s.meshFlat ? 1 : 0;
+    this.look.uCharLift.value = this.charLift;
     let tris = 0;
     if (this.world) {
+      this.world.terrain.material = this.groundActive && this.ground ? this.ground.mat : this.worldMat;
       const w = this.world.data;
       tris += w.terrain.triCount + w.objects.triCount + w.clouds.triCount;
       if (this.world.trunks) {
@@ -297,6 +466,7 @@ export class PixelMeshRenderer {
   /** 重ね塗り計測：計測用シェーダーに差し替え、深度テストなし・加算合成で 1 断片 = 1 として数える（clear=false なら前の計数に足す） */
   renderCount(renderer: THREE.WebGLRenderer, camera: THREE.Camera, target: THREE.WebGLRenderTarget, clear = true) {
     const mats = [this.worldMat, this.charMat, this.bladeMat, this.headMat];
+    if (this.ground) mats.push(this.ground.mat);
     const counters = mats.map((m) => {
       const c = m.clone();
       c.uniforms = m.uniforms;
@@ -342,6 +512,11 @@ export class PixelMeshRenderer {
     this.disposeWorld();
     this.disposeChar();
     [this.worldMat, this.charMat, this.bladeMat, this.headMat].forEach((m) => m.dispose());
+    if (this.ground) {
+      this.ground.mat.dispose();
+      this.ground.tex.dispose();
+      this.ground = null;
+    }
     this.pipeline.dispose();
   }
 }

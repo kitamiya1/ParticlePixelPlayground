@@ -20,9 +20,9 @@ export interface SplatPointSet {
 
 /**
  * 粒ジオメトリから点群を取り出す。excludeCats に含まれるカテゴリの粒は除く。
- * keep を渡すと、さらに粒ごとに（カテゴリ名・風の影響度で）残すかを決める（方式 F の草花・葉の取り出し用）
+ * keep を渡すと、さらに粒ごとに（カテゴリ名・風の影響度・粒の番号で）残すかを決める（方式 F の草花・葉の取り出し用）
  */
-export function pointSetFromGeometry(g: THREE.BufferGeometry, excludeCats: string[] = [], keep?: (cat: string, wind: number) => boolean): SplatPointSet {
+export function pointSetFromGeometry(g: THREE.BufferGeometry, excludeCats: string[] = [], keep?: (cat: string, wind: number, index: number) => boolean): SplatPointSet {
   const pos = g.getAttribute('position').array as Float32Array;
   const col = g.getAttribute('aColor').array as Uint8Array;
   const nrm = g.getAttribute('normal').array as Int8Array;
@@ -34,7 +34,7 @@ export function pointSetFromGeometry(g: THREE.BufferGeometry, excludeCats: strin
   const idx: number[] = [];
   for (let i = 0; i < n; i++) {
     if (cat && excl.has(cat[i])) continue;
-    if (keep && !keep(cat ? names[cat[i]] ?? '' : '', misc[i * 3 + 1])) continue;
+    if (keep && !keep(cat ? names[cat[i]] ?? '' : '', misc[i * 3 + 1], i)) continue;
     idx.push(i);
   }
   const m = idx.length;

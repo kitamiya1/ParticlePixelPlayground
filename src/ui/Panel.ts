@@ -1,6 +1,6 @@
 // 画面右側の日本語調整パネル。設定オブジェクトを直接書き換え、描画側は毎フレームそれを参照する。
 
-import { BUILTIN_PRESETS, DEFAULT_SETTINGS, MESH_DETAILS, METHOD_LETTER, METHOD_NAME, VOXEL_CHAR_SIZES, VOXEL_DECOR_LEVELS, VOXEL_SIZES, cloneSettings, type RenderMethod, type RenderSettings } from '../settings';
+import { BUILTIN_PRESETS, DEFAULT_SETTINGS, HYBRID_ROADS, MESH_DETAILS, METHOD_LETTER, METHOD_NAME, VOXEL_CHAR_SIZES, VOXEL_DECOR_LEVELS, VOXEL_SIZES, cloneSettings, type RenderMethod, type RenderSettings } from '../settings';
 import { PALETTES } from '../render/palettes';
 import { builtinPreset, deleteUserPreset, downloadJSON, readJSONFile, saveCurrent, saveUserPreset, userPresets } from './presets';
 
@@ -113,6 +113,15 @@ const SECTIONS: { title: string; open?: boolean; controls: Control[] }[] = [
     open: true,
     controls: [
       { type: 'select', key: 'hybridTrunk', label: '幹・枝の描き方', options: [['mesh', 'E 側（メッシュ）'], ['surfel', 'C 側（円盤）']], only: F_ONLY, hint: 'F は地形・道・岩・島の下面・雲・キャラクターを E のメッシュ、草・花・つた・木の葉を C の円盤で、同じ深度バッファに描きます。形状の細かさ・フラットシェーディングは E、円盤の大きさ・密度・吸着は C の設定が効きます' },
+      { type: 'select', key: 'hybridRoad', label: '道・地面の配色', options: HYBRID_ROADS, only: F_ONLY, hint: '改善前は地形の頂点に点群の色を写すだけで、道に大きな色むらが出ます。ほかは地面を画素ごとに塗り、道は石・目地・土を描き分け、石の縁の陰影で凹凸を出します' },
+      { type: 'range', key: 'hybridGrass', label: '草の密度', min: 0, max: 1, step: 0.05, fmt: (v) => `${Math.round(v * 100)}%`, only: F_ONLY, hint: '草の葉を 1 枚単位で間引きます（花・つた・木の葉は減らしません）。改善前は 100%。作り直しはしません' },
+      { type: 'range', key: 'hybridGrassBlend', label: '草の根元を地面の色へ', min: 0, max: 1, step: 0.05, fmt: (v) => `${Math.round(v * 100)}%`, only: F_ONLY, hint: '草の根元ほど地面の色に寄せて、なめらかな地面と粒の草の境目を目立たなくします。改善前は 0%' },
+      { type: 'range', key: 'hybridGrassSize', label: '草の円盤の大きさ', min: 0.6, max: 1.6, step: 0.05, fmt: (v) => `×${v.toFixed(2)}`, only: F_ONLY, hint: 'C の「円盤の大きさ」に掛けます（草の層だけ）。改善前は ×1' },
+      { type: 'range', key: 'hybridGrassFar', label: '遠景で残す草', min: 0.1, max: 1, step: 0.05, fmt: (v) => `${Math.round(v * 100)}%`, only: F_ONLY, hint: '画面で小さく見えるほど、草の葉を順位の後ろから描かなくします（遠景の粒のノイズ・ちらつき対策）。100% で間引きなし（改善前）' },
+      { type: 'range', key: 'hybridGroundDetail', label: '草地の地面の細かな明暗', min: 0, max: 1, step: 0.05, fmt: (v) => `${Math.round(v * 100)}%`, only: F_ONLY, hint: '草地の地面に細かな 3 段の明暗を足して、草の粒と質感を揃えます（改善前以外の配色で有効）' },
+      { type: 'range', key: 'hybridTrample', label: '足元の草を押し倒す', min: 0, max: 1, step: 0.05, fmt: (v) => `${Math.round(v * 100)}%`, only: F_ONLY, hint: 'キャラクターの周りの草を外側・下へ倒して、足元を見せます。改善前は 0%' },
+      { type: 'range', key: 'hybridContact', label: '足元の接地影', min: 0, max: 1, step: 0.05, fmt: (v) => `${Math.round(v * 100)}%`, only: F_ONLY, hint: '足元の地面を少し暗くします（改善前以外の配色で有効）' },
+      { type: 'range', key: 'hybridCharLift', label: 'キャラクターの明るさ・縁の光', min: 0, max: 0.4, step: 0.01, fmt: (v) => `+${Math.round(v * 100)}%`, only: F_ONLY, hint: 'キャラクターを少し明るくし、輪郭側（面がカメラから外れる所）に縁の光を足して背景から浮かせます。改善前は +0%' },
     ],
   },
   {
