@@ -1,0 +1,769 @@
+{
+ "standard": {
+  "bench": {
+   "test": "benchmark",
+   "env": {
+    "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER (0x00001F06) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36",
+    "canvas": "950×800",
+    "dpr": 1,
+    "touch": false
+   },
+   "lowRes": {
+    "w": 321,
+    "h": 271
+   },
+   "settings": {
+    "pixelScale": 3,
+    "density": 1,
+    "splatSupersample": 2,
+    "voxelSize": 0.2,
+    "voxelCharSize": 0.06,
+    "voxelDecor": 0,
+    "voxelFlowers": true,
+    "voxelCull": true,
+    "meshDetail": 0.14,
+    "meshFlat": false,
+    "meshGrass": 1
+   },
+   "results": [
+    {
+     "method": "points",
+     "fps": 74.99844401568446,
+     "frameMs": 13.3336099585062,
+     "p95Ms": 13.39999999999418,
+     "cpuMs": 0.2298755185732703,
+     "gpuMs": 2.8144949377593385,
+     "count": 424897,
+     "countUnit": "粒",
+     "voxels": null,
+     "mesh": null,
+     "frames": 241
+    },
+    {
+     "method": "splats",
+     "fps": 74.99844401568446,
+     "frameMs": 13.3336099585062,
+     "p95Ms": 13.400000000023283,
+     "cpuMs": 0.4539419086147641,
+     "gpuMs": 2.456600697095437,
+     "count": 424897,
+     "countUnit": "スプラット",
+     "voxels": null,
+     "mesh": null,
+     "frames": 241
+    },
+    {
+     "method": "surfels",
+     "fps": 74.99844401568377,
+     "frameMs": 13.33360995850632,
+     "p95Ms": 13.400000000023283,
+     "cpuMs": 0.25186721863093714,
+     "gpuMs": 2.49384670539419,
+     "count": 424897,
+     "countUnit": "円盤",
+     "voxels": null,
+     "mesh": null,
+     "frames": 241
+    },
+    {
+     "method": "voxels",
+     "fps": 74.9961101602614,
+     "frameMs": 13.33402489626556,
+     "p95Ms": 13.5,
+     "cpuMs": 0.22240664009236696,
+     "gpuMs": 1.6429839668049795,
+     "count": 205053,
+     "countUnit": "面",
+     "voxels": {
+      "solid": 1798325,
+      "surface": 231800,
+      "faces": 409444,
+      "groups": 3
+     },
+     "mesh": null,
+     "frames": 241
+    },
+    {
+     "method": "pixelmesh",
+     "fps": 74.99144288514769,
+     "frameMs": 13.334854771784281,
+     "p95Ms": 13.5,
+     "cpuMs": 0.20124481476194137,
+     "gpuMs": 1.961383966804979,
+     "count": 457889,
+     "countUnit": "三角形",
+     "voxels": null,
+     "mesh": {
+      "worldTris": 356348,
+      "worldVerts": 179867,
+      "terrainTris": 171910,
+      "objectTris": 168478,
+      "cloudTris": 15960,
+      "blades": 17489,
+      "heads": 1008,
+      "charTris": 4016,
+      "charVerts": 2019
+     },
+     "frames": 241
+    }
+   ]
+  },
+  "flicker": {
+   "test": "flicker",
+   "settings": {
+    "pixelScale": 3,
+    "projection": "ortho",
+    "cameraSnap": true,
+    "pointSnap": true,
+    "alphaDither": true,
+    "dither": 0.35,
+    "palette": "meadow32",
+    "splatCrisp": true,
+    "splatSupersample": 2
+   },
+   "results": [
+    {
+     "method": "points",
+     "staticPct": 0,
+     "panPct": 9.80490130261143,
+     "panMaxPct": 27.23429584907494,
+     "frames": 91
+    },
+    {
+     "method": "splats",
+     "staticPct": 0,
+     "panPct": 7.85244451000962,
+     "panMaxPct": 22.608389314739004,
+     "frames": 91
+    },
+    {
+     "method": "surfels",
+     "staticPct": 0,
+     "panPct": 7.32209153108338,
+     "panMaxPct": 20.563903837510175,
+     "frames": 91
+    },
+    {
+     "method": "voxels",
+     "staticPct": 0,
+     "panPct": 7.816669779278654,
+     "panMaxPct": 21.621982774329133,
+     "frames": 91
+    },
+    {
+     "method": "pixelmesh",
+     "staticPct": 0,
+     "panPct": 7.811970825369918,
+     "panMaxPct": 21.614694056050244,
+     "frames": 91
+    }
+   ]
+  },
+  "gap": {
+   "test": "gap-overdraw",
+   "erodePx": 2,
+   "depthGap": 0.6,
+   "zoom": 15,
+   "pitch": 0.6,
+   "lowRes": {
+    "w": 321,
+    "h": 271
+   },
+   "aEstimateErrorPct": 0.004554695483707513,
+   "results": [
+    {
+     "method": "points",
+     "gapPct": 0,
+     "throughPct": 0.005907442195678115,
+     "coverPct": 100,
+     "rasterPerPx": 18.724500235656564,
+     "writtenPerPx": 16.499120598682623,
+     "rasterPerCovered": 18.724500235656564,
+     "kind": "measured",
+     "drawn": 424897,
+     "drawnUnit": "粒"
+    },
+    {
+     "method": "splats",
+     "gapPct": 0,
+     "throughPct": null,
+     "coverPct": 100,
+     "rasterPerPx": 29.04609000914452,
+     "writtenPerPx": 22.812745747067673,
+     "rasterPerCovered": null,
+     "kind": "estimated",
+     "drawn": 424897,
+     "drawnUnit": "スプラット"
+    },
+    {
+     "method": "surfels",
+     "gapPct": 0.0011814884391356231,
+     "throughPct": 0.3237278323231607,
+     "coverPct": 99.99885045579427,
+     "rasterPerPx": 9.12034578289708,
+     "writtenPerPx": 7.378924256532285,
+     "rasterPerCovered": 9.120450626508793,
+     "kind": "measured",
+     "drawn": 424897,
+     "drawnUnit": "円盤"
+    },
+    {
+     "method": "voxels",
+     "gapPct": 0.0011814884391356231,
+     "throughPct": 0.4040690461843831,
+     "coverPct": 99.99885045579427,
+     "rasterPerPx": 1.9728132795346645,
+     "writtenPerPx": 1.9728132795346645,
+     "rasterPerCovered": 1.97283595815611,
+     "kind": "measured",
+     "drawn": 205053,
+     "drawnUnit": "面"
+    },
+    {
+     "method": "pixelmesh",
+     "gapPct": 0,
+     "throughPct": 0.6876262715769326,
+     "coverPct": 100,
+     "rasterPerPx": 1.6258463519214632,
+     "writtenPerPx": 1.6258463519214632,
+     "rasterPerCovered": 1.6258463519214632,
+     "kind": "measured",
+     "drawn": 457889,
+     "drawnUnit": "三角形"
+    }
+   ]
+  }
+ },
+ "variants": {
+  "far": [
+   {
+    "m": "points",
+    "gpu": 3.1460847800829854,
+    "cpu": 0.18672199021731176,
+    "fps": 74.9961101602614,
+    "count": 424897,
+    "mesh": null
+   },
+   {
+    "m": "splats",
+    "gpu": 2.795857526970953,
+    "cpu": 0.47136929421009366,
+    "fps": 74.9961101602614,
+    "count": 424897,
+    "mesh": null
+   },
+   {
+    "m": "surfels",
+    "gpu": 2.212609593360996,
+    "cpu": 0.2029045657003569,
+    "fps": 74.99844401568514,
+    "count": 424897,
+    "mesh": null
+   },
+   {
+    "m": "voxels",
+    "gpu": 1.6536624066390047,
+    "cpu": 0.20788381851560347,
+    "fps": 74.9961101602614,
+    "count": 205053,
+    "mesh": null
+   },
+   {
+    "m": "pixelmesh",
+    "gpu": 1.9634447136929456,
+    "cpu": 0.20124481822445184,
+    "fps": 74.99844401568514,
+    "count": 457889,
+    "mesh": {
+     "worldTris": 356348,
+     "worldVerts": 179867,
+     "terrainTris": 171910,
+     "objectTris": 168478,
+     "cloudTris": 15960,
+     "blades": 17489,
+     "heads": 1008,
+     "charTris": 4016,
+     "charVerts": 2019
+    }
+   }
+  ],
+  "E-detail0.2": [
+   {
+    "m": "points",
+    "gpu": 2.8323994024896293,
+    "cpu": 0.1946058095243462,
+    "fps": 74.99844401568377,
+    "count": 424897,
+    "mesh": null
+   },
+   {
+    "m": "splats",
+    "gpu": 2.410555219917011,
+    "cpu": 0.45892115945143325,
+    "fps": 74.9961101602614,
+    "count": 424897,
+    "mesh": null
+   },
+   {
+    "m": "surfels",
+    "gpu": 2.5056163319502076,
+    "cpu": 0.1817427403699313,
+    "fps": 74.9961101602614,
+    "count": 424897,
+    "mesh": null
+   },
+   {
+    "m": "voxels",
+    "gpu": 1.6447511369294616,
+    "cpu": 0.21120332039243453,
+    "fps": 75.00077801636974,
+    "count": 205053,
+    "mesh": null
+   },
+   {
+    "m": "pixelmesh",
+    "gpu": 1.5825524315352701,
+    "cpu": 0.2215767633865483,
+    "fps": 74.99844401568514,
+    "count": 281963,
+    "mesh": {
+     "worldTris": 182466,
+     "worldVerts": 92459,
+     "terrainTris": 84636,
+     "objectTris": 81870,
+     "cloudTris": 15960,
+     "blades": 17489,
+     "heads": 1008,
+     "charTris": 1972,
+     "charVerts": 997
+    }
+   }
+  ],
+  "E-detail0.1": [
+   {
+    "m": "points",
+    "gpu": 2.8519960165975116,
+    "cpu": 0.18174273393955467,
+    "fps": 75.00311216233011,
+    "count": 424897,
+    "mesh": null
+   },
+   {
+    "m": "splats",
+    "gpu": 2.4043926307053933,
+    "cpu": 0.4547717892777376,
+    "fps": 74.9961101602614,
+    "count": 424897,
+    "mesh": null
+   },
+   {
+    "m": "surfels",
+    "gpu": 2.515663800829875,
+    "cpu": 0.2124481344618738,
+    "fps": 74.98677619092014,
+    "count": 424897,
+    "mesh": null
+   },
+   {
+    "m": "voxels",
+    "gpu": 1.6543495435684648,
+    "cpu": 0.22365145267787315,
+    "fps": 74.9961101602614,
+    "count": 205053,
+    "mesh": null
+   },
+   {
+    "m": "pixelmesh",
+    "gpu": 2.6788827883817414,
+    "cpu": 0.2174273848038986,
+    "fps": 75.00311216233011,
+    "count": 789045,
+    "mesh": {
+     "worldTris": 683548,
+     "worldVerts": 344106,
+     "terrainTris": 335270,
+     "objectTris": 332318,
+     "cloudTris": 15960,
+     "blades": 17489,
+     "heads": 1008,
+     "charTris": 7972,
+     "charVerts": 3997
+    }
+   }
+  ],
+  "E-detail0.07": [
+   {
+    "m": "points",
+    "gpu": 2.8450679502074707,
+    "cpu": 0.17261410649881323,
+    "fps": 74.9961101602614,
+    "count": 424897,
+    "mesh": null
+   },
+   {
+    "m": "splats",
+    "gpu": 2.4505562666666663,
+    "cpu": 0.4228215717181131,
+    "fps": 74.99844401568377,
+    "count": 424897,
+    "mesh": null
+   },
+   {
+    "m": "surfels",
+    "gpu": 2.5302368132780093,
+    "cpu": 0.19709543370606988,
+    "fps": 74.99844401568377,
+    "count": 424897,
+    "mesh": null
+   },
+   {
+    "m": "voxels",
+    "gpu": 1.6552253609958507,
+    "cpu": 0.18340249031905811,
+    "fps": 74.99377645008768,
+    "count": 205053,
+    "mesh": null
+   },
+   {
+    "m": "pixelmesh",
+    "gpu": 3.6728351867219926,
+    "cpu": 0.21825726150971725,
+    "fps": 74.99844401568377,
+    "count": 1494193,
+    "mesh": {
+     "worldTris": 1380248,
+     "worldVerts": 693395,
+     "terrainTris": 682914,
+     "objectTris": 681374,
+     "cloudTris": 15960,
+     "blades": 17489,
+     "heads": 1008,
+     "charTris": 16420,
+     "charVerts": 8221
+    }
+   }
+  ],
+  "E-flat": [
+   {
+    "m": "points",
+    "gpu": 2.707139850622408,
+    "cpu": 0.17717842739152712,
+    "fps": 74.9961101602614,
+    "count": 424897,
+    "mesh": null
+   },
+   {
+    "m": "splats",
+    "gpu": 2.5863475518672208,
+    "cpu": 0.38215767249032173,
+    "fps": 74.9961101602614,
+    "count": 424897,
+    "mesh": null
+   },
+   {
+    "m": "surfels",
+    "gpu": 2.0490020912863076,
+    "cpu": 0.1879668097278389,
+    "fps": 74.9961101602614,
+    "count": 424897,
+    "mesh": null
+   },
+   {
+    "m": "voxels",
+    "gpu": 1.6520983900414947,
+    "cpu": 0.1966804993103154,
+    "fps": 74.9961101602614,
+    "count": 205053,
+    "mesh": null
+   },
+   {
+    "m": "pixelmesh",
+    "gpu": 1.9843905062240685,
+    "cpu": 0.19543567831585515,
+    "fps": 74.99844401568377,
+    "count": 457889,
+    "mesh": {
+     "worldTris": 356348,
+     "worldVerts": 179867,
+     "terrainTris": 171910,
+     "objectTris": 168478,
+     "cloudTris": 15960,
+     "blades": 17489,
+     "heads": 1008,
+     "charTris": 4016,
+     "charVerts": 2019
+    }
+   }
+  ],
+  "E-grass0": [
+   {
+    "m": "points",
+    "gpu": 2.853641692946058,
+    "cpu": 0.1564315329943455,
+    "fps": 74.99844401568377,
+    "count": 424897,
+    "mesh": null
+   },
+   {
+    "m": "splats",
+    "gpu": 2.633013510373445,
+    "cpu": 0.39294605927843274,
+    "fps": 74.99844401568514,
+    "count": 424897,
+    "mesh": null
+   },
+   {
+    "m": "surfels",
+    "gpu": 2.2330433858921164,
+    "cpu": 0.17385891265394282,
+    "fps": 74.99844401568514,
+    "count": 424897,
+    "mesh": null
+   },
+   {
+    "m": "voxels",
+    "gpu": 1.6424054439834024,
+    "cpu": 0.18298755542865927,
+    "fps": 74.9961101602614,
+    "count": 205053,
+    "mesh": null
+   },
+   {
+    "m": "pixelmesh",
+    "gpu": 1.8529062240663896,
+    "cpu": 0.250622407529364,
+    "fps": 74.99844401568514,
+    "count": 375484,
+    "mesh": {
+     "worldTris": 356348,
+     "worldVerts": 179867,
+     "terrainTris": 171910,
+     "objectTris": 168478,
+     "cloudTris": 15960,
+     "blades": 1008,
+     "heads": 1008,
+     "charTris": 4016,
+     "charVerts": 2019
+    }
+   }
+  ],
+  "gapLow": [
+   {
+    "method": "points",
+    "gapPct": 0.023816985271074897,
+    "throughPct": 2.3290504544030086,
+    "coverPct": 95.65472290236922,
+    "rasterPerPx": 27.153337701601316,
+    "writtenPerPx": 23.422779367980596,
+    "rasterPerCovered": 28.37557061169574,
+    "kind": "measured",
+    "drawn": 424897,
+    "drawnUnit": "粒"
+   },
+   {
+    "method": "splats",
+    "gapPct": 0.025070510811657787,
+    "throughPct": null,
+    "coverPct": 95.50758124403674,
+    "rasterPerPx": 34.2738303067824,
+    "writtenPerPx": 26.91860337553296,
+    "rasterPerCovered": null,
+    "kind": "estimated",
+    "drawn": 424897,
+    "drawnUnit": "スプラット"
+   },
+   {
+    "method": "surfels",
+    "gapPct": 0.13287370730178627,
+    "throughPct": 3.231588843622689,
+    "coverPct": 95.08569852053661,
+    "rasterPerPx": 10.544309181409572,
+    "writtenPerPx": 8.065328597211206,
+    "rasterPerCovered": 11.07507667044988,
+    "kind": "measured",
+    "drawn": 424897,
+    "drawnUnit": "円盤"
+   },
+   {
+    "method": "voxels",
+    "gapPct": 0.03635224067690379,
+    "throughPct": 2.6574741460357254,
+    "coverPct": 95.33285052476693,
+    "rasterPerPx": 2.6257199020588335,
+    "writtenPerPx": 2.6257199020588335,
+    "rasterPerCovered": 2.7542655942892282,
+    "kind": "measured",
+    "drawn": 205053,
+    "drawnUnit": "面"
+   },
+   {
+    "method": "pixelmesh",
+    "gapPct": 0.14540896270761516,
+    "throughPct": 3.234095894703855,
+    "coverPct": 94.80980791116322,
+    "rasterPerPx": 2.0451311055166626,
+    "writtenPerPx": 2.0451311055166626,
+    "rasterPerCovered": 2.157088122605364,
+    "kind": "measured",
+    "drawn": 457889,
+    "drawnUnit": "三角形"
+   }
+  ]
+ },
+ "animation": {
+  "conditions": "ズーム 7.5・見下ろし 0.6・風 0、歩行/走行の位相を 1 周 24 段階、キャラクター周辺 73×87 低解像度画素で連続 2 コマの変化画素（RGB 差 > 10）",
+  "points": {
+   "walk": [
+    2.59,
+    3.39
+   ],
+   "run": [
+    3.9,
+    4.53
+   ]
+  },
+  "splats": {
+   "walk": [
+    3.9,
+    4.74
+   ],
+   "run": [
+    5.89,
+    7.38
+   ]
+  },
+  "surfels": {
+   "walk": [
+    3.13,
+    4.09
+   ],
+   "run": [
+    4.23,
+    4.91
+   ]
+  },
+  "voxels": {
+   "walk": [
+    2.07,
+    2.93
+   ],
+   "run": [
+    3.1,
+    3.67
+   ]
+  },
+  "pixelmesh": {
+   "walk": [
+    1.82,
+    2.24
+   ],
+   "run": [
+    2.81,
+    3.48
+   ]
+  }
+ },
+ "resources": {
+  "switchDev": {
+   "cold": {
+    "splats": 429,
+    "surfels": 50,
+    "voxels": 683,
+    "pixelmesh": 1507
+   },
+   "warm": {
+    "splats": 203,
+    "surfels": 45,
+    "voxels": 68,
+    "pixelmesh": 96
+   }
+  },
+  "switchProd": {
+   "pixelmesh": 1247,
+   "voxels": 687
+  },
+  "eBuildProd": {
+   "0.2": {
+    "ms": 691,
+    "worldTris": 182466,
+    "charTris": 1972
+   },
+   "0.14": {
+    "ms": 1132,
+    "worldTris": 356348,
+    "charTris": 4016,
+    "phases": {
+     "index": 32,
+     "terrain": 196,
+     "objects": 827,
+     "decor": 77
+    }
+   },
+   "0.1": {
+    "ms": 1925,
+    "worldTris": 683548,
+    "charTris": 7972
+   },
+   "0.07": {
+    "ms": 3974,
+    "worldTris": 1380248,
+    "charTris": 16420
+   }
+  },
+  "geometryBytes": {
+   "points": 12751518,
+   "surfels": 16584927,
+   "voxels": 5732636,
+   "pixelmesh": 10267279,
+   "splats": null
+  },
+  "rendererInfo": {
+   "boot": {
+    "geometries": 3,
+    "textures": 3
+   },
+   "afterCycles": [
+    {
+     "geometries": 4,
+     "textures": 6,
+     "programs": 5
+    },
+    {
+     "geometries": 4,
+     "textures": 6,
+     "programs": 5
+    },
+    {
+     "geometries": 4,
+     "textures": 6,
+     "programs": 5
+    }
+   ],
+   "eShown": {
+    "geometries": 11,
+    "textures": 9,
+    "programs": 9
+   },
+   "aShown": {
+    "geometries": 4,
+    "textures": 6,
+    "programs": 5
+   },
+   "bShownTextures": 17
+  },
+  "regression": {
+   "compared": 24,
+   "identical": 24,
+   "base": "bb1c954"
+  },
+  "sparkLazy": {
+   "requestsBeforeB": 0,
+   "requestsAfterB": 1
+  },
+  "bundle": {
+   "before": "691.5 kB",
+   "after": "712.8 kB"
+  }
+ }
+}

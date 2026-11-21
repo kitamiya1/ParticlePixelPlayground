@@ -148,7 +148,7 @@ export class PixelPipeline {
     u.uMaskOut.value = 0;
   }
 
-  /** GPU 資源を解放する（方式 C が独自に持つ低解像度ターゲット用。方式 A の本体は常駐） */
+  /** GPU 資源を解放する（方式 C・D・E が独自に持つ低解像度ターゲット用。方式 A の本体は常駐） */
   dispose() {
     this.rt?.depthTexture?.dispose();
     this.rt?.dispose();

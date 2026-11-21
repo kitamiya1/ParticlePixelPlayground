@@ -9,6 +9,7 @@ import { emitCharacter } from './emitters/character';
 import { emitGrass, emitVines } from './emitters/flora';
 import { emitClouds } from './emitters/rock';
 import { emitTerrain } from './emitters/terrain';
+import { createMeshHints, type MeshHints } from './meshHints';
 import { getVisual } from './registry';
 
 /** 太陽の方向（ワールド座標、光が来る向き） */
@@ -23,6 +24,8 @@ export interface WorldVisuals {
   character: THREE.BufferGeometry;
   categories: Map<string, number>;
   proxies: THREE.Group;
+  /** 草・花・雲の形の計画（方式 E のポリゴン化用。粒の生成と同時に記録） */
+  hints: MeshHints;
   buildMs: number;
 }
 
@@ -30,12 +33,13 @@ export function buildWorldVisuals(layout: IslandLayout, seed = 1): WorldVisuals 
   const t0 = performance.now();
   const rng = mulberry32(seed);
   const b = new ParticleBuilder(1 << 19);
-  const ctx = { layout, rng };
+  const hints = createMeshHints();
+  const ctx = { layout, rng, hints };
   const occluders: SphereOccluder[] = [];
   const proxies = new THREE.Group();
 
   emitTerrain(b, layout.terrain, rng);
-  emitGrass(b, layout, rng);
+  emitGrass(b, layout, rng, hints);
   emitVines(b, layout, rng);
   for (const p of layout.placements) {
     const v = getVisual(p.kind);
@@ -48,7 +52,7 @@ export function buildWorldVisuals(layout: IslandLayout, seed = 1): WorldVisuals 
     if (v.occluders) occluders.push(...v.occluders(plan));
     if (v.proxy) proxies.add(v.proxy(plan));
   }
-  emitClouds(b, rng);
+  emitClouds(b, rng, hints);
   bakeSunShadows(b, layout.terrain, occluders, SUN_DIR);
   b.shuffle(rng);
   proxies.add(buildTerrainProxy(layout));
@@ -58,7 +62,7 @@ export function buildWorldVisuals(layout: IslandLayout, seed = 1): WorldVisuals 
 
   const categories = new Map(b.categories);
   for (const [k, v] of cb.categories) categories.set(k, v);
-  return { world: b.toGeometry(), character: cb.toGeometry(), categories, proxies, buildMs: performance.now() - t0 };
+  return { world: b.toGeometry(), character: cb.toGeometry(), categories, proxies, hints, buildMs: performance.now() - t0 };
 }
 
 /** 比較用：地形の簡易メッシュ（高さ場の上面 + 円錐の底） */

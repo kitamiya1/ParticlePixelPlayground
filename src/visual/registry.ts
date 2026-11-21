@@ -6,6 +6,7 @@ import type { Rng } from '../core/math';
 import type { IslandLayout, Placement } from '../world/IslandLayout';
 import type { ParticleBuilder } from './ParticleBuilder';
 import type { SphereOccluder } from './ShadowBaker';
+import type { MeshHints } from './meshHints';
 import { emitFlowerPatch } from './emitters/flora';
 import { emitRock, planRock, rockOccluders, type RockPlan } from './emitters/rock';
 import { emitTree, planTree, treeOccluders, type TreePlan } from './emitters/tree';
@@ -13,6 +14,8 @@ import { emitTree, planTree, treeOccluders, type TreePlan } from './emitters/tre
 export interface VisualContext {
   layout: IslandLayout;
   rng: Rng;
+  /** 方式 E のポリゴン化用に形の計画を書き留める先（任意） */
+  hints?: MeshHints;
 }
 
 export interface ObjectVisual<Plan> {
@@ -79,5 +82,5 @@ registerVisual<RockPlan>('rock', {
 
 registerVisual<Placement>('flowerPatch', {
   plan: (p) => p,
-  emit: (b, p, ctx) => emitFlowerPatch(b, ctx.layout, p, ctx.rng),
+  emit: (b, p, ctx) => emitFlowerPatch(b, ctx.layout, p, ctx.rng, ctx.hints),
 });

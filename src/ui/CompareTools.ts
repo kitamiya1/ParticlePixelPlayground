@@ -1,4 +1,4 @@
-// 描画方式 A/B/C/D の比較・計測ツール。実行中はゲームの更新を止め（カメラ・キャラクター・時間を固定し）、
+// 描画方式 A/B/C/D/E の比較・計測ツール。実行中はゲームの更新を止め（カメラ・キャラクター・時間を固定し）、
 // 設定だけを切り替えて同じ条件で描き比べる。終わったら設定とカメラを元に戻す。
 
 import type { Game } from '../game/Game';
@@ -37,17 +37,25 @@ export interface Tool {
   finish(): void;
 }
 
-const METHOD_LABEL: Record<RenderMethod, string> = { points: 'A-points', splats: 'B-splats', surfels: 'C-surfels', voxels: 'D-voxels' };
-const METHOD_JA: Record<RenderMethod, string> = { points: 'A：ポイント', splats: 'B：スプラット', surfels: 'C：サーフェル', voxels: 'D：ボクセル' };
+const METHOD_LABEL: Record<RenderMethod, string> = { points: 'A-points', splats: 'B-splats', surfels: 'C-surfels', voxels: 'D-voxels', pixelmesh: 'E-pixelmesh' };
+const METHOD_JA: Record<RenderMethod, string> = { points: 'A：ポイント', splats: 'B：スプラット', surfels: 'C：サーフェル', voxels: 'D：ボクセル', pixelmesh: 'E：メッシュ' };
 /**
  * 描いた数の単位。A・B・C は「点 1 つ = 描画単位 1 つ」だが、D は描画単位が「面」（四角形）で、
  * 1 個のボクセルは 0〜6 枚の面になるため、数をそのまま比べられない（D はボクセル数も別に出す）。
+ * E は三角形の数（地形・樹木・岩・雲・キャラクターの三角形 + 草の帯 5 枚 / 本 + 花の頭 10 枚 / 輪）。
  */
-const COUNT_UNIT: Record<RenderMethod, string> = { points: '粒', splats: 'スプラット', surfels: '円盤', voxels: '面' };
+const COUNT_UNIT: Record<RenderMethod, string> = { points: '粒', splats: 'スプラット', surfels: '円盤', voxels: '面', pixelmesh: '三角形' };
 
 /** 描いた数（粒・スプラット・円盤・面） */
 function drawnCount(v: SceneRenderer, m: RenderMethod): number {
-  return m === 'splats' ? v.drawnSplats : m === 'surfels' ? v.drawnSurfels : m === 'voxels' ? v.drawnVoxelFaces : v.drawnParticles;
+  return m === 'splats' ? v.drawnSplats : m === 'surfels' ? v.drawnSurfels : m === 'voxels' ? v.drawnVoxelFaces : m === 'pixelmesh' ? v.drawnMeshTris : v.drawnParticles;
+}
+
+/** 方式 E のメッシュの内訳（E 以外は null） */
+function meshCounts(v: SceneRenderer, m: RenderMethod) {
+  const st = m === 'pixelmesh' ? v.pixelMesh?.stats : null;
+  const br = m === 'pixelmesh' ? v.pixelMesh?.breakdown : null;
+  return st && br ? { worldTris: st.worldTris, worldVerts: st.worldVerts, terrainTris: br.terrain, objectTris: br.objects, cloudTris: br.clouds, blades: v.pixelMesh!.drawnBlades, heads: st.heads, charTris: st.charTris, charVerts: st.charVerts } : null;
 }
 
 /** 方式 D のボクセル数（D 以外は null） */
@@ -61,7 +69,7 @@ abstract class BaseTool implements Tool {
   readonly pausesGame = true;
   protected readonly saved: RenderSettings;
   private readonly cam: { yaw: number; pitch: number; zoom: number; target: { x: number; y: number; z: number } };
-  /** 比べる方式（A・B・C・D すべて） */
+  /** 比べる方式（A〜E すべて） */
   protected readonly methods: RenderMethod[] = [...RENDER_METHODS];
 
   constructor(protected readonly host: ToolHost) {
@@ -130,7 +138,7 @@ function stamp(): string {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-/** 同じカメラ・同じ描画解像度で A・B・C・D を順に撮影して保存する */
+/** 同じカメラ・同じ描画解像度で A〜E を順に撮影して保存する */
 export class CaptureTool extends BaseTool {
   private i = 0;
   private frames = 0;
@@ -335,10 +343,12 @@ interface BenchResult {
   countUnit: string;
   /** 方式 D のボクセル数（占有 / 空気に面したもの / 面の総数 / 描いた向きの組） */
   voxels: { solid: number; surface: number; faces: number; groups: number } | null;
+  /** 方式 E の三角形・頂点の内訳 */
+  mesh: ReturnType<typeof meshCounts>;
   frames: number;
 }
 
-/** カメラを回しながら A・B・C・D それぞれの FPS・フレーム時間を測る */
+/** カメラを回しながら A〜E それぞれの FPS・フレーム時間を測る */
 export class BenchmarkTool extends BaseTool {
   private mi = 0;
   private frame = 0;
@@ -380,6 +390,7 @@ export class BenchmarkTool extends BaseTool {
       count: drawnCount(v, method),
       countUnit: COUNT_UNIT[method],
       voxels: voxelCounts(v, method),
+      mesh: meshCounts(v, method),
       frames: fs.length,
     });
     this.samples = { f: [], c: [], g: [] };
@@ -394,12 +405,14 @@ export class BenchmarkTool extends BaseTool {
       .map((r) => `<tr><td>${METHOD_JA[r.method]}</td><td>${r.fps.toFixed(1)}</td><td>${r.frameMs.toFixed(2)}</td><td>${r.p95Ms.toFixed(2)}</td><td>${r.cpuMs.toFixed(2)}</td><td>${r.gpuMs === null ? '―' : r.gpuMs.toFixed(2)}</td><td>${r.count.toLocaleString()} ${r.countUnit}</td></tr>`)
       .join('');
     const vox = this.results.find((r) => r.voxels)?.voxels;
+    const msh = this.results.find((r) => r.mesh)?.mesh;
     this.host.report(
       `<b>性能ベンチマーク</b>（カメラ回転中・各 ${BenchmarkTool.MEASURE} フレーム）<table><tr><th></th><th>FPS</th><th>平均ms</th><th>95%ms</th><th>CPUms</th><th>GPUms</th><th>数</th></tr>${rows}</table>` +
         `<div class="small">FPS は画面のリフレッシュレートで頭打ちになります。負荷の差は GPUms（GPU 時間）で比べてください</div>` +
         (vox ? `<div class="small">D の「数」は描いた面（四角形）の数で、粒・スプラット・円盤の数とは単位が違います（1 ボクセル = 0〜6 面）。D のボクセル：占有 ${vox.solid.toLocaleString()} / 表面 ${vox.surface.toLocaleString()} / 面の総数 ${vox.faces.toLocaleString()}</div>` : '') +
+        (msh ? `<div class="small">E の「数」は三角形の数です。E のメッシュ：浮き島 ${msh.worldTris.toLocaleString()} 三角形（頂点 ${msh.worldVerts.toLocaleString()}）+ 草の帯 ${msh.blades.toLocaleString()} 本 + 花 ${msh.heads.toLocaleString()} 輪、キャラ ${msh.charTris.toLocaleString()} 三角形</div>` : '') +
         `<div class="small">${env.gpu}<br>キャンバス ${env.canvas} / 描画解像度 ${lr.w}×${lr.h} / DPR ${env.dpr}</div>`,
-      { test: 'benchmark', env, lowRes: lr, settings: { pixelScale: this.saved.pixelScale, density: this.saved.density, splatSupersample: this.saved.splatSupersample, voxelSize: this.saved.voxelSize, voxelCharSize: this.saved.voxelCharSize, voxelDecor: this.saved.voxelDecor, voxelFlowers: this.saved.voxelFlowers, voxelCull: this.saved.voxelCull }, results: this.results },
+      { test: 'benchmark', env, lowRes: lr, settings: { pixelScale: this.saved.pixelScale, density: this.saved.density, splatSupersample: this.saved.splatSupersample, voxelSize: this.saved.voxelSize, voxelCharSize: this.saved.voxelCharSize, voxelDecor: this.saved.voxelDecor, voxelFlowers: this.saved.voxelFlowers, voxelCull: this.saved.voxelCull, meshDetail: this.saved.meshDetail, meshFlat: this.saved.meshFlat, meshGrass: this.saved.meshGrass }, results: this.results },
     );
     return false;
   }
@@ -443,7 +456,7 @@ function erode(mask: Uint8Array, w: number, h: number, r: number): Uint8Array {
 }
 
 /**
- * 隙間と重ね塗りの解析（静止状態で A・B・C・D を順に描いて比べる）。
+ * 隙間と重ね塗りの解析（静止状態で A〜E を順に描いて比べる）。
  * - 隙間：基準形状（簡易メッシュ）のシルエットを同じカメラ・描画解像度で描き、2 画素縮めた内側で、
  *   各方式が背景（空）になっている画素の割合。縮めるのは、簡易メッシュと粒の形の差（縁のずれ）を数えないため。
  * - 重ね塗り：A・C・D は計測用シェーダーで GPU 上の断片数を実測。B は Spark 内部のシェーダーなので推定。

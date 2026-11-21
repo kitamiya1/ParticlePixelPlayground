@@ -2,13 +2,16 @@
 
 export type ViewMode = 'particles' | 'mesh' | 'split' | 'compare';
 export type Projection = 'ortho' | 'perspective';
-/** 描画方式 A: 既存のポイント描画 / B: Pixel Art Gaussian Splats（Spark） / C: サーフェル（不透明な円盤 + 深度） / D: ボクセル（立方体の集合 + 深度） */
-export type RenderMethod = 'points' | 'splats' | 'surfels' | 'voxels';
-export const RENDER_METHODS: RenderMethod[] = ['points', 'splats', 'surfels', 'voxels'];
+/**
+ * 描画方式 A: 既存のポイント描画 / B: Pixel Art Gaussian Splats（Spark） / C: サーフェル（不透明な円盤 + 深度） /
+ * D: ボクセル（立方体の集合 + 深度） / E: ピクセル化メッシュ（通常のポリゴンメッシュを低解像度に描いて後処理）
+ */
+export type RenderMethod = 'points' | 'splats' | 'surfels' | 'voxels' | 'pixelmesh';
+export const RENDER_METHODS: RenderMethod[] = ['points', 'splats', 'surfels', 'voxels', 'pixelmesh'];
 /** 画面表示用の短い名前 */
-export const METHOD_NAME: Record<RenderMethod, string> = { points: 'A：ポイント', splats: 'B：Gaussian Splats', surfels: 'C：サーフェル', voxels: 'D：ボクセル' };
+export const METHOD_NAME: Record<RenderMethod, string> = { points: 'A：ポイント', splats: 'B：Gaussian Splats', surfels: 'C：サーフェル', voxels: 'D：ボクセル', pixelmesh: 'E：ピクセル化メッシュ' };
 /** 方式の記号（ファイル名など） */
-export const METHOD_LETTER: Record<RenderMethod, string> = { points: 'A', splats: 'B', surfels: 'C', voxels: 'D' };
+export const METHOD_LETTER: Record<RenderMethod, string> = { points: 'A', splats: 'B', surfels: 'C', voxels: 'D', pixelmesh: 'E' };
 /** スプラットの形状ソース: 既存の粒データを変換 / 樹木・岩・キャラクターを SDF から生成 */
 export type SplatSource = 'convert' | 'sdf';
 
@@ -78,6 +81,13 @@ export interface RenderSettings {
   voxelAO: number;
   /** カメラから見て裏向きの面の組を描かない */
   voxelCull: boolean;
+  // ピクセル化メッシュ（方式 E）
+  /** 樹木・岩の SDF を三角形にする格子の一辺（地形の網・キャラクターもこれに比例。変えると作り直す） */
+  meshDetail: number;
+  /** フラットシェーディング（三角形ごとの面の向きで陰影をつける） */
+  meshFlat: boolean;
+  /** 草の葉を描く割合（0..1。作り直さない） */
+  meshGrass: number;
 }
 
 export const DEFAULT_SETTINGS: RenderSettings = {
@@ -128,12 +138,21 @@ export const DEFAULT_SETTINGS: RenderSettings = {
   voxelEdge: 0.15,
   voxelAO: 0.6,
   voxelCull: true,
+  meshDetail: 0.14,
+  meshFlat: false,
+  meshGrass: 1,
 };
 
 /** 方式 D の作り直しが必要な設定の選択肢（連続値にすると操作のたびに作り直しが走るため段階で選ぶ） */
 export const VOXEL_SIZES = [0.1, 0.14, 0.2, 0.28, 0.4];
 export const VOXEL_CHAR_SIZES = [0.04, 0.06, 0.08, 0.12];
 export const VOXEL_DECOR_LEVELS = [0, 0.1, 0.25, 0.5, 1];
+/** 方式 E の形状の細かさの選択肢（作り直しが必要なので段階で選ぶ） */
+export const MESH_DETAILS = [0.2, 0.14, 0.1, 0.07];
+/** 方式 E のキャラクターの格子の一辺（浮き島の細かさに比例） */
+export function meshCharCell(detail: number): number {
+  return Math.max(0.015, detail * 0.25);
+}
 
 export function cloneSettings(s: RenderSettings): RenderSettings {
   return { ...s };
@@ -159,6 +178,7 @@ export function sanitizeSettings(raw: unknown): RenderSettings {
   if (!VOXEL_SIZES.includes(out.voxelSize)) out.voxelSize = DEFAULT_SETTINGS.voxelSize;
   if (!VOXEL_CHAR_SIZES.includes(out.voxelCharSize)) out.voxelCharSize = DEFAULT_SETTINGS.voxelCharSize;
   if (!VOXEL_DECOR_LEVELS.includes(out.voxelDecor)) out.voxelDecor = DEFAULT_SETTINGS.voxelDecor;
+  if (!MESH_DETAILS.includes(out.meshDetail)) out.meshDetail = DEFAULT_SETTINGS.meshDetail;
   return out;
 }
 
@@ -181,4 +201,8 @@ export const BUILTIN_PRESETS: Record<string, Partial<RenderSettings>> = {
   'ボクセル：標準': { renderMethod: 'voxels', voxelSize: 0.2, voxelCharSize: 0.06, voxelDecor: 0, voxelFlowers: true, voxelEdge: 0.15, voxelAO: 0.6 },
   'ボクセル：細かい': { renderMethod: 'voxels', voxelSize: 0.1, voxelCharSize: 0.04, voxelDecor: 0.25, voxelFlowers: true, voxelEdge: 0, voxelAO: 0.5 },
   'ボクセル：粗いブロック': { renderMethod: 'voxels', voxelSize: 0.4, voxelCharSize: 0.08, voxelDecor: 0, voxelFlowers: false, voxelEdge: 0.3, voxelAO: 0.8 },
+  // 方式 E 用
+  'ピクセル化メッシュ：標準': { renderMethod: 'pixelmesh', meshDetail: 0.14, meshFlat: false, meshGrass: 1 },
+  'ピクセル化メッシュ：ローポリ': { renderMethod: 'pixelmesh', meshDetail: 0.2, meshFlat: true, meshGrass: 0.5, lightSteps: 3, outline: 1 },
+  'ピクセル化メッシュ：トゥーン': { renderMethod: 'pixelmesh', meshDetail: 0.14, meshFlat: false, lightSteps: 2, outline: 1, outlineThresh: 0.3, outlineDarken: 0.3, dither: 0.2 },
 };

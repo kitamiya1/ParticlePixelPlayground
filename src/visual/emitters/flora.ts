@@ -3,6 +3,7 @@
 import { fbm2, hex, mixRGB, pick, scaleRGB, type RGB, type Rng } from '../../core/math';
 import type { IslandLayout, Placement } from '../../world/IslandLayout';
 import type { ParticleBuilder } from '../ParticleBuilder';
+import type { MeshHints } from '../meshHints';
 
 const BLADE_BASE: RGB[] = ['#3f7d3a', '#4a8a3e', '#457f36'].map(hex);
 const BLADE_TIP: RGB[] = ['#8cc95c', '#a5d36a', '#79bb52', '#b9d877'].map(hex);
@@ -16,8 +17,8 @@ export const FLOWER_COLORS: Record<string, RGB[]> = {
   blue: ['#6aa4e8', '#5288d6'].map(hex),
 };
 
-/** 草むら：島全体に房を散らす */
-export function emitGrass(b: ParticleBuilder, layout: IslandLayout, rng: Rng) {
+/** 草むら：島全体に房を散らす（hints があれば葉 1 枚ごとの形を記録する。乱数は消費しない） */
+export function emitGrass(b: ParticleBuilder, layout: IslandLayout, rng: Rng, hints?: MeshHints) {
   b.setCategory('草花');
   const t = layout.terrain;
   const R = t.cfg.radius * 1.1;
@@ -40,6 +41,7 @@ export function emitGrass(b: ParticleBuilder, layout: IslandLayout, rng: Rng) {
         const segs = Math.max(2, Math.round(len / 0.065));
         const baseC = pick(BLADE_BASE, rng());
         const tipC = pick(BLADE_TIP, rng());
+        hints?.blades.push({ x: bx, y: base, z: bz, len, leanX: lean, leanZ, base: baseC, tip: tipC });
         for (let sgi = 1; sgi <= segs; sgi++) {
           const f = sgi / segs;
           const c = mixRGB(baseC, tipC, f);
@@ -53,8 +55,8 @@ export function emitGrass(b: ParticleBuilder, layout: IslandLayout, rng: Rng) {
   }
 }
 
-/** 草花の群生 */
-export function emitFlowerPatch(b: ParticleBuilder, layout: IslandLayout, p: Placement, rng: Rng) {
+/** 草花の群生（hints があれば花 1 輪ごとの形を記録する。乱数は消費しない） */
+export function emitFlowerPatch(b: ParticleBuilder, layout: IslandLayout, p: Placement, rng: Rng, hints?: MeshHints) {
   b.setCategory('草花');
   const t = layout.terrain;
   const cols = FLOWER_COLORS[p.variant] ?? FLOWER_COLORS.white;
@@ -80,7 +82,9 @@ export function emitFlowerPatch(b: ParticleBuilder, layout: IslandLayout, p: Pla
       const pa = rot + (k / 5) * Math.PI * 2;
       b.push(x + Math.cos(pa) * petal, hy, z + Math.sin(pa) * petal, pc, 0, 1, 0, { size: 0.085, wind: 1 });
     }
-    b.push(x, hy + 0.015, z, p.variant === 'yellow' ? hex('#e07b2e') : center, 0, 1, 0, { size: 0.08, wind: 1 });
+    const cc = p.variant === 'yellow' ? hex('#e07b2e') : center;
+    b.push(x, hy + 0.015, z, cc, 0, 1, 0, { size: 0.08, wind: 1 });
+    hints?.flowers.push({ x, y: base, z, stem, petal: pc, center: cc, rot });
   }
 }
 

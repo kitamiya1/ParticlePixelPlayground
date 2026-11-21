@@ -6,6 +6,7 @@ import type { Terrain } from '../../world/Terrain';
 import type { ParticleBuilder } from '../ParticleBuilder';
 import type { SphereOccluder } from '../ShadowBaker';
 import { fibonacciSphere } from '../shapes';
+import type { MeshHints } from '../meshHints';
 
 export interface RockPlan { x: number; y: number; z: number; rx: number; ry: number; rz: number; rot: number; seed: number }
 
@@ -56,8 +57,8 @@ export function rockOccluders(plan: RockPlan): SphereOccluder[] {
   return [{ x: plan.x, y: plan.y, z: plan.z, r: Math.max(plan.rx, plan.rz) * 0.8 }];
 }
 
-/** 島の周囲・下方に漂う雲 */
-export function emitClouds(b: ParticleBuilder, rng: Rng) {
+/** 島の周囲・下方に漂う雲（hints があればかたまりの中心と半径を記録する。乱数は消費しない） */
+export function emitClouds(b: ParticleBuilder, rng: Rng, hints?: MeshHints) {
   b.setCategory('雲');
   const cols: RGB[] = ['#f6f8ff', '#e8eefb', '#dde6f6'].map(hex);
   const under = hex('#b7c4e0');
@@ -70,6 +71,7 @@ export function emitClouds(b: ParticleBuilder, rng: Rng) {
       const lx = cx + (rng() - 0.5) * 9, lz = cz + (rng() - 0.5) * 6, ly = cy + (rng() - 0.5) * 1.5;
       const r = 1.8 + rng() * 2.2;
       const n = Math.round((4 * Math.PI * r * r) / 0.16);
+      hints?.cloudLumps.push({ x: lx, y: ly, z: lz, r });
       fibonacciSphere(n, (dx, dy, dz) => {
         if (dy < -0.45) return;
         const ry = dy * 0.6;

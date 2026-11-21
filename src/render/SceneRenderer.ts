@@ -2,7 +2,7 @@
 
 import * as THREE from 'three';
 import type { Game } from '../game/Game';
-import type { RenderMethod, RenderSettings, SplatSource } from '../settings';
+import { meshCharCell, type RenderMethod, type RenderSettings, type SplatSource } from '../settings';
 import { BONE_PIVOTS, CHARACTER_PARTS } from '../visual/emitters/character';
 import { buildSdfCharacter, buildSdfObjects, characterSourceFromGeometry, type CharacterSplatSource } from '../visual/sdf/sdfObjects';
 import { SUN_DIR, type WorldVisuals } from '../visual/WorldVisualBuilder';
@@ -14,6 +14,9 @@ import { mergeAndShuffle, pointSetFromBuilder, pointSetFromGeometry, type SplatP
 import { SurfelRenderer } from './surfel/SurfelRenderer';
 import { buildVoxelCharacter, buildVoxelWorld, type VoxelCharacter, type VoxelWorld } from './voxel/VoxelGrid';
 import { VoxelRenderer } from './voxel/VoxelRenderer';
+import { buildPixelMeshCharacter, buildPixelMeshWorld, buildPointIndex, type PixelMeshCharacter, type PixelMeshWorld } from './pixelmesh/MeshBuild';
+import type { PointIndex } from './pixelmesh/PointIndex';
+import { PixelMeshRenderer } from './pixelmesh/PixelMeshRenderer';
 // 方式 B（Spark）は型だけを静的に参照し、実体は必要になったときに動的 import で読み込む
 import type { SplatRenderer } from './splat/SplatRenderer';
 
@@ -69,6 +72,17 @@ export class SceneRenderer {
   drawnVoxelFaces = 0;
   /** 方式 D の CPU 側のボクセル（直前に作ったもの。方式を戻したときに作り直さずに GPU へ上げ直す） */
   private voxelCache: { world?: { key: string; data: VoxelWorld }; char?: { key: string; data: VoxelCharacter } } = {};
+  /** 方式 E の描画一式（使っていない間は null = GPU 資源を持たない） */
+  pixelMesh: PixelMeshRenderer | null = null;
+  private meshWorldKey = '';
+  private meshCharKey = '';
+  /** 方式 E を作り直した回数（浮き島 / キャラクター。GPU 資源の蓄積確認用） */
+  meshRebuilds = 0;
+  meshCharRebuilds = 0;
+  /** 最後に描いた三角形の数（方式 E） */
+  drawnMeshTris = 0;
+  /** 方式 E の CPU 側のメッシュ（直前に作ったもの。方式を戻したときに作り直さずに GPU へ上げ直す）と点群の索引 */
+  private meshCache: { world?: { key: string; data: PixelMeshWorld }; char?: { key: string; data: PixelMeshCharacter }; index?: { src: SplatSource; data: PointIndex; ms: number } } = {};
   /** 草花・雲の粒（方式 D の立体化用。カテゴリで取り出して CPU 側に保持） */
   private decorPoints: { decor: SplatPointSet; clouds: SplatPointSet } | null = null;
   /** 方式 B の生成にかかった時間（点群の用意 / GPU 側の構築） */
@@ -273,16 +287,18 @@ export class SceneRenderer {
     r.setScissorTest(false);
     r.setViewport(0, 0, cw / r.getPixelRatio(), ch / r.getPixelRatio());
 
-    // 方式 B・C・D は必要なときだけ GPU 資源を持つ（使わなくなったら解放する）
+    // 方式 B・C・D・E は必要なときだけ GPU 資源を持つ（使わなくなったら解放する）
     const wanted = this.wantedMethods(s);
     this.syncSplat(wanted.includes('splats'), s.splatSource, game.layout);
     this.syncSurfel(wanted.includes('surfels'), s.splatSource, game.layout);
     this.syncVoxel(wanted.includes('voxels'), s, game.layout);
+    this.syncPixelMesh(wanted.includes('pixelmesh'), s, game.layout);
     const shown = this.shownMethods(s);
     this.drawnParticles = shown.includes('points') ? n + this.charTotal : 0;
     this.drawnSplats = 0;
     this.drawnSurfels = 0;
     this.drawnVoxelFaces = 0;
+    this.drawnMeshTris = 0;
 
     if (shown.length) {
       const cam = this.setupCamera(game, s, true);
@@ -307,6 +323,11 @@ export class SceneRenderer {
         this.voxel.update(s, this.rig, cam);
         this.voxel.renderScene(r, cam, cw, ch, scale);
         this.drawnVoxelFaces = this.voxel.drawnFaces;
+      }
+      if (shown.includes('pixelmesh') && this.pixelMesh) {
+        this.pixelMesh.update(s, this.rig);
+        this.pixelMesh.renderScene(r, cam, cw, ch, scale);
+        this.drawnMeshTris = this.pixelMesh.drawnTris;
       }
       const pr = r.getPixelRatio();
       const W = cw / pr, H = ch / pr;
@@ -349,6 +370,7 @@ export class SceneRenderer {
     if (m === 'splats' && this.splat) this.splat.post.composite(this.renderer, s, offset, target, raw, mask);
     else if (m === 'surfels' && this.surfel) this.surfel.pipeline.composite(this.renderer, s, cam, offset, target, raw, mask);
     else if (m === 'voxels' && this.voxel) this.voxel.pipeline.composite(this.renderer, s, cam, offset, target, raw, mask);
+    else if (m === 'pixelmesh' && this.pixelMesh) this.pixelMesh.pipeline.composite(this.renderer, s, cam, offset, target, raw, mask);
     else this.pipeline.composite(this.renderer, s, cam, offset, target, raw, mask);
   }
 
@@ -503,6 +525,54 @@ export class SceneRenderer {
     }
   }
 
+  /**
+   * 方式 E の GPU 資源を必要に応じて作成・破棄する。浮き島とキャラクターは別々に作り直す。
+   * 色を写す点群の索引は形状データ（splatSource）ごとに 1 つだけ CPU 側に保持する。
+   */
+  private syncPixelMesh(want: boolean, s: RenderSettings, layout: IslandLayout) {
+    if (!want) {
+      if (this.pixelMesh) {
+        this.pixelMesh.dispose();
+        this.pixelMesh = null;
+        this.meshWorldKey = this.meshCharKey = '';
+      }
+      return;
+    }
+    if (!this.pixelMesh) this.pixelMesh = new PixelMeshRenderer(this.uniforms, this.rig);
+    const wKey = `${s.splatSource}|${s.meshDetail}`;
+    if (wKey !== this.meshWorldKey) {
+      this.meshWorldKey = wKey;
+      let w = this.meshCache.world;
+      if (w?.key !== wKey) {
+        let idx = this.meshCache.index;
+        if (idx?.src !== s.splatSource) {
+          const t0 = performance.now();
+          const d = this.shapeSource(s.splatSource, layout);
+          idx = { src: s.splatSource, data: buildPointIndex(d.world), ms: 0 };
+          idx.ms = performance.now() - t0;
+          this.meshCache.index = idx;
+        }
+        w = { key: wKey, data: buildPixelMeshWorld(layout, idx.data, this.visuals.hints, { detail: s.meshDetail }, idx.ms) };
+        // 索引の時間は作った回だけ数える
+        idx.ms = 0;
+        this.meshCache.world = w;
+        this.meshRebuilds++;
+      }
+      this.pixelMesh.setWorld(w.data);
+    }
+    const cKey = String(meshCharCell(s.meshDetail));
+    if (cKey !== this.meshCharKey) {
+      this.meshCharKey = cKey;
+      let c = this.meshCache.char;
+      if (c?.key !== cKey) {
+        c = { key: cKey, data: buildPixelMeshCharacter(meshCharCell(s.meshDetail)) };
+        this.meshCache.char = c;
+        this.meshCharRebuilds++;
+      }
+      this.pixelMesh.setCharacter(c.data);
+    }
+  }
+
   /** 形状データの点数（統計表示用） */
   splatSourceInfo(src: SplatSource) {
     const d = this.shapeSources.get(src);
@@ -528,6 +598,7 @@ export class SceneRenderer {
     if (method === 'splats' && !this.splat) return null;
     if (method === 'surfels' && !this.surfel) return null;
     if (method === 'voxels' && !this.voxel) return null;
+    if (method === 'pixelmesh' && !this.pixelMesh) return null;
     const w = p.lowW, h = p.lowH;
     const rt = this.ensureAnalysisRT(w, h);
     const r = this.renderer;
@@ -579,7 +650,7 @@ export class SceneRenderer {
    * 同じ方法では数えられず、CPU 側の推定値を使う）。計測用シェーダーに差し替え、深度テストなし・加算合成で
    * 1 断片 = 1 を半精度浮動小数点のターゲットに積算し、読み出して合計する。
    */
-  measureFragments(method: 'points' | 'surfels' | 'voxels'): { rasterized: number; written: number; coveredPixels: number; pixels: number } | null {
+  measureFragments(method: 'points' | 'surfels' | 'voxels' | 'pixelmesh'): { rasterized: number; written: number; coveredPixels: number; pixels: number } | null {
     const p = this.pipeline;
     const cam = this.lastLowCam;
     if (!cam) return null;
@@ -593,6 +664,9 @@ export class SceneRenderer {
     } else if (method === 'voxels') {
       if (!this.voxel) return null;
       this.voxel.renderCount(r, cam, rt);
+    } else if (method === 'pixelmesh') {
+      if (!this.pixelMesh) return null;
+      this.pixelMesh.renderCount(r, cam, rt);
     } else {
       const objs = [this.worldPoints, this.charPoints];
       const saved = objs.map((o) => o.material as THREE.ShaderMaterial);
@@ -749,7 +823,7 @@ export class SceneRenderer {
    * 深度テクスチャを、カメラからの奥行き（ワールド単位）として読み出す。背景（深度なし）は Infinity。
    * source: 'points' / 'surfels' / 'voxels' はその方式の低解像度ターゲット、'reference' は基準形状（簡易メッシュ）。
    */
-  readDepth(source: 'points' | 'surfels' | 'voxels' | 'reference'): { w: number; h: number; depth: Float32Array } | null {
+  readDepth(source: 'points' | 'surfels' | 'voxels' | 'pixelmesh' | 'reference'): { w: number; h: number; depth: Float32Array } | null {
     const cam = this.lastLowCam;
     const p = this.pipeline;
     if (!cam || !p.rt) return null;
@@ -760,6 +834,7 @@ export class SceneRenderer {
     if (source === 'points') tex = p.rt.depthTexture;
     else if (source === 'surfels') tex = this.surfel?.pipeline.rt?.depthTexture ?? null;
     else if (source === 'voxels') tex = this.voxel?.pipeline.rt?.depthTexture ?? null;
+    else if (source === 'pixelmesh') tex = this.pixelMesh?.pipeline.rt?.depthTexture ?? null;
     else {
       // 基準形状をこのフレームと同じカメラ・解像度で描き、その深度を使う
       if (!this.refRT || this.refRT.width !== w || this.refRT.height !== h) {
