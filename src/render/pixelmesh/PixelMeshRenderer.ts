@@ -163,7 +163,7 @@ export class PixelMeshRenderer {
   readonly scene = new THREE.Scene();
   /** 方式 E 専用の低解像度ターゲットと後処理（中身は方式 A と同じ PixelPipeline） */
   readonly pipeline = new PixelPipeline();
-  private world: { data: PixelMeshWorld; meshes: THREE.Mesh[]; geos: THREE.BufferGeometry[]; blade: THREE.Mesh; bladeGeo: THREE.InstancedBufferGeometry } | null = null;
+  private world: { data: PixelMeshWorld; meshes: THREE.Mesh[]; geos: THREE.BufferGeometry[]; blade: THREE.Mesh | null; bladeGeo: THREE.InstancedBufferGeometry | null; trunks: THREE.Mesh | null } | null = null;
   private char: { data: PixelMeshCharacter; mesh: THREE.Mesh; geo: THREE.BufferGeometry } | null = null;
   private readonly worldMat: THREE.ShaderMaterial;
   private readonly charMat: THREE.ShaderMaterial;
@@ -175,6 +175,8 @@ export class PixelMeshRenderer {
   drawnTris = 0;
   /** 最後に描いた帯（花の茎 + 草の葉）の数 */
   drawnBlades = 0;
+  /** 幹・枝のメッシュ（方式 F で別に作ったときだけ）を描くか */
+  trunksVisible = true;
 
   constructor(shared: SharedUniforms, rig: CharacterRig) {
     this.worldMat = this.material(shared, { receiveBlob: true });
@@ -197,19 +199,34 @@ export class PixelMeshRenderer {
     return new THREE.ShaderMaterial({ uniforms, defines, vertexShader: meshVertex, fragmentShader: meshFragment, side, depthTest: true, depthWrite: true });
   }
 
-  /** 浮き島のメッシュを差し替える（前のものは GPU から解放する） */
-  setWorld(data: PixelMeshWorld) {
+  /**
+   * 浮き島のメッシュを差し替える（前のものは GPU から解放する）。
+   * decor=false なら草の葉・花（帯と星形の円盤）を GPU へ上げない（方式 F では草花を C の円盤で描くため）。
+   */
+  setWorld(data: PixelMeshWorld, opts: { decor?: boolean } = {}) {
     this.disposeWorld();
+    const decor = opts.decor ?? true;
     const geos = [data.terrain, data.objects, data.clouds].map(triGeometry);
-    const meshes = geos.map((g) => new THREE.Mesh(g, this.worldMat));
-    const bladeGeo = instGeometry(BLADE_TEMPLATE, data.blades);
-    const headGeo = instGeometry(HEAD_TEMPLATE, data.heads);
-    geos.push(headGeo);
-    meshes.push(new THREE.Mesh(headGeo, this.headMat));
-    const blade = new THREE.Mesh(bladeGeo, this.bladeMat);
-    for (const m of [...meshes, blade]) m.frustumCulled = false;
-    this.scene.add(...meshes, blade);
-    this.world = { data, meshes, geos, blade, bladeGeo };
+    const meshes: THREE.Mesh[] = geos.map((g) => new THREE.Mesh(g, this.worldMat));
+    let trunks: THREE.Mesh | null = null;
+    if (data.trunks) {
+      const tg = triGeometry(data.trunks);
+      geos.push(tg);
+      trunks = new THREE.Mesh(tg, this.worldMat);
+      meshes.push(trunks);
+    }
+    let blade: THREE.Mesh | null = null, bladeGeo: THREE.InstancedBufferGeometry | null = null;
+    if (decor) {
+      bladeGeo = instGeometry(BLADE_TEMPLATE, data.blades);
+      const headGeo = instGeometry(HEAD_TEMPLATE, data.heads);
+      geos.push(headGeo);
+      meshes.push(new THREE.Mesh(headGeo, this.headMat));
+      blade = new THREE.Mesh(bladeGeo, this.bladeMat);
+      meshes.push(blade);
+    }
+    for (const m of meshes) m.frustumCulled = false;
+    this.scene.add(...meshes);
+    this.world = { data, meshes, geos, blade, bladeGeo, trunks };
   }
 
   /** キャラクターのメッシュを差し替える */
@@ -227,8 +244,8 @@ export class PixelMeshRenderer {
     const w = this.world?.data, c = this.char?.data;
     if (!w || !c) return null;
     return {
-      worldTris: w.terrain.triCount + w.objects.triCount + w.clouds.triCount,
-      worldVerts: w.terrain.vertexCount + w.objects.vertexCount + w.clouds.vertexCount,
+      worldTris: w.terrain.triCount + w.objects.triCount + w.clouds.triCount + (w.trunks?.triCount ?? 0),
+      worldVerts: w.terrain.vertexCount + w.objects.vertexCount + w.clouds.vertexCount + (w.trunks?.vertexCount ?? 0),
       blades: w.blades.count, grass: w.grassCount, heads: w.heads.count,
       charTris: c.mesh.triCount, charVerts: c.mesh.vertexCount,
       worldBuildMs: w.buildMs, charBuildMs: c.buildMs, detail: w.detail,
@@ -238,7 +255,7 @@ export class PixelMeshRenderer {
   /** 内訳（地形・樹木と岩・雲の三角形数） */
   get breakdown() {
     const w = this.world?.data;
-    return w ? { terrain: w.terrain.triCount, objects: w.objects.triCount, clouds: w.clouds.triCount, phases: w.phases } : null;
+    return w ? { terrain: w.terrain.triCount, objects: w.objects.triCount, trunks: w.trunks?.triCount ?? 0, clouds: w.clouds.triCount, phases: w.phases } : null;
   }
 
   /** 設定・キャラクターの姿勢を反映する */
@@ -247,13 +264,21 @@ export class PixelMeshRenderer {
     let tris = 0;
     if (this.world) {
       const w = this.world.data;
-      // 草の密度：花の茎（先頭）は常に描き、続くシャッフル済みの草の葉は必要数だけ描く
-      const grass = Math.round(w.grassCount * Math.max(0, Math.min(1, s.meshGrass)));
-      const stems = w.blades.count - w.grassCount;
-      this.world.bladeGeo.instanceCount = stems + grass;
-      this.world.blade.visible = stems + grass > 0;
-      this.drawnBlades = stems + grass;
-      tris += w.terrain.triCount + w.objects.triCount + w.clouds.triCount + (stems + grass) * 5 + w.heads.count * 10;
+      tris += w.terrain.triCount + w.objects.triCount + w.clouds.triCount;
+      if (this.world.trunks) {
+        this.world.trunks.visible = this.trunksVisible;
+        if (this.trunksVisible) tris += w.trunks!.triCount;
+      }
+      this.drawnBlades = 0;
+      if (this.world.blade && this.world.bladeGeo) {
+        // 草の密度：花の茎（先頭）は常に描き、続くシャッフル済みの草の葉は必要数だけ描く
+        const grass = Math.round(w.grassCount * Math.max(0, Math.min(1, s.meshGrass)));
+        const stems = w.blades.count - w.grassCount;
+        this.world.bladeGeo.instanceCount = stems + grass;
+        this.world.blade.visible = stems + grass > 0;
+        this.drawnBlades = stems + grass;
+        tris += (stems + grass) * 5 + w.heads.count * 10;
+      }
     }
     if (this.char) {
       this.char.mesh.matrix.copy(rig.root);
@@ -269,8 +294,8 @@ export class PixelMeshRenderer {
     this.pipeline.renderScene(renderer, this.scene, camera);
   }
 
-  /** 重ね塗り計測：計測用シェーダーに差し替え、深度テストなし・加算合成で 1 断片 = 1 として数える */
-  renderCount(renderer: THREE.WebGLRenderer, camera: THREE.Camera, target: THREE.WebGLRenderTarget) {
+  /** 重ね塗り計測：計測用シェーダーに差し替え、深度テストなし・加算合成で 1 断片 = 1 として数える（clear=false なら前の計数に足す） */
+  renderCount(renderer: THREE.WebGLRenderer, camera: THREE.Camera, target: THREE.WebGLRenderTarget, clear = true) {
     const mats = [this.worldMat, this.charMat, this.bladeMat, this.headMat];
     const counters = mats.map((m) => {
       const c = m.clone();
@@ -286,8 +311,10 @@ export class PixelMeshRenderer {
     const saved = meshes.map((m) => m.material as THREE.ShaderMaterial);
     meshes.forEach((m, i) => (m.material = counters[mats.indexOf(saved[i])]));
     renderer.setRenderTarget(target);
-    renderer.setClearColor(0x000000, 0);
-    renderer.clear(true, true, true);
+    if (clear) {
+      renderer.setClearColor(0x000000, 0);
+      renderer.clear(true, true, true);
+    }
     renderer.render(this.scene, camera);
     renderer.setRenderTarget(null);
     meshes.forEach((m, i) => (m.material = saved[i]));
@@ -296,9 +323,9 @@ export class PixelMeshRenderer {
 
   private disposeWorld() {
     if (!this.world) return;
-    this.scene.remove(...this.world.meshes, this.world.blade);
+    this.scene.remove(...this.world.meshes);
     this.world.geos.forEach((g) => g.dispose());
-    this.world.bladeGeo.dispose();
+    this.world.bladeGeo?.dispose();
     this.world = null;
   }
 

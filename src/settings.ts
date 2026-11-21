@@ -4,14 +4,17 @@ export type ViewMode = 'particles' | 'mesh' | 'split' | 'compare';
 export type Projection = 'ortho' | 'perspective';
 /**
  * 描画方式 A: 既存のポイント描画 / B: Pixel Art Gaussian Splats（Spark） / C: サーフェル（不透明な円盤 + 深度） /
- * D: ボクセル（立方体の集合 + 深度） / E: ピクセル化メッシュ（通常のポリゴンメッシュを低解像度に描いて後処理）
+ * D: ボクセル（立方体の集合 + 深度） / E: ピクセル化メッシュ（通常のポリゴンメッシュを低解像度に描いて後処理） /
+ * F: ハイブリッド（地形・岩・幹・キャラクターを E のメッシュ、草花・葉を C の円盤で、同じ深度バッファに描いて後処理を 1 回）
  */
-export type RenderMethod = 'points' | 'splats' | 'surfels' | 'voxels' | 'pixelmesh';
-export const RENDER_METHODS: RenderMethod[] = ['points', 'splats', 'surfels', 'voxels', 'pixelmesh'];
+export type RenderMethod = 'points' | 'splats' | 'surfels' | 'voxels' | 'pixelmesh' | 'hybrid';
+export const RENDER_METHODS: RenderMethod[] = ['points', 'splats', 'surfels', 'voxels', 'pixelmesh', 'hybrid'];
 /** 画面表示用の短い名前 */
-export const METHOD_NAME: Record<RenderMethod, string> = { points: 'A：ポイント', splats: 'B：Gaussian Splats', surfels: 'C：サーフェル', voxels: 'D：ボクセル', pixelmesh: 'E：ピクセル化メッシュ' };
+export const METHOD_NAME: Record<RenderMethod, string> = { points: 'A：ポイント', splats: 'B：Gaussian Splats', surfels: 'C：サーフェル', voxels: 'D：ボクセル', pixelmesh: 'E：ピクセル化メッシュ', hybrid: 'F：Hybrid (E+C)' };
 /** 方式の記号（ファイル名など） */
-export const METHOD_LETTER: Record<RenderMethod, string> = { points: 'A', splats: 'B', surfels: 'C', voxels: 'D', pixelmesh: 'E' };
+export const METHOD_LETTER: Record<RenderMethod, string> = { points: 'A', splats: 'B', surfels: 'C', voxels: 'D', pixelmesh: 'E', hybrid: 'F' };
+/** 方式 F で幹・枝をどちらで描くか（mesh = E 側のメッシュ / surfel = C 側の円盤） */
+export type HybridTrunk = 'mesh' | 'surfel';
 /** スプラットの形状ソース: 既存の粒データを変換 / 樹木・岩・キャラクターを SDF から生成 */
 export type SplatSource = 'convert' | 'sdf';
 
@@ -88,6 +91,9 @@ export interface RenderSettings {
   meshFlat: boolean;
   /** 草の葉を描く割合（0..1。作り直さない） */
   meshGrass: number;
+  // ハイブリッド（方式 F。形状の細かさ・フラットシェーディングは E、円盤の大きさ・密度は C の設定を共用）
+  /** 幹・枝を E（メッシュ）と C（円盤）のどちらで描くか（変えると C 側の円盤を作り直す） */
+  hybridTrunk: HybridTrunk;
 }
 
 export const DEFAULT_SETTINGS: RenderSettings = {
@@ -141,6 +147,7 @@ export const DEFAULT_SETTINGS: RenderSettings = {
   meshDetail: 0.14,
   meshFlat: false,
   meshGrass: 1,
+  hybridTrunk: 'mesh',
 };
 
 /** 方式 D の作り直しが必要な設定の選択肢（連続値にすると操作のたびに作り直しが走るため段階で選ぶ） */
@@ -173,6 +180,7 @@ export function sanitizeSettings(raw: unknown): RenderSettings {
   if (!RENDER_METHODS.includes(out.renderMethod)) out.renderMethod = DEFAULT_SETTINGS.renderMethod;
   if (!RENDER_METHODS.includes(out.compareLeft)) out.compareLeft = DEFAULT_SETTINGS.compareLeft;
   if (!RENDER_METHODS.includes(out.compareRight)) out.compareRight = DEFAULT_SETTINGS.compareRight;
+  if (!['mesh', 'surfel'].includes(out.hybridTrunk)) out.hybridTrunk = DEFAULT_SETTINGS.hybridTrunk;
   if (!['convert', 'sdf'].includes(out.splatSource)) out.splatSource = DEFAULT_SETTINGS.splatSource;
   // 方式 D の作り直しが必要な設定は選択肢の値だけ受け付ける（任意の値で極端に重い生成をさせない）
   if (!VOXEL_SIZES.includes(out.voxelSize)) out.voxelSize = DEFAULT_SETTINGS.voxelSize;
@@ -205,4 +213,7 @@ export const BUILTIN_PRESETS: Record<string, Partial<RenderSettings>> = {
   'ピクセル化メッシュ：標準': { renderMethod: 'pixelmesh', meshDetail: 0.14, meshFlat: false, meshGrass: 1 },
   'ピクセル化メッシュ：ローポリ': { renderMethod: 'pixelmesh', meshDetail: 0.2, meshFlat: true, meshGrass: 0.5, lightSteps: 3, outline: 1 },
   'ピクセル化メッシュ：トゥーン': { renderMethod: 'pixelmesh', meshDetail: 0.14, meshFlat: false, lightSteps: 2, outline: 1, outlineThresh: 0.3, outlineDarken: 0.3, dither: 0.2 },
+  // 方式 F 用
+  'ハイブリッド：標準（幹は E）': { renderMethod: 'hybrid', meshDetail: 0.14, meshFlat: false, surfelScale: 1, hybridTrunk: 'mesh' },
+  'ハイブリッド：幹も C': { renderMethod: 'hybrid', meshDetail: 0.14, meshFlat: false, surfelScale: 1, hybridTrunk: 'surfel' },
 };

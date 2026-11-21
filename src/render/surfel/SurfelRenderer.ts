@@ -118,11 +118,11 @@ export class SurfelRenderer {
   readonly charTotal: number;
   readonly buildMs: number;
   private readonly worldGeo: THREE.InstancedBufferGeometry;
-  private readonly charGeo: THREE.InstancedBufferGeometry;
+  private readonly charGeo: THREE.InstancedBufferGeometry | null;
   private readonly worldMat: THREE.ShaderMaterial;
-  private readonly charMat: THREE.ShaderMaterial;
+  private readonly charMat: THREE.ShaderMaterial | null;
   private readonly worldMesh: THREE.Mesh;
-  private readonly charMesh: THREE.Mesh;
+  private readonly charMesh: THREE.Mesh | null;
   /** 方式 C だけのユニフォーム（共有ユニフォームとは別に持つ） */
   private readonly own = {
     uSurfelRadius: { value: 0.5 },
@@ -133,7 +133,8 @@ export class SurfelRenderer {
   private disposed = false;
   drawn = 0;
 
-  constructor(shared: SharedUniforms, rig: CharacterRig, worldSet: SplatPointSet, charSrc: CharacterSplatSource) {
+  /** charSrc = null ならキャラクターを持たない（方式 F：キャラクターは E のメッシュで描く） */
+  constructor(shared: SharedUniforms, rig: CharacterRig, worldSet: SplatPointSet, charSrc: CharacterSplatSource | null) {
     const t0 = performance.now();
     // 浮き島
     const misc = new Float32Array(worldSet.count * 3);
@@ -148,25 +149,33 @@ export class SurfelRenderer {
     this.worldMesh = new THREE.Mesh(this.worldGeo, this.worldMat);
     this.worldMesh.frustumCulled = false;
 
+    this.scene.add(this.worldMesh);
     // キャラクター（静止姿勢 + 2 ボーンの重み。方式 A と同じボーン行列で動かす）
-    const cmisc = new Float32Array(charSrc.count * 3);
-    const bones = new Float32Array(charSrc.count * 2);
-    for (let i = 0; i < charSrc.count; i++) {
-      cmisc[i * 3] = charSrc.size[i];
-      cmisc[i * 3 + 2] = 1;
-      bones[i * 2] = charSrc.bone0[i];
-      bones[i * 2 + 1] = charSrc.bone1[i];
+    if (charSrc) {
+      const cmisc = new Float32Array(charSrc.count * 3);
+      const bones = new Float32Array(charSrc.count * 2);
+      for (let i = 0; i < charSrc.count; i++) {
+        cmisc[i * 3] = charSrc.size[i];
+        cmisc[i * 3 + 2] = 1;
+        bones[i * 2] = charSrc.bone0[i];
+        bones[i * 2 + 1] = charSrc.bone1[i];
+      }
+      this.charGeo = instancedFrom(charSrc, cmisc);
+      this.charGeo.setAttribute('iBones', new THREE.InstancedBufferAttribute(bones, 2));
+      this.charGeo.setAttribute('iWeight', new THREE.InstancedBufferAttribute(charSrc.weight0, 1));
+      this.charTotal = charSrc.count;
+      this.charMat = this.material(shared, { bones: rig.bones });
+      this.charMesh = new THREE.Mesh(this.charGeo, this.charMat);
+      this.charMesh.frustumCulled = false;
+      this.charMesh.matrixAutoUpdate = false;
+      this.scene.add(this.charMesh);
+    } else {
+      this.charGeo = null;
+      this.charMat = null;
+      this.charMesh = null;
+      this.charTotal = 0;
     }
-    this.charGeo = instancedFrom(charSrc, cmisc);
-    this.charGeo.setAttribute('iBones', new THREE.InstancedBufferAttribute(bones, 2));
-    this.charGeo.setAttribute('iWeight', new THREE.InstancedBufferAttribute(charSrc.weight0, 1));
-    this.charTotal = charSrc.count;
-    this.charMat = this.material(shared, { bones: rig.bones });
-    this.charMesh = new THREE.Mesh(this.charGeo, this.charMat);
-    this.charMesh.frustumCulled = false;
-    this.charMesh.matrixAutoUpdate = false;
 
-    this.scene.add(this.worldMesh, this.charMesh);
     this.buildMs = performance.now() - t0;
   }
 
@@ -198,8 +207,10 @@ export class SurfelRenderer {
     this.own.uBillboard.value = s.surfelBillboard ? 1 : 0;
     this.own.uSnap.value = s.pointSnap ? 1 : 0;
     this.own.uRes.value.set(lowW, lowH);
-    this.charMesh.matrix.copy(rig.root);
-    this.charMesh.matrixWorld.copy(rig.root);
+    if (this.charMesh) {
+      this.charMesh.matrix.copy(rig.root);
+      this.charMesh.matrixWorld.copy(rig.root);
+    }
   }
 
   /** 低解像度ターゲットへ描く（ターゲットの大きさは方式 A と同じにする） */
@@ -212,8 +223,9 @@ export class SurfelRenderer {
    * 重ね塗り計測：計測用シェーダーに差し替え、深度テストなし・加算合成で 1 断片 = 1 として数える。
    * R にラスタライズされた断片数、G に実際に色を書く断片数が積算される。
    */
-  renderCount(renderer: THREE.WebGLRenderer, camera: THREE.Camera, target: THREE.WebGLRenderTarget) {
-    const saved = [this.worldMesh.material, this.charMesh.material] as THREE.ShaderMaterial[];
+  renderCount(renderer: THREE.WebGLRenderer, camera: THREE.Camera, target: THREE.WebGLRenderTarget, clear = true) {
+    const meshes = this.charMesh ? [this.worldMesh, this.charMesh] : [this.worldMesh];
+    const saved = meshes.map((m) => m.material as THREE.ShaderMaterial);
     const counters = saved.map((m) => {
       const c = m.clone();
       c.uniforms = m.uniforms; // ユニフォームは共有のまま
@@ -224,26 +236,27 @@ export class SurfelRenderer {
       c.transparent = true;
       return c;
     });
-    this.worldMesh.material = counters[0];
-    this.charMesh.material = counters[1];
+    meshes.forEach((m, i) => (m.material = counters[i]));
     renderer.setRenderTarget(target);
-    renderer.setClearColor(0x000000, 0);
-    renderer.clear(true, true, true);
+    if (clear) {
+      renderer.setClearColor(0x000000, 0);
+      renderer.clear(true, true, true);
+    }
     renderer.render(this.scene, camera);
     renderer.setRenderTarget(null);
-    this.worldMesh.material = saved[0];
-    this.charMesh.material = saved[1];
+    meshes.forEach((m, i) => (m.material = saved[i]));
     counters.forEach((c) => c.dispose());
   }
 
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
-    this.scene.remove(this.worldMesh, this.charMesh);
+    this.scene.remove(this.worldMesh);
+    if (this.charMesh) this.scene.remove(this.charMesh);
     this.worldGeo.dispose();
-    this.charGeo.dispose();
+    this.charGeo?.dispose();
     this.worldMat.dispose();
-    this.charMat.dispose();
+    this.charMat?.dispose();
     this.pipeline.dispose();
   }
 }

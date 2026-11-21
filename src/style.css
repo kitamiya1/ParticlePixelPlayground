@@ -95,7 +95,7 @@ body.touch #view { cursor: default; }
 }
 #help.fade { opacity: 0; transition: opacity 0.6s; }
 
-/* 描画方式 A〜E の区別 */
+/* 描画方式 A〜F の区別 */
 .ctl .name .only { display: inline-block; min-width: 16px; margin-right: 3px; padding: 0 4px; border-radius: 3px; font-style: normal;
   font-size: 10px; font-weight: 700; text-align: center; line-height: 15px; vertical-align: 1px; }
 .only-points { background: #3d5a8a; color: #dce8ff; }
@@ -103,6 +103,7 @@ body.touch #view { cursor: default; }
 .only-surfels { background: #3f7a55; color: #ddf7e6; }
 .only-voxels { background: #8a6a2f; color: #fff0d2; }
 .only-pixelmesh { background: #2f7a86; color: #d8f6fb; }
+.only-hybrid { background: #7a3f3f; color: #ffe0dc; }
 .ctl.na { opacity: 0.38; }
 .ctl.na .name::after { content: '（この方式では無効）'; color: var(--sub); font-size: 11px; }
 .ctl.na input, .ctl.na select { cursor: not-allowed; }
@@ -131,6 +132,7 @@ body.split.method-splats #app::before { content: 'Gaussian Splats　　　　　
 body.split.method-surfels #app::before { content: 'サーフェル　　　　　　　　簡易メッシュ'; }
 body.split.method-voxels #app::before { content: 'ボクセル　　　　　　　　　簡易メッシュ'; }
 body.split.method-pixelmesh #app::before { content: 'ピクセル化メッシュ　　　　簡易メッシュ'; }
+body.split.method-hybrid #app::before { content: 'Hybrid (E+C)　　　　　　　簡易メッシュ'; }
 
 /* 方式 B（Spark）の読み込み表示 */
 #splat-status { position: fixed; left: 50%; bottom: 18px; transform: translate(-50%, 20px); opacity: 0; transition: 0.2s; z-index: 6;

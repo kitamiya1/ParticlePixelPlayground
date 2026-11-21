@@ -1,0 +1,81 @@
+{
+  "date": "2026-11-21",
+  "branch": "feat/pixel-mesh",
+  "env": { "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER Direct3D11)", "browser": "HeadlessChrome 157 (Playwright)", "canvas": "950x800", "dpr": 1, "lowRes": { "w": 321, "h": 271 }, "refreshHz": 75 },
+  "note": "benchmark: カメラ回転中 240 フレーム、GPU は EXT_disjoint_timer_query。FPS は全方式 75.0（画面の更新間隔で頭打ち）。GPU 時間は実行ごとに ±0.3 ms 程度ぶれる。count の単位: points/splats=粒, surfels=円盤, voxels=面, pixelmesh=三角形, hybrid=三角形+円盤",
+  "benchmark": {
+    "standard_zoom15": [
+      { "m": "points", "cpu": 0.241, "gpu": 1.813, "n": 424897 },
+      { "m": "splats", "cpu": 0.499, "gpu": 1.939, "n": 424897 },
+      { "m": "surfels", "cpu": 0.262, "gpu": 1.615, "n": 424897 },
+      { "m": "voxels", "cpu": 0.265, "gpu": 1.63, "n": 205053 },
+      { "m": "pixelmesh", "cpu": 0.232, "gpu": 1.565, "n": 457889 },
+      { "m": "hybrid", "cpu": 0.283, "gpu": 1.73, "n": 385816, "tris": 218292, "surfels": 167524, "terrainTris": 171910, "rockTris": 14060, "trunkTris": 12346, "cloudTris": 15960, "charTris": 4016, "trunk": "mesh" }
+    ],
+    "far_zoom33": [
+      { "m": "points", "cpu": 0.208, "gpu": 2.113 },
+      { "m": "splats", "cpu": 0.471, "gpu": 2.519 },
+      { "m": "surfels", "cpu": 0.251, "gpu": 1.983 },
+      { "m": "voxels", "cpu": 0.266, "gpu": 1.755 },
+      { "m": "pixelmesh", "cpu": 0.286, "gpu": 1.538 },
+      { "m": "hybrid", "cpu": 0.252, "gpu": 1.538, "trunk": "mesh" }
+    ],
+    "standard_trunkC": [
+      { "m": "surfels", "cpu": 0.253, "gpu": 1.641 },
+      { "m": "pixelmesh", "cpu": 0.234, "gpu": 1.585 },
+      { "m": "hybrid", "cpu": 0.234, "gpu": 1.712, "n": 410640, "tris": 205946, "surfels": 204694, "trunk": "surfel" }
+    ]
+  },
+  "flicker_pan": [
+    { "m": "points", "static": 0, "pan": 9.80, "panMax": 27.23 },
+    { "m": "splats", "static": 0, "pan": 7.85, "panMax": 22.62 },
+    { "m": "surfels", "static": 0, "pan": 7.32, "panMax": 20.57 },
+    { "m": "voxels", "static": 0, "pan": 7.82, "panMax": 21.63 },
+    { "m": "pixelmesh", "static": 0, "pan": 7.81, "panMax": 21.61 },
+    { "m": "hybrid", "static": 0, "pan": 7.98, "panMax": 22.34 }
+  ],
+  "gap_overdraw": {
+    "standard_pitch0.6": [
+      { "m": "points", "skyPct": 0, "throughPct": 0.006, "rasterPerPx": 18.72, "writtenPerPx": 16.5 },
+      { "m": "splats", "skyPct": 0, "throughPct": null, "rasterPerPx": 29.05, "writtenPerPx": 22.81, "estimated": true },
+      { "m": "surfels", "skyPct": 0.001, "throughPct": 0.324, "rasterPerPx": 9.12, "writtenPerPx": 7.38 },
+      { "m": "voxels", "skyPct": 0.001, "throughPct": 0.403, "rasterPerPx": 1.97, "writtenPerPx": 1.97 },
+      { "m": "pixelmesh", "skyPct": 0, "throughPct": 0.686, "rasterPerPx": 1.63, "writtenPerPx": 1.63 },
+      { "m": "hybrid", "skyPct": 0, "throughPct": 0.201, "rasterPerPx": 4.04, "writtenPerPx": 3.34 }
+    ],
+    "low_pitch0.3": [
+      { "m": "points", "skyPct": 0.024, "throughPct": 2.329, "rasterPerPx": 27.15, "writtenPerPx": 23.42 },
+      { "m": "splats", "skyPct": 0.025, "throughPct": null, "rasterPerPx": 34.27, "writtenPerPx": 26.92, "estimated": true },
+      { "m": "surfels", "skyPct": 0.133, "throughPct": 3.232, "rasterPerPx": 10.54, "writtenPerPx": 8.07 },
+      { "m": "voxels", "skyPct": 0.036, "throughPct": 2.655, "rasterPerPx": 2.63, "writtenPerPx": 2.63 },
+      { "m": "pixelmesh", "skyPct": 0.145, "throughPct": 3.232, "rasterPerPx": 2.05, "writtenPerPx": 2.05 },
+      { "m": "hybrid", "skyPct": 0.088, "throughPct": 2.64, "rasterPerPx": 4.77, "writtenPerPx": 4.0 }
+    ]
+  },
+  "build_ms_production": {
+    "note": "本番ビルド（vite preview）、ページを開き直して方式を初めて選んだときの値。wall = 切り替えから 2 フレーム後までの実時間",
+    "pixelmesh": [
+      { "wall": 1320, "world": 1217, "index": 40, "terrain": 205, "objects": 876, "decor": 97, "char": 18 },
+      { "wall": 1292, "world": 1192, "index": 43, "terrain": 254, "objects": 801, "decor": 95, "char": 25 }
+    ],
+    "hybrid": [
+      { "wall": 667, "world": 539, "index": 38, "terrain": 195, "objects": 279, "decor": 27, "char": 29, "surfel": 26, "surfels": 167524 },
+      { "wall": 730, "world": 619, "index": 42, "terrain": 231, "objects": 322, "decor": 24, "char": 22, "surfel": 24, "surfels": 167524 },
+      { "wall": 615, "world": 506, "index": 38, "terrain": 197, "objects": 251, "decor": 20, "char": 20, "surfel": 23, "surfels": 167524 }
+    ],
+    "hybrid_trunkC": [
+      { "wall": 688, "world": 578, "surfel": 26, "surfels": 204694 },
+      { "wall": 699, "world": 593, "surfel": 23, "surfels": 204694 },
+      { "wall": 671, "world": 551, "surfel": 29, "surfels": 204694 }
+    ],
+    "surfels": [ { "wall": 80, "surfel": 3 }, { "wall": 69, "surfel": 4 } ]
+  },
+  "depth_check": {
+    "note": "F の深度 = min(E 側だけの深度, C 側だけの深度) になっているかを画素ごとに比較（同じ深度バッファでの深度テストの確認）。mismatch は別フレームで読んだことによる待機アニメの差。cFrontGapBuckets = C の円盤が E の面より手前にある画素の奥行き差（ワールド単位）の分布。char* = E でキャラが見えている画素のうち、F で C の円盤に隠れた画素",
+    "default": { "pixels": 86991, "mismatchVsMinPx": 17, "overlapPx": 36231, "eFrontPct": 0.2, "cFrontGapBuckets": { "lt02": 2967, "lt05": 6090, "lt1": 2745, "lt3": 2483, "ge3": 21882 }, "charVisiblePxInE": 117, "charPxCoveredByC": 0 },
+    "closeupMeadow_zoom5": { "mismatchVsMinPx": 46, "overlapPx": 24492, "eFrontPct": 0.8, "cFrontGapBuckets": { "lt02": 2219, "lt05": 5231, "lt1": 2938, "lt3": 0, "ge3": 13918 }, "charVisiblePxInE": 1065, "charPxCoveredByC": 18, "charCoverGapMax": 0.528 },
+    "lowMeadow_zoom8_pitch0.3": { "mismatchVsMinPx": 90, "overlapPx": 34491, "eFrontPct": 0.3, "charVisiblePxInE": 380, "charPxCoveredByC": 17, "charCoverGapMax": 0.663 },
+    "highPitch1.25": { "mismatchVsMinPx": 0, "overlapPx": 22109, "eFrontPct": 0.1, "charVisiblePxInE": 73, "charPxCoveredByC": 0 },
+    "underTree_zoom8": { "mismatchVsMinPx": 0, "overlapPx": 45118, "eFrontPct": 0.1, "charVisiblePxInE": 333, "charPxCoveredByC": 333, "charCoverGapMedian": 7.435, "remark": "樹冠の真下に立たせた場合。見下ろしなので樹冠がキャラを覆う（E・C 単独でも同じ）" }
+  }
+}

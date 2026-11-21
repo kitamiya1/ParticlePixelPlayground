@@ -14,16 +14,21 @@ type Control =
 
 const A_ONLY: RenderMethod[] = ['points'];
 const B_ONLY: RenderMethod[] = ['splats'];
-const C_ONLY: RenderMethod[] = ['surfels'];
+/** 円盤（C）の設定は、C 側で草花・葉を描く F でも効く */
+const C_ONLY: RenderMethod[] = ['surfels', 'hybrid'];
 const D_ONLY: RenderMethod[] = ['voxels'];
-const E_ONLY: RenderMethod[] = ['pixelmesh'];
-/** 点（粒・スプラット・円盤）で描く方式（A・B・C）だけで効く設定。D は格子、E は三角形なので点の密度・吸着の概念がない */
-const ABC: RenderMethod[] = ['points', 'splats', 'surfels'];
-/** 粒・円盤の中心を吸着する方式（A と C） */
-const AC: RenderMethod[] = ['points', 'surfels'];
-/** 深度を書く方式（A・C・D・E）だけで効く設定 */
-const ACDE: RenderMethod[] = ['points', 'surfels', 'voxels', 'pixelmesh'];
-const METHOD_OPTIONS: [string, string][] = [['points', 'A：ポイント描画（既存）'], ['splats', 'B：Pixel Art Gaussian Splats'], ['surfels', 'C：サーフェル（円盤＋深度）'], ['voxels', 'D：ボクセル（立方体＋深度）'], ['pixelmesh', 'E：ピクセル化メッシュ（ポリゴン＋後処理）']];
+/** メッシュの形状（E）の設定は、地形・岩・幹・キャラを E 側で描く F でも効く */
+const E_ONLY: RenderMethod[] = ['pixelmesh', 'hybrid'];
+/** E の草の帯だけに効く設定（F の草は C 側の円盤） */
+const E_GRASS: RenderMethod[] = ['pixelmesh'];
+const F_ONLY: RenderMethod[] = ['hybrid'];
+/** 点（粒・スプラット・円盤）で描く方式（A・B・C、F の C 側）だけで効く設定。D は格子、E は三角形なので点の密度・吸着の概念がない */
+const ABC: RenderMethod[] = ['points', 'splats', 'surfels', 'hybrid'];
+/** 粒・円盤の中心を吸着する方式（A と C、F の C 側） */
+const AC: RenderMethod[] = ['points', 'surfels', 'hybrid'];
+/** 深度を書く方式（A・C・D・E・F）だけで効く設定 */
+const ACDE: RenderMethod[] = ['points', 'surfels', 'voxels', 'pixelmesh', 'hybrid'];
+const METHOD_OPTIONS: [string, string][] = [['points', 'A：ポイント描画（既存）'], ['splats', 'B：Pixel Art Gaussian Splats'], ['surfels', 'C：サーフェル（円盤＋深度）'], ['voxels', 'D：ボクセル（立方体＋深度）'], ['pixelmesh', 'E：ピクセル化メッシュ（ポリゴン＋後処理）'], ['hybrid', 'F：Hybrid（E の地形・キャラ＋C の草木）']];
 
 const SECTIONS: { title: string; open?: boolean; controls: Control[] }[] = [
   {
@@ -100,7 +105,14 @@ const SECTIONS: { title: string; open?: boolean; controls: Control[] }[] = [
     controls: [
       { type: 'select', key: 'meshDetail', label: '形状の細かさ（三角形化の格子）', options: MESH_DETAILS.map((v) => [v, `${v}（${v >= 0.2 ? 'ローポリ' : v <= 0.07 ? '細かい・生成が重い' : v === 0.14 ? '標準' : '中間'}）`]), only: E_ONLY, hint: '樹木・岩の SDF を三角形にする格子の一辺（ワールド単位）。地形の網はこの 1.8 倍、キャラクターは 1/4。変えるとメッシュを作り直します' },
       { type: 'check', key: 'meshFlat', label: 'フラットシェーディング（三角形ごとの陰影）', only: E_ONLY, hint: 'オンにすると三角形の面の向きで陰影をつけ、ローポリ風の面が見えます。オフはなめらかな法線' },
-      { type: 'range', key: 'meshGrass', label: '草の葉の表示密度', min: 0, max: 1, step: 0.05, fmt: (v) => `${Math.round(v * 100)}%`, only: E_ONLY, hint: '草の葉（細い三角形の帯）を描く割合。花は常に描きます。作り直しはしません' },
+      { type: 'range', key: 'meshGrass', label: '草の葉の表示密度', min: 0, max: 1, step: 0.05, fmt: (v) => `${Math.round(v * 100)}%`, only: E_GRASS, hint: '草の葉（細い三角形の帯）を描く割合。花は常に描きます。作り直しはしません' },
+    ],
+  },
+  {
+    title: 'ハイブリッド（方式 F）',
+    open: true,
+    controls: [
+      { type: 'select', key: 'hybridTrunk', label: '幹・枝の描き方', options: [['mesh', 'E 側（メッシュ）'], ['surfel', 'C 側（円盤）']], only: F_ONLY, hint: 'F は地形・道・岩・島の下面・雲・キャラクターを E のメッシュ、草・花・つた・木の葉を C の円盤で、同じ深度バッファに描きます。形状の細かさ・フラットシェーディングは E、円盤の大きさ・密度・吸着は C の設定が効きます' },
     ],
   },
   {
@@ -237,7 +249,7 @@ export class Panel {
   private buildCompare(): HTMLElement {
     const det = document.createElement('details');
     det.open = true;
-    det.innerHTML = `<summary>方式の比較・計測（A〜E）</summary>`;
+    det.innerHTML = `<summary>方式の比較・計測（A〜F）</summary>`;
     const body = document.createElement('div');
     body.className = 'section-body';
     const grid = document.createElement('div');
@@ -249,12 +261,12 @@ export class Panel {
       b.onclick = fn;
       grid.appendChild(b);
     };
-    btn('A〜E 同条件で撮影', '同じカメラ位置・描画解像度で A〜E のスクリーンショットを続けて保存します', () => this.cb.onCaptureAB());
-    btn('ズーム3段階を撮影', 'A〜E をそれぞれズーム 3 段階で保存します（輪郭の変化の確認）', () => this.cb.onCaptureZoom());
-    btn('見下ろし角3段階を撮影', 'A〜E をそれぞれ見下ろし角 3 段階で保存します（浅い角度での円盤の隙間の確認）', () => this.cb.onCapturePitch());
-    btn('隙間・重ね塗り解析', '基準形状のシルエットに対する隙間と、1 画素あたりの断片数を A〜E で比べます', () => this.cb.onGapAnalysis());
-    btn('ちらつき計測', 'カメラを一定速度で平行移動させ、フレーム間で変化した画素の割合を A〜E で測ります', () => this.cb.onFlickerTest());
-    btn('性能ベンチマーク', 'カメラを回しながら A〜E それぞれの FPS・フレーム時間・GPU 時間を測ります', () => this.cb.onBenchmark());
+    btn('A〜F 同条件で撮影', '同じカメラ位置・描画解像度で A〜F のスクリーンショットを続けて保存します', () => this.cb.onCaptureAB());
+    btn('ズーム3段階を撮影', 'A〜F をそれぞれズーム 3 段階で保存します（輪郭の変化の確認）', () => this.cb.onCaptureZoom());
+    btn('見下ろし角3段階を撮影', 'A〜F をそれぞれ見下ろし角 3 段階で保存します（浅い角度での円盤の隙間の確認）', () => this.cb.onCapturePitch());
+    btn('隙間・重ね塗り解析', '基準形状のシルエットに対する隙間と、1 画素あたりの断片数を A〜F で比べます', () => this.cb.onGapAnalysis());
+    btn('ちらつき計測', 'カメラを一定速度で平行移動させ、フレーム間で変化した画素の割合を A〜F で測ります', () => this.cb.onFlickerTest());
+    btn('性能ベンチマーク', 'カメラを回しながら A〜F それぞれの FPS・フレーム時間・GPU 時間を測ります', () => this.cb.onBenchmark());
     body.appendChild(grid);
     this.reportEl = document.createElement('div');
     this.reportEl.className = 'report';
@@ -409,7 +421,7 @@ export class Panel {
     name.className = 'name';
     name.textContent = ctl.label;
     if (ctl.only) {
-      // 効く方式を A〜E のバッジで示す（複数可）
+      // 効く方式を A〜F のバッジで示す（複数可）
       for (const m of [...ctl.only].reverse()) {
         const tag = document.createElement('em');
         tag.className = `only only-${m}`;
@@ -502,6 +514,7 @@ export class Panel {
     document.body.classList.toggle('method-surfels', s.renderMethod === 'surfels');
     document.body.classList.toggle('method-voxels', s.renderMethod === 'voxels');
     document.body.classList.toggle('method-pixelmesh', s.renderMethod === 'pixelmesh');
+    document.body.classList.toggle('method-hybrid', s.renderMethod === 'hybrid');
   }
 
   /** 設定値 → UI へ反映 */

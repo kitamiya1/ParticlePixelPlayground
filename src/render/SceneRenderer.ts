@@ -17,6 +17,7 @@ import { VoxelRenderer } from './voxel/VoxelRenderer';
 import { buildPixelMeshCharacter, buildPixelMeshWorld, buildPointIndex, type PixelMeshCharacter, type PixelMeshWorld } from './pixelmesh/MeshBuild';
 import type { PointIndex } from './pixelmesh/PointIndex';
 import { PixelMeshRenderer } from './pixelmesh/PixelMeshRenderer';
+import { HybridRenderer, hybridSurfelSet } from './hybrid/HybridRenderer';
 // 方式 B（Spark）は型だけを静的に参照し、実体は必要になったときに動的 import で読み込む
 import type { SplatRenderer } from './splat/SplatRenderer';
 
@@ -83,6 +84,17 @@ export class SceneRenderer {
   drawnMeshTris = 0;
   /** 方式 E の CPU 側のメッシュ（直前に作ったもの。方式を戻したときに作り直さずに GPU へ上げ直す）と点群の索引 */
   private meshCache: { world?: { key: string; data: PixelMeshWorld }; char?: { key: string; data: PixelMeshCharacter }; index?: { src: SplatSource; data: PointIndex; ms: number } } = {};
+  /** 方式 F の描画一式（使っていない間は null = GPU 資源を持たない） */
+  hybrid: HybridRenderer | null = null;
+  private hybridWorldKey = '';
+  private hybridCharKey = '';
+  /** 方式 F の E 側を作り直した回数（浮き島） */
+  hybridRebuilds = 0;
+  /** 最後に描いた三角形・円盤の数（方式 F の E 側 / C 側） */
+  drawnHybridTris = 0;
+  drawnHybridSurfels = 0;
+  /** 方式 F の CPU 側のメッシュ（樹冠なし・幹は別。直前に作ったもの）と C 側の点群（幹の扱いごと） */
+  private hybridCache: { world?: { key: string; data: PixelMeshWorld }; surfels: Map<string, SplatPointSet> } = { surfels: new Map() };
   /** 草花・雲の粒（方式 D の立体化用。カテゴリで取り出して CPU 側に保持） */
   private decorPoints: { decor: SplatPointSet; clouds: SplatPointSet } | null = null;
   /** 方式 B の生成にかかった時間（点群の用意 / GPU 側の構築） */
@@ -287,18 +299,21 @@ export class SceneRenderer {
     r.setScissorTest(false);
     r.setViewport(0, 0, cw / r.getPixelRatio(), ch / r.getPixelRatio());
 
-    // 方式 B・C・D・E は必要なときだけ GPU 資源を持つ（使わなくなったら解放する）
+    // 方式 B・C・D・E・F は必要なときだけ GPU 資源を持つ（使わなくなったら解放する）
     const wanted = this.wantedMethods(s);
     this.syncSplat(wanted.includes('splats'), s.splatSource, game.layout);
     this.syncSurfel(wanted.includes('surfels'), s.splatSource, game.layout);
     this.syncVoxel(wanted.includes('voxels'), s, game.layout);
     this.syncPixelMesh(wanted.includes('pixelmesh'), s, game.layout);
+    this.syncHybrid(wanted.includes('hybrid'), s, game.layout);
     const shown = this.shownMethods(s);
     this.drawnParticles = shown.includes('points') ? n + this.charTotal : 0;
     this.drawnSplats = 0;
     this.drawnSurfels = 0;
     this.drawnVoxelFaces = 0;
     this.drawnMeshTris = 0;
+    this.drawnHybridTris = 0;
+    this.drawnHybridSurfels = 0;
 
     if (shown.length) {
       const cam = this.setupCamera(game, s, true);
@@ -328,6 +343,12 @@ export class SceneRenderer {
         this.pixelMesh.update(s, this.rig);
         this.pixelMesh.renderScene(r, cam, cw, ch, scale);
         this.drawnMeshTris = this.pixelMesh.drawnTris;
+      }
+      if (shown.includes('hybrid') && this.hybrid) {
+        this.hybrid.update(s, this.rig, comp, this.pipeline.lowW, this.pipeline.lowH);
+        this.hybrid.renderScene(r, cam, cw, ch, scale);
+        this.drawnHybridTris = this.hybrid.drawnTris;
+        this.drawnHybridSurfels = this.hybrid.drawnSurfels;
       }
       const pr = r.getPixelRatio();
       const W = cw / pr, H = ch / pr;
@@ -371,6 +392,7 @@ export class SceneRenderer {
     else if (m === 'surfels' && this.surfel) this.surfel.pipeline.composite(this.renderer, s, cam, offset, target, raw, mask);
     else if (m === 'voxels' && this.voxel) this.voxel.pipeline.composite(this.renderer, s, cam, offset, target, raw, mask);
     else if (m === 'pixelmesh' && this.pixelMesh) this.pixelMesh.pipeline.composite(this.renderer, s, cam, offset, target, raw, mask);
+    else if (m === 'hybrid' && this.hybrid) this.hybrid.pipeline.composite(this.renderer, s, cam, offset, target, raw, mask);
     else this.pipeline.composite(this.renderer, s, cam, offset, target, raw, mask);
   }
 
@@ -544,14 +566,7 @@ export class SceneRenderer {
       this.meshWorldKey = wKey;
       let w = this.meshCache.world;
       if (w?.key !== wKey) {
-        let idx = this.meshCache.index;
-        if (idx?.src !== s.splatSource) {
-          const t0 = performance.now();
-          const d = this.shapeSource(s.splatSource, layout);
-          idx = { src: s.splatSource, data: buildPointIndex(d.world), ms: 0 };
-          idx.ms = performance.now() - t0;
-          this.meshCache.index = idx;
-        }
+        const idx = this.pointIndexFor(s.splatSource, layout);
         w = { key: wKey, data: buildPixelMeshWorld(layout, idx.data, this.visuals.hints, { detail: s.meshDetail }, idx.ms) };
         // 索引の時間は作った回だけ数える
         idx.ms = 0;
@@ -571,6 +586,71 @@ export class SceneRenderer {
       }
       this.pixelMesh.setCharacter(c.data);
     }
+  }
+
+  /** 方式 E・F 共通：色を写す点群の索引（形状データごとに 1 つだけ CPU 側に保持） */
+  private pointIndexFor(src: SplatSource, layout: IslandLayout) {
+    let idx = this.meshCache.index;
+    if (idx?.src !== src) {
+      const t0 = performance.now();
+      const d = this.shapeSource(src, layout);
+      idx = { src, data: buildPointIndex(d.world), ms: 0 };
+      idx.ms = performance.now() - t0;
+      this.meshCache.index = idx;
+    }
+    return idx;
+  }
+
+  /**
+   * 方式 F の GPU 資源を必要に応じて作成・破棄する。
+   * - E 側：樹冠を省いたメッシュ（幹は別のメッシュ）。細かさ・形状データが変わったときだけ作り直す。キャラクターは E と同じもの。
+   * - C 側：既存の粒データから草花・葉（幹を C にしたときは幹も）を取り出した円盤。幹の扱いを変えたときだけ作り直す。
+   */
+  private syncHybrid(want: boolean, s: RenderSettings, layout: IslandLayout) {
+    if (!want) {
+      if (this.hybrid) {
+        this.hybrid.dispose();
+        this.hybrid = null;
+        this.hybridWorldKey = this.hybridCharKey = '';
+      }
+      return;
+    }
+    if (!this.hybrid) this.hybrid = new HybridRenderer(this.uniforms, this.rig);
+    const wKey = `${s.splatSource}|${s.meshDetail}`;
+    if (wKey !== this.hybridWorldKey) {
+      this.hybridWorldKey = wKey;
+      let w = this.hybridCache.world;
+      if (w?.key !== wKey) {
+        const idx = this.pointIndexFor(s.splatSource, layout);
+        w = { key: wKey, data: buildPixelMeshWorld(layout, idx.data, this.visuals.hints, { detail: s.meshDetail, hybrid: true }, idx.ms) };
+        idx.ms = 0;
+        this.hybridCache.world = w;
+        this.hybridRebuilds++;
+      }
+      this.hybrid.setWorld(w.data);
+    }
+    const cKey = String(meshCharCell(s.meshDetail));
+    if (cKey !== this.hybridCharKey) {
+      this.hybridCharKey = cKey;
+      let c = this.meshCache.char;
+      if (c?.key !== cKey) {
+        c = { key: cKey, data: buildPixelMeshCharacter(meshCharCell(s.meshDetail)) };
+        this.meshCache.char = c;
+        this.meshCharRebuilds++;
+      }
+      this.hybrid.setCharacter(c.data);
+    }
+    // C 側は常に既存の粒データ（変換）から取り出す（SDF 生成の点群にはカテゴリが残らないため。E 側の色の写し元は splatSource に従う）
+    const trunk = s.hybridTrunk === 'surfel';
+    const sKey = trunk ? 'trunk' : 'leaves';
+    this.hybrid.setSurfels(sKey, () => {
+      let set = this.hybridCache.surfels.get(sKey);
+      if (!set) {
+        set = hybridSurfelSet(this.visuals.world, trunk);
+        this.hybridCache.surfels.set(sKey, set);
+      }
+      return set;
+    });
   }
 
   /** 形状データの点数（統計表示用） */
@@ -599,6 +679,7 @@ export class SceneRenderer {
     if (method === 'surfels' && !this.surfel) return null;
     if (method === 'voxels' && !this.voxel) return null;
     if (method === 'pixelmesh' && !this.pixelMesh) return null;
+    if (method === 'hybrid' && !this.hybrid) return null;
     const w = p.lowW, h = p.lowH;
     const rt = this.ensureAnalysisRT(w, h);
     const r = this.renderer;
@@ -646,11 +727,11 @@ export class SceneRenderer {
   }
 
   /**
-   * 重ね塗り（ラスタライズされた断片数）の実測。方式 A・C・D が対象（方式 B は Spark 内部のシェーダーなので
+   * 重ね塗り（ラスタライズされた断片数）の実測。方式 A・C・D・E・F が対象（F は E 側と C 側の合計。方式 B は Spark 内部のシェーダーなので
    * 同じ方法では数えられず、CPU 側の推定値を使う）。計測用シェーダーに差し替え、深度テストなし・加算合成で
    * 1 断片 = 1 を半精度浮動小数点のターゲットに積算し、読み出して合計する。
    */
-  measureFragments(method: 'points' | 'surfels' | 'voxels' | 'pixelmesh'): { rasterized: number; written: number; coveredPixels: number; pixels: number } | null {
+  measureFragments(method: 'points' | 'surfels' | 'voxels' | 'pixelmesh' | 'hybrid'): { rasterized: number; written: number; coveredPixels: number; pixels: number } | null {
     const p = this.pipeline;
     const cam = this.lastLowCam;
     if (!cam) return null;
@@ -667,6 +748,9 @@ export class SceneRenderer {
     } else if (method === 'pixelmesh') {
       if (!this.pixelMesh) return null;
       this.pixelMesh.renderCount(r, cam, rt);
+    } else if (method === 'hybrid') {
+      if (!this.hybrid) return null;
+      this.hybrid.renderCount(r, cam, rt);
     } else {
       const objs = [this.worldPoints, this.charPoints];
       const saved = objs.map((o) => o.material as THREE.ShaderMaterial);
@@ -823,7 +907,7 @@ export class SceneRenderer {
    * 深度テクスチャを、カメラからの奥行き（ワールド単位）として読み出す。背景（深度なし）は Infinity。
    * source: 'points' / 'surfels' / 'voxels' はその方式の低解像度ターゲット、'reference' は基準形状（簡易メッシュ）。
    */
-  readDepth(source: 'points' | 'surfels' | 'voxels' | 'pixelmesh' | 'reference'): { w: number; h: number; depth: Float32Array } | null {
+  readDepth(source: 'points' | 'surfels' | 'voxels' | 'pixelmesh' | 'hybrid' | 'reference'): { w: number; h: number; depth: Float32Array } | null {
     const cam = this.lastLowCam;
     const p = this.pipeline;
     if (!cam || !p.rt) return null;
@@ -835,6 +919,7 @@ export class SceneRenderer {
     else if (source === 'surfels') tex = this.surfel?.pipeline.rt?.depthTexture ?? null;
     else if (source === 'voxels') tex = this.voxel?.pipeline.rt?.depthTexture ?? null;
     else if (source === 'pixelmesh') tex = this.pixelMesh?.pipeline.rt?.depthTexture ?? null;
+    else if (source === 'hybrid') tex = this.hybrid?.pipeline.rt?.depthTexture ?? null;
     else {
       // 基準形状をこのフレームと同じカメラ・解像度で描き、その深度を使う
       if (!this.refRT || this.refRT.width !== w || this.refRT.height !== h) {

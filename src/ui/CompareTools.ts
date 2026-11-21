@@ -1,4 +1,4 @@
-// 描画方式 A/B/C/D/E の比較・計測ツール。実行中はゲームの更新を止め（カメラ・キャラクター・時間を固定し）、
+// 描画方式 A/B/C/D/E/F の比較・計測ツール。実行中はゲームの更新を止め（カメラ・キャラクター・時間を固定し）、
 // 設定だけを切り替えて同じ条件で描き比べる。終わったら設定とカメラを元に戻す。
 
 import type { Game } from '../game/Game';
@@ -37,18 +37,26 @@ export interface Tool {
   finish(): void;
 }
 
-const METHOD_LABEL: Record<RenderMethod, string> = { points: 'A-points', splats: 'B-splats', surfels: 'C-surfels', voxels: 'D-voxels', pixelmesh: 'E-pixelmesh' };
-const METHOD_JA: Record<RenderMethod, string> = { points: 'A：ポイント', splats: 'B：スプラット', surfels: 'C：サーフェル', voxels: 'D：ボクセル', pixelmesh: 'E：メッシュ' };
+const METHOD_LABEL: Record<RenderMethod, string> = { points: 'A-points', splats: 'B-splats', surfels: 'C-surfels', voxels: 'D-voxels', pixelmesh: 'E-pixelmesh', hybrid: 'F-hybrid' };
+const METHOD_JA: Record<RenderMethod, string> = { points: 'A：ポイント', splats: 'B：スプラット', surfels: 'C：サーフェル', voxels: 'D：ボクセル', pixelmesh: 'E：メッシュ', hybrid: 'F：E+C' };
 /**
  * 描いた数の単位。A・B・C は「点 1 つ = 描画単位 1 つ」だが、D は描画単位が「面」（四角形）で、
  * 1 個のボクセルは 0〜6 枚の面になるため、数をそのまま比べられない（D はボクセル数も別に出す）。
  * E は三角形の数（地形・樹木・岩・雲・キャラクターの三角形 + 草の帯 5 枚 / 本 + 花の頭 10 枚 / 輪）。
+ * F は E 側の三角形と C 側の円盤の合計（内訳は hybrid に別に出す）。
  */
-const COUNT_UNIT: Record<RenderMethod, string> = { points: '粒', splats: 'スプラット', surfels: '円盤', voxels: '面', pixelmesh: '三角形' };
+const COUNT_UNIT: Record<RenderMethod, string> = { points: '粒', splats: 'スプラット', surfels: '円盤', voxels: '面', pixelmesh: '三角形', hybrid: '三角形+円盤' };
 
 /** 描いた数（粒・スプラット・円盤・面） */
 function drawnCount(v: SceneRenderer, m: RenderMethod): number {
-  return m === 'splats' ? v.drawnSplats : m === 'surfels' ? v.drawnSurfels : m === 'voxels' ? v.drawnVoxelFaces : m === 'pixelmesh' ? v.drawnMeshTris : v.drawnParticles;
+  return m === 'splats' ? v.drawnSplats : m === 'surfels' ? v.drawnSurfels : m === 'voxels' ? v.drawnVoxelFaces : m === 'pixelmesh' ? v.drawnMeshTris : m === 'hybrid' ? v.drawnHybridTris + v.drawnHybridSurfels : v.drawnParticles;
+}
+
+/** 方式 F の内訳（E 側の三角形 / C 側の円盤。F 以外は null） */
+function hybridCounts(v: SceneRenderer, m: RenderMethod) {
+  const h = m === 'hybrid' ? v.hybrid : null;
+  const br = h?.mesh.breakdown;
+  return h && br ? { tris: v.drawnHybridTris, surfels: v.drawnHybridSurfels, surfelTotal: h.surfel?.worldTotal ?? 0, terrainTris: br.terrain, rockTris: br.objects, trunkTris: br.trunks, cloudTris: br.clouds, trunk: h.mesh.trunksVisible ? 'mesh' : 'surfel' } : null;
 }
 
 /** 方式 E のメッシュの内訳（E 以外は null） */
@@ -69,7 +77,7 @@ abstract class BaseTool implements Tool {
   readonly pausesGame = true;
   protected readonly saved: RenderSettings;
   private readonly cam: { yaw: number; pitch: number; zoom: number; target: { x: number; y: number; z: number } };
-  /** 比べる方式（A〜E すべて） */
+  /** 比べる方式（A〜F すべて） */
   protected readonly methods: RenderMethod[] = [...RENDER_METHODS];
 
   constructor(protected readonly host: ToolHost) {
@@ -138,7 +146,7 @@ function stamp(): string {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-/** 同じカメラ・同じ描画解像度で A〜E を順に撮影して保存する */
+/** 同じカメラ・同じ描画解像度で A〜F を順に撮影して保存する */
 export class CaptureTool extends BaseTool {
   private i = 0;
   private frames = 0;
@@ -345,10 +353,12 @@ interface BenchResult {
   voxels: { solid: number; surface: number; faces: number; groups: number } | null;
   /** 方式 E の三角形・頂点の内訳 */
   mesh: ReturnType<typeof meshCounts>;
+  /** 方式 F の三角形・円盤の内訳 */
+  hybrid: ReturnType<typeof hybridCounts>;
   frames: number;
 }
 
-/** カメラを回しながら A〜E それぞれの FPS・フレーム時間を測る */
+/** カメラを回しながら A〜F それぞれの FPS・フレーム時間を測る */
 export class BenchmarkTool extends BaseTool {
   private mi = 0;
   private frame = 0;
@@ -391,6 +401,7 @@ export class BenchmarkTool extends BaseTool {
       countUnit: COUNT_UNIT[method],
       voxels: voxelCounts(v, method),
       mesh: meshCounts(v, method),
+      hybrid: hybridCounts(v, method),
       frames: fs.length,
     });
     this.samples = { f: [], c: [], g: [] };
@@ -406,13 +417,15 @@ export class BenchmarkTool extends BaseTool {
       .join('');
     const vox = this.results.find((r) => r.voxels)?.voxels;
     const msh = this.results.find((r) => r.mesh)?.mesh;
+    const hyb = this.results.find((r) => r.hybrid)?.hybrid;
     this.host.report(
       `<b>性能ベンチマーク</b>（カメラ回転中・各 ${BenchmarkTool.MEASURE} フレーム）<table><tr><th></th><th>FPS</th><th>平均ms</th><th>95%ms</th><th>CPUms</th><th>GPUms</th><th>数</th></tr>${rows}</table>` +
         `<div class="small">FPS は画面のリフレッシュレートで頭打ちになります。負荷の差は GPUms（GPU 時間）で比べてください</div>` +
         (vox ? `<div class="small">D の「数」は描いた面（四角形）の数で、粒・スプラット・円盤の数とは単位が違います（1 ボクセル = 0〜6 面）。D のボクセル：占有 ${vox.solid.toLocaleString()} / 表面 ${vox.surface.toLocaleString()} / 面の総数 ${vox.faces.toLocaleString()}</div>` : '') +
         (msh ? `<div class="small">E の「数」は三角形の数です。E のメッシュ：浮き島 ${msh.worldTris.toLocaleString()} 三角形（頂点 ${msh.worldVerts.toLocaleString()}）+ 草の帯 ${msh.blades.toLocaleString()} 本 + 花 ${msh.heads.toLocaleString()} 輪、キャラ ${msh.charTris.toLocaleString()} 三角形</div>` : '') +
+        (hyb ? `<div class="small">F の「数」は E 側の三角形 ${hyb.tris.toLocaleString()}（地形 ${hyb.terrainTris.toLocaleString()} / 岩 ${hyb.rockTris.toLocaleString()} / 幹 ${hyb.trunk === 'mesh' ? hyb.trunkTris.toLocaleString() : '0（C 側）'} / 雲 ${hyb.cloudTris.toLocaleString()} / キャラ）+ C 側の円盤 ${hyb.surfels.toLocaleString()}（草花・葉${hyb.trunk === 'surfel' ? '・幹' : ''}）の合計です</div>` : '') +
         `<div class="small">${env.gpu}<br>キャンバス ${env.canvas} / 描画解像度 ${lr.w}×${lr.h} / DPR ${env.dpr}</div>`,
-      { test: 'benchmark', env, lowRes: lr, settings: { pixelScale: this.saved.pixelScale, density: this.saved.density, splatSupersample: this.saved.splatSupersample, voxelSize: this.saved.voxelSize, voxelCharSize: this.saved.voxelCharSize, voxelDecor: this.saved.voxelDecor, voxelFlowers: this.saved.voxelFlowers, voxelCull: this.saved.voxelCull, meshDetail: this.saved.meshDetail, meshFlat: this.saved.meshFlat, meshGrass: this.saved.meshGrass }, results: this.results },
+      { test: 'benchmark', env, lowRes: lr, settings: { pixelScale: this.saved.pixelScale, density: this.saved.density, splatSupersample: this.saved.splatSupersample, voxelSize: this.saved.voxelSize, voxelCharSize: this.saved.voxelCharSize, voxelDecor: this.saved.voxelDecor, voxelFlowers: this.saved.voxelFlowers, voxelCull: this.saved.voxelCull, meshDetail: this.saved.meshDetail, meshFlat: this.saved.meshFlat, meshGrass: this.saved.meshGrass, surfelScale: this.saved.surfelScale, hybridTrunk: this.saved.hybridTrunk }, results: this.results },
     );
     return false;
   }
@@ -456,7 +469,7 @@ function erode(mask: Uint8Array, w: number, h: number, r: number): Uint8Array {
 }
 
 /**
- * 隙間と重ね塗りの解析（静止状態で A〜E を順に描いて比べる）。
+ * 隙間と重ね塗りの解析（静止状態で A〜F を順に描いて比べる）。
  * - 隙間：基準形状（簡易メッシュ）のシルエットを同じカメラ・描画解像度で描き、2 画素縮めた内側で、
  *   各方式が背景（空）になっている画素の割合。縮めるのは、簡易メッシュと粒の形の差（縁のずれ）を数えないため。
  * - 重ね塗り：A・C・D は計測用シェーダーで GPU 上の断片数を実測。B は Spark 内部のシェーダーなので推定。
@@ -572,7 +585,7 @@ export class GapTool extends BaseTool {
         `奥が見える：同じ範囲で、見えている面が簡易メッシュの表面より ${GapTool.DEPTH_GAP} 以上奥にある画素の割合（隙間から奥の面が透けている）。` +
         `簡易メッシュは形の近似なので、隙間が無くても少し数えられる（方式 A の値が目安）。深度を書かない B は測れない（―）。<br>` +
         `断片/画素：画面 1 画素あたりのラスタライズされた断片数（深度テスト・破棄の前）。書込/画素：円・楕円の内側など実際に色を書く断片数。<br>` +
-        `A・C・D は GPU で実測。* は推定値（B は Spark 内部のため、投影した共分散から CPU で算出）。` +
+        `A・C・D・E・F は GPU で実測（F は E 側と C 側の断片の合計）。* は推定値（B は Spark 内部のため、投影した共分散から CPU で算出）。` +
         (aErr !== null ? `同じ推定式を A に当てた誤差は ${aErr >= 0 ? '+' : ''}${aErr.toFixed(1)}%。` : '') +
         `</div>`,
       { test: 'gap-overdraw', erodePx: GapTool.ERODE, depthGap: GapTool.DEPTH_GAP, zoom: this.host.game.camera.zoom, pitch: this.host.game.camera.pitch, lowRes: { w: this.refW, h: this.refH }, aEstimateErrorPct: aErr, results: this.results },

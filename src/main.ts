@@ -49,7 +49,7 @@ function boot() {
     onScreenshot: () => (shotRequested = true),
     onToggleViewing: () => game.toggleViewing(),
     onToggleAutoRotate: () => (game.camera.autoRotate = !game.camera.autoRotate),
-    onCaptureAB: () => startTool(() => new CaptureTool(host, methodShots(), 'A〜E 同条件スクリーンショット'), '撮影中'),
+    onCaptureAB: () => startTool(() => new CaptureTool(host, methodShots(), 'A〜F 同条件スクリーンショット'), '撮影中'),
     onCaptureZoom: () => startTool(() => new CaptureTool(host, zoomShots(game.camera.zoom), 'ズーム 3 段階スクリーンショット'), '撮影中'),
     onCapturePitch: () => startTool(() => new CaptureTool(host, pitchShots(), '見下ろし角 3 段階スクリーンショット'), '撮影中'),
     onGapAnalysis: () => startTool(() => new GapTool(host), '隙間・重ね塗りを解析中'),
@@ -188,6 +188,7 @@ function boot() {
       const sf = view.surfel;
       const vx = view.voxel?.stats;
       const pm = view.pixelMesh?.stats;
+      const hy = view.hybrid?.stats;
       panel.setStats(`
         <div class="big"><span>描画方式</span><b class="method">${methodLabel}</b></div>
         <div class="big"><span>FPS</span><b>${fps.toFixed(1)}</b></div>
@@ -203,11 +204,12 @@ function boot() {
         <div><span>表面のボクセル数（D）</span><b>${vx ? (vx.worldSurface + vx.charSurface).toLocaleString() : '―'}</b></div>
         <div><span>描画中の面数（D）</span><b>${vx ? view.drawnVoxelFaces.toLocaleString() : '―'}</b></div>
         <div><span>描画中の三角形数（E）</span><b>${pm ? view.drawnMeshTris.toLocaleString() : '―'}</b></div>
+        <div><span>描画中の三角形 / 円盤（F）</span><b>${hy ? `${view.drawnHybridTris.toLocaleString()} / ${view.drawnHybridSurfels.toLocaleString()}` : '―'}</b></div>
         <div><span>GPU 資源（テクスチャ / 形状）</span><b>${mem.textures} / ${mem.geometries}</b></div>
         <div><span>描画解像度</span><b>${settings.viewMode === 'mesh' ? 'ネイティブ' : `${lr.w}×${lr.h}`}</b></div>
         <div><span>パレット</span><b>${pal.colors.length ? `${pal.colors.length}色` : settings.palette === 'levels' ? `${settings.colorLevels ** 3}色` : '制限なし'}</b></div>
         <div><span>キャラクター</span><b>${MOVE_STATE_LABEL[game.character.state]}</b></div>
-        <div class="small">${cats}<br>生成時間 ${visuals.buildMs.toFixed(0)} ms<br>B：Spark モジュール ${{ idle: '未読み込み', loading: '読み込み中', ready: `読み込み済み（${view.splatLoadMs.toFixed(0)} ms）`, error: '読み込み失敗' }[view.splatStatus]}${sp ? `<br>B：点群の用意 ${view.splatPrepMs.toFixed(0)} ms / Spark 構築 ${view.splatBuildMs.toFixed(0)} ms（構築 ${view.splatRebuilds} 回目）<br>B：キャラ ${sp.charTotal.toLocaleString()} スプラット（SplatSkinning ${settings.splatSource === 'sdf' ? '2 ボーン重み' : '1 ボーン'}）` : ''}${sf ? `<br>C：構築 ${view.surfelBuildMs.toFixed(0)} ms（構築 ${view.surfelRebuilds} 回目）、Spark 不使用` : ''}${vx ? `<br>D：浮き島 一辺 ${settings.voxelSize} / 占有 ${vx.worldSolid.toLocaleString()} / 表面 ${vx.worldSurface.toLocaleString()} / 面 ${vx.worldFaces.toLocaleString()}（生成 ${vx.worldBuildMs.toFixed(0)} ms、${view.voxelRebuilds} 回目）<br>D：キャラ 一辺 ${settings.voxelCharSize} / 占有 ${vx.charSolid.toLocaleString()} / 面 ${vx.charFaces.toLocaleString()}（生成 ${vx.charBuildMs.toFixed(0)} ms）、面の組 ${view.voxel!.drawnGroups}/6 を描画<br>D の「面」は四角形の数で、A〜C の粒数とは単位が違います` : ''}${pm ? `<br>E：浮き島 格子 ${pm.detail} / ${pm.worldTris.toLocaleString()} 三角形・${pm.worldVerts.toLocaleString()} 頂点 + 草の帯 ${view.pixelMesh!.drawnBlades.toLocaleString()}/${(pm.blades).toLocaleString()} 本 + 花 ${pm.heads.toLocaleString()} 輪（生成 ${pm.worldBuildMs.toFixed(0)} ms、${view.meshRebuilds} 回目）<br>E：キャラ ${pm.charTris.toLocaleString()} 三角形（生成 ${pm.charBuildMs.toFixed(0)} ms）。E の数は三角形で、A〜D とは単位が違います` : ''}</div>`);
+        <div class="small">${cats}<br>生成時間 ${visuals.buildMs.toFixed(0)} ms<br>B：Spark モジュール ${{ idle: '未読み込み', loading: '読み込み中', ready: `読み込み済み（${view.splatLoadMs.toFixed(0)} ms）`, error: '読み込み失敗' }[view.splatStatus]}${sp ? `<br>B：点群の用意 ${view.splatPrepMs.toFixed(0)} ms / Spark 構築 ${view.splatBuildMs.toFixed(0)} ms（構築 ${view.splatRebuilds} 回目）<br>B：キャラ ${sp.charTotal.toLocaleString()} スプラット（SplatSkinning ${settings.splatSource === 'sdf' ? '2 ボーン重み' : '1 ボーン'}）` : ''}${sf ? `<br>C：構築 ${view.surfelBuildMs.toFixed(0)} ms（構築 ${view.surfelRebuilds} 回目）、Spark 不使用` : ''}${vx ? `<br>D：浮き島 一辺 ${settings.voxelSize} / 占有 ${vx.worldSolid.toLocaleString()} / 表面 ${vx.worldSurface.toLocaleString()} / 面 ${vx.worldFaces.toLocaleString()}（生成 ${vx.worldBuildMs.toFixed(0)} ms、${view.voxelRebuilds} 回目）<br>D：キャラ 一辺 ${settings.voxelCharSize} / 占有 ${vx.charSolid.toLocaleString()} / 面 ${vx.charFaces.toLocaleString()}（生成 ${vx.charBuildMs.toFixed(0)} ms）、面の組 ${view.voxel!.drawnGroups}/6 を描画<br>D の「面」は四角形の数で、A〜C の粒数とは単位が違います` : ''}${pm ? `<br>E：浮き島 格子 ${pm.detail} / ${pm.worldTris.toLocaleString()} 三角形・${pm.worldVerts.toLocaleString()} 頂点 + 草の帯 ${view.pixelMesh!.drawnBlades.toLocaleString()}/${(pm.blades).toLocaleString()} 本 + 花 ${pm.heads.toLocaleString()} 輪（生成 ${pm.worldBuildMs.toFixed(0)} ms、${view.meshRebuilds} 回目）<br>E：キャラ ${pm.charTris.toLocaleString()} 三角形（生成 ${pm.charBuildMs.toFixed(0)} ms）。E の数は三角形で、A〜D とは単位が違います` : ''}${hy ? `<br>F：E 側 ${hy.meshTris.toLocaleString()} 三角形（地形・岩・雲・キャラ${hy.trunk === 'mesh' ? '・幹' : ''}。生成 ${view.hybrid!.mesh.stats?.worldBuildMs.toFixed(0) ?? '―'} ms、${view.hybridRebuilds} 回目）+ C 側 ${hy.surfels.toLocaleString()}/${hy.surfelTotal.toLocaleString()} 円盤（草花・葉${hy.trunk === 'surfel' ? '・幹' : ''}。構築 ${hy.surfelBuildMs.toFixed(0)} ms、${view.hybrid!.surfelRebuilds} 回目）` : ''}</div>`);
       modeTag.textContent = game.camera.viewing ? '鑑賞モード' : '';
       modeTag.style.display = game.camera.viewing ? 'block' : 'none';
       document.body.classList.toggle('split', settings.viewMode === 'split');

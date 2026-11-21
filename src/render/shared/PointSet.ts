@@ -18,8 +18,11 @@ export interface SplatPointSet {
   sun: Float32Array;
 }
 
-/** 粒ジオメトリから点群を取り出す。excludeCats に含まれるカテゴリの粒は除く */
-export function pointSetFromGeometry(g: THREE.BufferGeometry, excludeCats: string[] = []): SplatPointSet {
+/**
+ * 粒ジオメトリから点群を取り出す。excludeCats に含まれるカテゴリの粒は除く。
+ * keep を渡すと、さらに粒ごとに（カテゴリ名・風の影響度で）残すかを決める（方式 F の草花・葉の取り出し用）
+ */
+export function pointSetFromGeometry(g: THREE.BufferGeometry, excludeCats: string[] = [], keep?: (cat: string, wind: number) => boolean): SplatPointSet {
   const pos = g.getAttribute('position').array as Float32Array;
   const col = g.getAttribute('aColor').array as Uint8Array;
   const nrm = g.getAttribute('normal').array as Int8Array;
@@ -28,12 +31,16 @@ export function pointSetFromGeometry(g: THREE.BufferGeometry, excludeCats: strin
   const cat = g.userData.cat as Uint8Array | undefined;
   const names = (g.userData.catNames as string[] | undefined) ?? [];
   const excl = new Set(excludeCats.map((c) => names.indexOf(c)).filter((i) => i >= 0));
-  const keep: number[] = [];
-  for (let i = 0; i < n; i++) if (!cat || !excl.has(cat[i])) keep.push(i);
-  const m = keep.length;
+  const idx: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (cat && excl.has(cat[i])) continue;
+    if (keep && !keep(cat ? names[cat[i]] ?? '' : '', misc[i * 3 + 1])) continue;
+    idx.push(i);
+  }
+  const m = idx.length;
   const out = allocPointSet(m);
   for (let o = 0; o < m; o++) {
-    const i = keep[o];
+    const i = idx[o];
     for (let k = 0; k < 3; k++) {
       out.pos[o * 3 + k] = pos[i * 3 + k];
       out.col[o * 3 + k] = col[i * 3 + k];

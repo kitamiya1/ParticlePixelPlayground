@@ -182,6 +182,11 @@ function surfaceNets(sdf: Sdf, box: Box3Like, h: number, mb: MeshBuilder, vertex
 export interface PixelMeshWorldOptions {
   /** 樹木・岩の SDF を三角形にする格子の一辺（地形の網はこの 1.8 倍） */
   detail: number;
+  /**
+   * 方式 F（ハイブリッド）用：樹冠を作らず（葉は C の円盤で描く）、objects = 岩だけ、trunks = 幹・枝を別のメッシュにする。
+   * 幹を E / C で切り替えても作り直さないよう、幹は別に持つ。
+   */
+  hybrid?: boolean;
 }
 
 export interface BladeInstances {
@@ -199,6 +204,8 @@ export interface PixelMeshWorld {
   /** 地形・樹木・岩・雲（静的な三角形メッシュ。風は頂点ごとの影響度で揺らす） */
   terrain: TriMesh;
   objects: TriMesh;
+  /** 幹・枝（hybrid のときだけ。通常は objects に樹冠と一体で含む） */
+  trunks: TriMesh | null;
   clouds: TriMesh;
   /** 草の葉と花の茎（細い帯のインスタンス。並びはシャッフル済みで、先頭から必要数だけ描けば均一に間引ける） */
   blades: BladeInstances;
@@ -320,27 +327,32 @@ function buildTerrain(layout: IslandLayout, step: number, paint: ReturnType<type
   return mb.finish();
 }
 
-/** 樹木・岩：既存の SDF を三角形にする */
-function buildObjects(layout: IslandLayout, h: number, paint: ReturnType<typeof colorizer>): TriMesh {
+/** 樹木・岩：既存の SDF を三角形にする。hybrid なら樹冠を省き、幹・枝を別のメッシュ（trunks）にする */
+function buildObjects(layout: IslandLayout, h: number, paint: ReturnType<typeof colorizer>, hybrid = false): { objects: TriMesh; trunks: TriMesh | null } {
   const mb = new MeshBuilder();
-  const add = (sdf: Sdf, box: Box3Like) =>
-    surfaceNets(sdf, box, h, mb, (x, y, z, nx, ny, nz) => {
+  const tb = hybrid ? new MeshBuilder() : null;
+  const add = (sdf: Sdf, box: Box3Like, to = mb) =>
+    surfaceNets(sdf, box, h, to, (x, y, z, nx, ny, nz) => {
       const l = Math.hypot(nx, ny, nz) || 1;
       // 表面の点は SDF の表面から少し外にあるので、法線方向に少しずらした位置で探す
       const [r, g, b, sun, wind] = paint(x + (nx / l) * 0.03, y + (ny / l) * 0.03, z + (nz / l) * 0.03);
-      return mb.vertex(x, y, z, nx, ny, nz, r, g, b, sun, wind);
+      return to.vertex(x, y, z, nx, ny, nz, r, g, b, sun, wind);
     });
   for (const p of layout.placements) {
     if (p.kind === 'tree') {
       const plan = planTree(p);
-      const canopy = canopySdf(plan), bark = barkSdf(plan);
-      add((x, y, z) => Math.min(canopy(x, y, z), bark(x, y, z)), treeBox(plan));
+      const bark = barkSdf(plan);
+      if (tb) add(bark, treeBox(plan), tb);
+      else {
+        const canopy = canopySdf(plan);
+        add((x, y, z) => Math.min(canopy(x, y, z), bark(x, y, z)), treeBox(plan));
+      }
     } else if (p.kind === 'rock') {
       const plan = planRock(p);
       add(rockSdf(plan), rockBox(plan));
     }
   }
-  return mb.finish();
+  return { objects: mb.finish(), trunks: tb ? tb.finish() : null };
 }
 
 /** 雲：かたまりごとの楕円体（縦 0.6 倍、下側は粒版と同じく dy = -0.45 で平らに切る） */
@@ -429,6 +441,11 @@ function buildDecor(hints: MeshHints, index: PointIndex): { blades: BladeInstanc
   return { blades, grassCount: hints.blades.length, heads };
 }
 
+function emptyDecor(): { blades: BladeInstances; grassCount: number; heads: BladeInstances } {
+  const none = (): BladeInstances => ({ count: 0, base: new Float32Array(0), shape: new Float32Array(0), colA: new Uint8Array(0), colB: new Uint8Array(0) });
+  return { blades: none(), grassCount: 0, heads: none() };
+}
+
 /** 形状データの点群の索引（色の写し元が変わらなければ使い回す） */
 export function buildPointIndex(colorSrc: SplatPointSet): PointIndex {
   return new PointIndex(colorSrc, 0.25);
@@ -440,13 +457,14 @@ export function buildPixelMeshWorld(layout: IslandLayout, index: PointIndex, hin
   const paint = colorizer(index, 0.22);
   const terrain = buildTerrain(layout, opt.detail * 1.8, paint);
   const t1 = performance.now();
-  const objects = buildObjects(layout, opt.detail, paint);
+  const { objects, trunks } = buildObjects(layout, opt.detail, paint, opt.hybrid);
   const t2 = performance.now();
   const clouds = buildClouds(hints, paint);
-  const decor = buildDecor(hints, index);
+  // hybrid では草花を C の円盤で描くので、葉の帯・花の頭は作らない（空のインスタンス）
+  const decor = opt.hybrid ? emptyDecor() : buildDecor(hints, index);
   const t3 = performance.now();
   return {
-    terrain, objects, clouds, ...decor, detail: opt.detail,
+    terrain, objects, trunks, clouds, ...decor, detail: opt.detail,
     buildMs: t3 - t0 + indexMs,
     phases: { index: indexMs, terrain: t1 - t0, objects: t2 - t1, decor: t3 - t2 },
   };
