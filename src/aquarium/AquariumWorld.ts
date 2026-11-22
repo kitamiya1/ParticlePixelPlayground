@@ -3,31 +3,17 @@
 // - 底床の高さ場（水中の砂地 → 浅瀬の斜面 → 陸地）
 // - 岩（洞窟・水中の柱・陸地の足場・滝の崖）と流木の SDF
 // - 当たり判定用の距離関数 solid()（高さ場 + 岩 + 流木。見た目の三角形も同じ関数から作るので形が一致する）
+//   縦の管（排水管・給水管）が砂を貫く柱の中は空けてある
+// - 水槽の外（水槽台・濾過槽・配管・部屋）は AquariumStand（stand）。カニの当たり判定は contactSolid（水槽の中身 +
+//   ガラス・底板・天板・管・濾過槽・水槽台・部屋）、カメラの遮蔽は viewSolid、水面の高さは waterLevelAt、水流は flowAt
 // 見た目（メッシュ・サーフェル）は AquariumBuild が、この定義から作る。
 
 import { clamp, fbm2, lerp, noise3, smoothstep } from '../core/math';
 import { sdCapsule, sdEllipsoid, smin, type Box3Like, type Sdf } from '../visual/sdf/sdf';
+import { LAMP_DIR, TANK } from './aquaConst';
+import { AquaStand, DECK, ROOM, type Flow, type Region } from './AquariumStand';
 
-/** 水槽の内寸（ワールド単位。カニの甲羅の幅が約 0.6） */
-export const TANK = {
-  minX: -18,
-  maxX: 18,
-  minZ: -10,
-  maxZ: 10,
-  floorY: 0,
-  topY: 13,
-  /** 水面の高さ（全域で一定） */
-  waterY: 5.5,
-  /** ガラスの厚み（見た目用） */
-  glass: 0.22,
-} as const;
-
-/** 水槽の照明の向き（光が来る向き。真上からやや手前） */
-export const LAMP_DIR: [number, number, number] = (() => {
-  const v = [0.22, 1, 0.3];
-  const l = Math.hypot(v[0], v[1], v[2]);
-  return [v[0] / l, v[1] / l, v[2] / l] as [number, number, number];
-})();
+export { TANK, LAMP_DIR };
 
 export type RockZone = 'water' | 'land';
 
@@ -126,6 +112,8 @@ function makeWood(name: string, branches: Driftwood['branches'], seed: number, h
 }
 
 export class AquariumWorld {
+  /** 水槽の外側：水槽台・濾過槽・配管・部屋（AquariumStand） */
+  readonly stand = new AquaStand();
   readonly rocks: RockFormation[] = [];
   readonly woods: Driftwood[] = [];
   /** 高さ場（底床の上面）。格子の一辺 cell */
@@ -159,6 +147,8 @@ export class AquariumWorld {
     plateau: [0, 0, 0] as [number, number, number],
     tunnelIn: [0, 0, 0] as [number, number, number],
     tunnelOut: [0, 0, 0] as [number, number, number],
+    /** 中空の倒木の節穴（光の差し込む穴の中心と半径）。光の筋・床の光だまりの位置になる */
+    knots: [] as { c: [number, number, number]; r: number }[],
   };
 
   constructor() {
@@ -329,6 +319,14 @@ export class AquariumWorld {
     const u = ld.map((v) => v / ll);
     const ext = (p: number[], s: number): [number, number, number] => [p[0] + u[0] * s, p[1] + u[1] * s, p[2] + u[2] * s];
     const knot = ext(la, ll * 0.58);
+    // 節穴：真上の穴（既存）に加え、照明の向きに沿って開いた穴を 2 つ（光の筋がまっすぐ中へ届く）
+    const lampHole = (p: [number, number, number], r: number) => ({ a: [p[0] + LAMP_DIR[0] * 0.3, p[1] + LAMP_DIR[1] * 0.3, p[2] + LAMP_DIR[2] * 0.3] as [number, number, number], b: [p[0] + LAMP_DIR[0] * 1.4, p[1] + LAMP_DIR[1] * 1.4, p[2] + LAMP_DIR[2] * 1.4] as [number, number, number], r });
+    const knot2 = ext(la, ll * 0.3), knot3 = ext(la, ll * 0.8);
+    this.landmarks.knots = [
+      { c: [knot[0], knot[1] + 0.85, knot[2]], r: 0.3 },
+      { c: [knot2[0] + LAMP_DIR[0] * 0.85, knot2[1] + LAMP_DIR[1] * 0.85, knot2[2] + LAMP_DIR[2] * 0.85], r: 0.24 },
+      { c: [knot3[0] + LAMP_DIR[0] * 0.85, knot3[1] + LAMP_DIR[1] * 0.85, knot3[2] + LAMP_DIR[2] * 0.85], r: 0.2 },
+    ];
     this.woods.push(
       makeWood(
         'hollowlog',
@@ -343,6 +341,8 @@ export class AquariumWorld {
         [
           { a: ext(la, -0.9), b: ext(lb, 0.9), r: 0.62 },
           { a: [knot[0], knot[1] + 0.4, knot[2]], b: [knot[0] + 0.1, knot[1] + 1.3, knot[2]], r: 0.3 },
+          lampHole(knot2, 0.24),
+          lampHole(knot3, 0.2),
         ],
       ),
     );
@@ -428,6 +428,9 @@ export class AquariumWorld {
   solid(x: number, y: number, z: number): number {
     const n = this.groundNormal(x, z);
     let d = (y - this.groundAt(x, z)) * n[1];
+    // 縦の管が砂を貫く所は、管の中を空ける（管の中を落ちられる・登れる）
+    const pi = this.stand.columnInterior(x, y, z);
+    if (pi < 0.6) d = Math.max(d, -pi);
     for (const r of this.rocks) {
       const bd = boxDist(r.box, x, y, z);
       d = Math.min(d, bd > 0.5 ? bd : r.sdf(x, y, z));
@@ -466,8 +469,82 @@ export class AquariumWorld {
     return clamp(vis, 0.08, 1);
   }
 
+  // ---------------- 水槽の外まで含めた当たり判定（カニ・カメラ） ----------------
+
+  /**
+   * カニの当たり判定：水槽の中身（solid）+ ガラス・底板・台の天板・透明な管・濾過槽・水槽台・部屋。
+   * solid は水槽の中身だけ（植物の配置・日照の焼き込み・生き物が使う）で、こちらはカニの移動用。
+   */
+  contactSolid(x: number, y: number, z: number): number {
+    const S = this.stand;
+    let d = Math.min(S.deck(x, y, z), S.glassSolid(x, y, z), S.acrylicSolid(x, y, z), S.opaqueSolid(x, y, z), S.pipeWalls(x, y, z));
+    if (x > TANK.minX && x < TANK.maxX && z > TANK.minZ && z < TANK.maxZ && y > DECK.top - 0.5) d = Math.min(d, this.solid(x, y, z));
+    return d;
+  }
+
+  contactNormal(x: number, y: number, z: number): [number, number, number] {
+    return gradient((a, b, c) => this.contactSolid(a, b, c), x, y, z);
+  }
+
+  /**
+   * カメラの遮蔽判定：不透明な物だけ。透明な物（ガラス・濾過槽・管）は、カニがその内側にいないときだけ遮る
+   * （外からカメラが入り込まない。内側にいるときはカメラを内側に留める範囲で別に制限する）
+   */
+  viewSolid(x: number, y: number, z: number, region: Region): number {
+    const S = this.stand;
+    let d = Math.min(S.deck(x, y, z), S.opaqueSolid(x, y, z));
+    if (x > TANK.minX && x < TANK.maxX && z > TANK.minZ && z < TANK.maxZ && y > DECK.top - 0.5) d = Math.min(d, this.solid(x, y, z));
+    if (region !== 'tank') d = Math.min(d, S.glassSolid(x, y, z));
+    if (region !== 'sump') d = Math.min(d, S.acrylicSolid(x, y, z));
+    if (region !== 'drain' && region !== 'return') d = Math.min(d, S.pipeWalls(x, y, z));
+    return d;
+  }
+
+  viewNormal(x: number, y: number, z: number, region: Region): [number, number, number] {
+    return gradient((a, b, c) => this.viewSolid(a, b, c, region), x, y, z);
+  }
+
+  regionAt(x: number, y: number, z: number): Region {
+    return this.stand.regionAt(x, y, z);
+  }
+
+  /** 点のある水の水面の高さ（水の外は −1000、管の中は +1000） */
+  waterLevelAt(x: number, y: number, z: number): number {
+    return this.stand.waterLevelAt(x, y, z);
+  }
+
+  flowAt(x: number, y: number, z: number, out: Flow): Flow {
+    return this.stand.flowAt(x, y, z, out);
+  }
+
+  /** 縦の管からの水平の余白（植物・小石を管に重ねない） */
+  pipeClear(x: number, z: number): number {
+    return this.stand.pipeClear(x, z);
+  }
+
+  /** contactSolid で真下へ探った最初の上面（水槽の外の床・濾過槽の中でも使える） */
+  contactSurfaceBelow(x: number, y: number, z: number): number {
+    let py = y;
+    for (let i = 0; i < 80; i++) {
+      const d = this.contactSolid(x, py, z);
+      if (d < 0.01) return py;
+      py -= Math.max(d * 0.9, 0.015);
+      if (py < ROOM.floorY) return ROOM.floorY;
+    }
+    return py;
+  }
+
   /** 点が水槽の内側か */
   insideTank(x: number, z: number, margin = 0): boolean {
     return x > TANK.minX + margin && x < TANK.maxX - margin && z > TANK.minZ + margin && z < TANK.maxZ - margin;
   }
+}
+
+function gradient(f: (x: number, y: number, z: number) => number, x: number, y: number, z: number): [number, number, number] {
+  const e = 0.03;
+  const gx = f(x + e, y, z) - f(x - e, y, z);
+  const gy = f(x, y + e, z) - f(x, y - e, z);
+  const gz = f(x, y, z + e) - f(x, y, z - e);
+  const l = Math.hypot(gx, gy, gz) || 1;
+  return [gx / l, gy / l, gz / l];
 }

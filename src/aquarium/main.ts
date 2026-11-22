@@ -12,7 +12,8 @@ import { AquaLife } from './AquaLife';
 import { buildAquariumMeshes, buildAquariumSurfels, buildCrabMesh, buildFindsMesh, buildFishMesh, buildGlowMesh, buildShrimpMesh } from './AquariumBuild';
 import { AquariumRenderer } from './AquariumRenderer';
 import { buildSpots, DiscoveryTracker, type Spot } from './AquariumSpots';
-import { AquariumWorld, TANK } from './AquariumWorld';
+import { AquariumWorld } from './AquariumWorld';
+import { REGION_LABEL, SUMP } from './AquariumStand';
 import { CRAB_STATE_LABEL, CrabController } from './CrabController';
 import { CrabRig } from './CrabRig';
 
@@ -84,8 +85,8 @@ function boot() {
   const help = document.createElement('div');
   help.id = 'help';
   help.innerHTML = touch
-    ? `<b>操作</b><br>左スティック：移動　ダッシュ：押している間<br>ジャンプ：跳ぶ（水中で長押し＝遊泳）<br>画面ドラッグ：視点回転　2 本指：ズーム<br>カメラ：冒険 / 箱庭の切り替え<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう</span>`
-    : `<b>操作</b><br><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る<br><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳）<br>ドラッグ：視点回転　ホイール：ズーム<br><kbd>V</kbd> カメラ切替　<kbd>R</kbd> スタート地点へ　<kbd>H</kbd> 説明を隠す<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます</span>`;
+    ? `<b>操作</b><br>左スティック：移動　ダッシュ：押している間<br>ジャンプ：跳ぶ（水中で長押し＝遊泳）<br>画面ドラッグ：視点回転　2 本指：ズーム<br>カメラ：冒険 / 箱庭の切り替え<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている</span>`
+    : `<b>操作</b><br><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る<br><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳）<br>ドラッグ：視点回転　ホイール：ズーム<br><kbd>V</kbd> カメラ切替　<kbd>R</kbd> スタート地点へ　<kbd>H</kbd> 説明を隠す<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている</span>`;
   document.body.appendChild(help);
   if (touch) setTimeout(() => help.classList.add('fade'), 12000);
   const marker = document.createElement('div');
@@ -103,10 +104,12 @@ function boot() {
   vistaTag.textContent = '見晴らし — 景色を眺めています（動くと戻ります）';
   document.body.appendChild(vistaTag);
   let bannerT = 0;
-  const showBanner = (spot: Spot, first: boolean) => {
+  const showBanner = (spot: Spot, first: boolean, parentFirst?: Spot) => {
     const hidden = spot.kind === 'hidden';
     banner.className = `show${first ? ' first' : ''}${hidden ? ' hidden' : ''}`;
-    banner.querySelector('.kicker')!.textContent = first ? (hidden ? 'ひみつの場所を発見！' : '新しい場所') : '';
+    // 親の場所（濾過槽）を初めて訪れたときは、親の名前も添える
+    const kick = first ? (hidden ? 'ひみつの場所を発見！' : '新しい場所') : '';
+    banner.querySelector('.kicker')!.textContent = parentFirst ? `${kick}（${parentFirst.name}）` : kick;
     banner.querySelector('.name')!.textContent = spot.name;
     banner.querySelector('.desc')!.textContent = first ? spot.desc : '';
     bannerT = first ? 4.2 : 2.0;
@@ -135,6 +138,25 @@ function boot() {
   const resetDiscovery = () => {
     tracker.visited.clear();
     tracker.current = null;
+  };
+  // 自動検証用：名前の付いた地点へ移す（x, z, 探し始める高さ）
+  const S = world.stand;
+  const places: Record<string, [number, number, number]> = {
+    spawn: [world.spawn.x, world.spawn.z, 13],
+    mouth: [S.drainAxis[0] + 1.4, S.drainAxis[1], 5.2],
+    sumpDrop: [-7.5, 2.0, -8.0],
+    sumpMedia: [3.2, 4.4, -7.9],
+    basketTop: [3.2, 6.2, -7.0],
+    pump: [6.6, -2.4, -8.6],
+    stand: [12, 9.5, -6],
+    room: [8, 16, -11],
+    lookUp: [-3, 38, -11],
+    log: [(world.landmarks.logA[0] + world.landmarks.logB[0]) / 2, (world.landmarks.logA[2] + world.landmarks.logB[2]) / 2, world.landmarks.logA[1]],
+  };
+  const goto = (name: string) => {
+    const p = places[name];
+    if (p) crab.teleport(p[0], p[1], world.contactSurfaceBelow(p[0], p[2], p[1]) + 0.02);
+    return crab.region;
   };
   if (touch) {
     new TouchControls(input, { runLabel: 'ダッシュ', jump: true, onCamera: toggleCamera });
@@ -165,7 +187,7 @@ function boot() {
       rig.update(dt, crab);
       life.update(dt, { x: crab.x, y: crab.y + crab.radius, z: crab.z });
       tracker.update(dt, crab.x, crab.y + crab.radius, crab.z);
-      for (const e of tracker.drainEvents()) showBanner(e.spot, e.first);
+      for (const e of tracker.drainEvents()) showBanner(e.spot, e.first, e.parentFirst);
       camera.setVista(tracker.current?.vista ?? null);
     }
     if (bannerT > 0) {
@@ -203,13 +225,15 @@ function boot() {
     }
     if (hudT > 0.15) {
       hudT = 0;
-      const under = crab.y + crab.radius < TANK.waterY;
+      const under = crab.submerged > 0.5;
+      const region = crab.region;
       const zone = $('h-zone');
-      zone.textContent = under ? '水中' : '陸上';
+      // 区画（水槽・濾過槽は水中 / 陸上も）
+      zone.textContent = region === 'tank' ? (under ? '水中' : '陸上') : region === 'sump' ? `濾過槽・${under ? '水中' : '陸上'}` : REGION_LABEL[region];
       zone.classList.toggle('land', !under);
       $('h-cam').textContent = CAMERA_MODE_LABEL[camera.mode];
       const place = $('h-place');
-      place.textContent = tracker.current ? tracker.current.name : '水槽のどこか';
+      place.textContent = tracker.current ? tracker.current.name : `${REGION_LABEL[crab.region]}のどこか`;
       place.classList.toggle('hidden', tracker.current?.kind === 'hidden');
       $('h-found').textContent = `${tracker.visited.size} / ${tracker.total}　（ひみつ ${tracker.hiddenFound} / ${tracker.hiddenTotal}）`;
       $('h-state').textContent = CRAB_STATE_LABEL[crab.state];
@@ -228,7 +252,7 @@ function boot() {
   };
   loading.remove();
   requestAnimationFrame(loop);
-  (window as unknown as Record<string, unknown>).__aqua = Object.assign(debug, { world, crab, rig, camera, view, settings, input, spots, finds, tracker, life, resetDiscovery, buildMs, buildPhases: built.ms, plantMs: plants.ms, plantCounts: plants.counts, plantTimes: plants.times });
+  (window as unknown as Record<string, unknown>).__aqua = Object.assign(debug, { world, crab, rig, camera, view, settings, input, spots, finds, tracker, life, resetDiscovery, goto, places, sump: SUMP, buildMs, buildPhases: built.ms, plantMs: plants.ms, plantCounts: plants.counts, plantTimes: plants.times });
 }
 
 // 読み込み表示を先に描画させてから重い生成処理に入る

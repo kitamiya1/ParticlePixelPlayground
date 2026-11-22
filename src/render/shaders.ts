@@ -12,6 +12,7 @@ float bayer8(vec2 a) { return bayer4(0.5 * a) * 0.25 + bayer2(a); }
  * - pppCaustic：水中の面への直射光を、水面の揺らぎ（コースティクス）と水深による減衰で変える
  * - pppWaterTint：水深による色の吸収 + カメラから点までの「水の中を通る長さ」に応じた青緑の霞
  *   （水槽の水の箱で線分を切り取るので、水槽の外から見ても・水中から見ても同じ式で決まる）
+ * - 水槽の下の濾過槽（部屋ごとに水位が違う）も、uSumpMin / uSumpMax の水の箱として同じ式に入れる
  */
 const WATER_CHUNK = /* glsl */ `
 #ifdef PPP_WATER
@@ -27,53 +28,80 @@ uniform float uWaterAtten;
 uniform float uCurrent;
 uniform vec3 uLandTint;
 uniform float uDapple;
+// 水槽の外の水（濾過槽の部屋ごとの水の箱。max.y = 水面）。使わない箱は min > max にしておく
+uniform vec3 uSumpMin[4];
+uniform vec3 uSumpMax[4];
 float pppCausticPattern(vec2 p, float t) {
   float a = sin(p.x * 1.7 + sin(p.y * 1.3 + t) * 1.2 + t * 0.7) + sin(p.y * 1.9 + sin(p.x * 1.1 - t * 0.8) * 1.3 - t * 0.6);
   float b = sin(p.x * 2.6 - sin(p.y * 2.2 - t * 1.1) * 0.9 - t * 0.9) + sin(p.y * 2.3 + sin(p.x * 2.9 + t * 0.7) * 1.1 + t);
   return pow(1.0 - abs(a) * 0.5, 10.0) + pow(1.0 - abs(b) * 0.5, 12.0) * 0.6;
 }
-/** 水槽の水の中か（水面より下 かつ 水槽の内側） */
+float pppInBox(vec3 p, vec3 a, vec3 b) {
+  return step(a.x, p.x) * step(p.x, b.x) * step(a.y, p.y) * step(p.y, b.y) * step(a.z, p.z) * step(p.z, b.z);
+}
+/** 水槽の内側（底より上）か。水槽の下（水槽台の中）は外 */
+float pppInTank(vec3 p) {
+  return step(uTankMin.x, p.x) * step(p.x, uTankMax.x) * step(uTankMin.z, p.z) * step(p.z, uTankMax.z) * step(uTankMin.y - 0.05, p.y);
+}
+/** 点のある水の水面の高さ（水の外なら -1e4） */
+float pppWaterTop(vec3 p) {
+  if (pppInTank(p) > 0.5 && p.y <= uWaterY) return uWaterY;
+  for (int i = 0; i < 4; i++) if (pppInBox(p, uSumpMin[i], uSumpMax[i]) > 0.5) return uSumpMax[i].y;
+  return -1e4;
+}
+/** 水の中か（水槽の水面より下、または濾過槽の水の中） */
 float pppInWater(vec3 p) {
-  return step(p.y, uWaterY) * step(uTankMin.x, p.x) * step(p.x, uTankMax.x) * step(uTankMin.z, p.z) * step(p.z, uTankMax.z);
+  return step(-1e3, pppWaterTop(p));
 }
 /** 水深による直射光の減衰（光の段階化の前に掛ける） */
 float pppCaustic(vec3 p, vec3 n) {
-  if (pppInWater(p) < 0.5) return 1.0;
-  return exp(-(uWaterY - p.y) * uWaterAtten);
+  float top = pppWaterTop(p);
+  if (top < -1e3) return 1.0;
+  return exp(-(top - p.y) * uWaterAtten);
 }
 /** 水面の揺らぎが底に落とす光の網（段階化の後に足す。段階の境目で模様がつぶれないように） */
 float pppCausticGlow(vec3 p, vec3 n) {
-  if (pppInWater(p) < 0.5) return 0.0;
-  float depth = uWaterY - p.y;
+  float top = pppWaterTop(p);
+  if (top < -1e3) return 0.0;
+  float depth = top - p.y;
   // 水面の位置まで光の向きに沿って戻した座標で模様を決める
   vec2 q = p.xz - uSunDir.xz / max(uSunDir.y, 0.2) * depth;
   float k = pppCausticPattern(q * 2.1, uTime * 1.3);
   return uCaustic * k * max(n.y, 0.0) * exp(-depth * uWaterAtten * 2.0);
 }
-/** 線分 ro→p のうち、水の箱（水槽の内側 × 水面より下）の中にある長さ */
-float pppWaterPath(vec3 ro, vec3 p) {
+/** 線分 ro→p のうち、箱の中にある長さ */
+float pppBoxPath(vec3 ro, vec3 p, vec3 bmin, vec3 bmax) {
   vec3 d = p - ro;
   d = mix(d, vec3(1e-4), step(abs(d), vec3(1e-4)));
   vec3 inv = 1.0 / d;
-  vec3 t0 = (uTankMin - ro) * inv;
-  vec3 t1 = (vec3(uTankMax.x, uWaterY, uTankMax.z) - ro) * inv;
+  vec3 t0 = (bmin - ro) * inv;
+  vec3 t1 = (bmax - ro) * inv;
   vec3 lo = min(t0, t1), hi = max(t0, t1);
   float a = max(max(lo.x, lo.y), max(lo.z, 0.0));
   float b = min(min(hi.x, hi.y), min(hi.z, 1.0));
   return max(b - a, 0.0) * length(d);
 }
+/** 線分 ro→p のうち、水の箱（水槽の内側 × 水面より下、濾過槽の各部屋の水）の中にある長さ */
+float pppWaterPath(vec3 ro, vec3 p) {
+  float L = pppBoxPath(ro, p, uTankMin, vec3(uTankMax.x, uWaterY, uTankMax.z));
+  for (int i = 0; i < 4; i++) L += pppBoxPath(ro, p, uSumpMin[i], uSumpMax[i]);
+  return L;
+}
 /** 陸地（水槽の内側で水面より上）の色味：暖かい光 + ゆっくり動く木漏れ日のまだら（水中との色の差を付ける） */
 vec3 pppLandTint(vec3 c, vec3 p, vec3 n, float sh) {
-  float inside = step(uTankMin.x, p.x) * step(p.x, uTankMax.x) * step(uTankMin.z, p.z) * step(p.z, uTankMax.z);
+  float inside = pppInTank(p);
   float land = smoothstep(uWaterY + 0.02, uWaterY + 0.25, p.y) * inside;
   float k = sin(p.x * 1.3 + uTime * 0.35 + sin(p.z * 0.9 + uTime * 0.2) * 1.5) * sin(p.z * 1.1 - uTime * 0.3 + sin(p.x * 0.7) * 1.2);
   vec3 lc = c * uLandTint * (1.0 + uDapple * k * max(n.y, 0.0) * sh);
   return mix(c, lc, land);
 }
 vec3 pppWaterTint(vec3 c, vec3 p) {
-  float inside = step(uTankMin.x, p.x) * step(p.x, uTankMax.x) * step(uTankMin.z, p.z) * step(p.z, uTankMax.z);
-  float under = (1.0 - smoothstep(uWaterY - 0.03, uWaterY + 0.03, p.y)) * inside;
-  float depth = max(uWaterY - p.y, 0.0);
+  float top = pppWaterTop(p);
+  // 水槽の水面ちょうどは境目をなめらかに（既存の見た目と同じ幅）
+  float under = top > -1e3 ? 1.0 : 0.0;
+  if (pppInTank(p) > 0.5) { under = 1.0 - smoothstep(uWaterY - 0.03, uWaterY + 0.03, p.y); top = uWaterY; }
+  // 水の外の点は、これまでどおり水槽の水面からの深さで霞の色を決める
+  float depth = max((top > -1e3 ? top : uWaterY) - p.y, 0.0);
   c *= mix(vec3(1.0), uWaterAbsorb, under * (1.0 - exp(-depth * 0.22)));
   float L = pppWaterPath(cameraPosition, p);
   float f = (1.0 - exp(-L * uWaterDensity)) * uWaterHaze;

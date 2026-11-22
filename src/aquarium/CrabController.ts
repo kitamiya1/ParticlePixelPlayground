@@ -7,14 +7,18 @@
 // - 水中かどうかは球の中心と水面の高さで連続的に決め（submerged 0..1）、重力・抵抗・速さを補間する
 //   （水面を横切るときに急に切り替わらない）。
 // - 横歩き：移動方向に対して体の横（±90°）が向くよう、近い方へ回る。入力方向へはそのまま進むので操作は直感的。
+// - 水槽の外（排水管・濾過槽・水槽台・部屋）：当たり判定は AquariumWorld.contactSolid、水面の高さは waterLevelAt
+//   （濾過槽は部屋ごとに水位が違う）。水の流れ（flowAt）は速度を目標の流速へ寄せる。管の中（ride）は重力・ジャンプ・
+//   遊泳を止め、水といっしょに運ばれる（排水管は真下へ、給水管はポンプの流れで水槽へ）。
 
 import { clamp, lerp, smoothstep } from '../core/math';
 import { TANK, type AquariumWorld } from './AquariumWorld';
+import { ROOM, type Flow, type Region } from './AquariumStand';
 
-export type CrabState = 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'swim' | 'sink';
+export type CrabState = 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'swim' | 'sink' | 'ride';
 
 export const CRAB_STATE_LABEL: Record<CrabState, string> = {
-  idle: '待機', walk: '歩行', run: '走行', jump: 'ジャンプ', fall: '落下', swim: '遊泳', sink: '沈降',
+  idle: '待機', walk: '歩行', run: '走行', jump: 'ジャンプ', fall: '落下', swim: '遊泳', sink: '沈降', ride: '水流に乗る',
 };
 
 /** 見た目側（泡・水しぶき・波紋）に知らせる出来事 */
@@ -73,6 +77,11 @@ export class CrabController {
   private sinking = false;
   private wasUnder = false;
   private strokeT = 0;
+  private readonly flow: Flow = { vx: 0, vy: 0, vz: 0, k: 0, ride: false };
+  /** いまいる区画（水槽・排水管・給水管・濾過槽・水槽台・部屋） */
+  region: Region = 'tank';
+  /** いまいる水の水面の高さ（水の外は −1000） */
+  waterLevel: number = TANK.waterY;
 
   constructor(private readonly world: AquariumWorld) {
     this.x = world.spawn.x;
@@ -87,7 +96,7 @@ export class CrabController {
   teleport(x: number, z: number, y?: number) {
     this.x = x;
     this.z = z;
-    this.y = y ?? this.world.groundAt(x, z) + 0.02;
+    this.y = y ?? this.world.contactSurfaceBelow(x, TANK.topY, z) + 0.02;
     this.vx = this.vy = this.vz = 0;
     this.swimming = this.sinking = false;
     this.grounded = false;
@@ -103,10 +112,19 @@ export class CrabController {
   private step(dt: number, inp: CrabInput, first: boolean) {
     const w = this.world;
     const cy = this.y + RADIUS;
-    // 0 = 空中, 1 = 水中（中心が水面より 0.25 下で完全に水中）
-    const s = smoothstep(TANK.waterY + 0.12, TANK.waterY - 0.25, cy);
+    // 0 = 空中, 1 = 水中（中心が水面より 0.25 下で完全に水中）。水面の高さは場所ごと（水槽・濾過槽の各部屋）
+    const level = w.waterLevelAt(this.x, cy, this.z);
+    this.waterLevel = level;
+    const s = smoothstep(level + 0.12, level - 0.25, cy);
     this.submerged = s;
     const inWater = s > 0.5;
+    // 水の流れ（管の中は ride：水といっしょに運ばれる）
+    const fl = w.flowAt(this.x, cy, this.z, this.flow);
+    const ride = fl.ride;
+    if (ride) {
+      this.swimming = false;
+      this.sinking = false;
+    }
 
     // カメラ基準の移動方向（CharacterController と同じ式）
     const yaw = inp.cameraYaw;
@@ -123,7 +141,9 @@ export class CrabController {
     if (!inp.jumpHeld) this.holdT = -1;
     else if (this.holdT >= 0) this.holdT += dt;
 
-    if (pressed && (this.grounded || this.coyote > 0) && !this.swimming) {
+    if (ride) {
+      // 管の中ではジャンプ・遊泳を受け付けない
+    } else if (pressed && (this.grounded || this.coyote > 0) && !this.swimming) {
       // 水中では浮力で、陸上よりゆっくり高く跳ぶ（初速は小さいが重力も小さい）
       this.vy = lerp(7.0, 5.3, s);
       this.grounded = false;
@@ -136,7 +156,7 @@ export class CrabController {
       this.holdT = 0.3;
     }
     // 水中でジャンプを長押し → 短い遊泳
-    if (!this.swimming && inWater && inp.jumpHeld && this.holdT > 0.22 && this.swimStamina > 0.15 && !this.grounded) {
+    if (!ride && !this.swimming && inWater && inp.jumpHeld && this.holdT > 0.22 && this.swimStamina > 0.15 && !this.grounded) {
       this.swimming = true;
       this.sinking = false;
       this.events.push({ kind: 'swimStart', x: this.x, y: this.y, z: this.z, power: 1 });
@@ -157,6 +177,10 @@ export class CrabController {
       maxSpeed = inp.run ? 4.2 : 3.3;
       accel = 5.5;
     }
+    if (ride) {
+      maxSpeed = 0.8;
+      accel = 2;
+    }
     const tvx = dx * maxSpeed, tvz = dz * maxSpeed;
     // 入力が無いとき：地上ではすぐ止まり、水中・空中ではゆっくり減速する
     const k = 1 - Math.exp(-(hasInput ? accel : this.grounded ? 12 : lerp(0.6, 2.2, s)) * dt);
@@ -166,7 +190,7 @@ export class CrabController {
     // 縦方向：重力・浮力・水の抵抗・遊泳の推力
     if (this.swimming) {
       // 押している間はゆっくり浮き上がる。水面の直下では浮上を止める（水面から飛び出さない）
-      const top = TANK.waterY - RADIUS - 0.12;
+      const top = level - RADIUS - 0.12;
       const targetVy = cy > top ? -0.4 : 1.7;
       this.vy += (targetVy - this.vy) * (1 - Math.exp(-4 * dt));
       this.swimPhase += dt * 11;
@@ -175,6 +199,8 @@ export class CrabController {
         this.strokeT = 0.42;
         this.events.push({ kind: 'stroke', x: this.x, y: this.y, z: this.z, power: 0.5 });
       }
+    } else if (ride) {
+      // 管の中：重力の代わりに下の流れが縦の速さを決める
     } else {
       const g = lerp(-24, -5.2, s);
       if (!this.grounded) this.vy += g * dt;
@@ -182,6 +208,14 @@ export class CrabController {
       this.vy *= Math.exp(-dt * s * (this.sinking ? 2.6 : this.vy > 0 ? 0.45 : 1.5));
       if (s > 0.5) this.vy = Math.max(this.vy, this.sinking ? -1.5 : -3.2);
       this.swimPhase += dt * (this.sinking ? 3 : 0);
+    }
+
+    // 水の流れへ寄せる（縦は流れに縦の成分がある所だけ。渦の外側で沈むのを止めない）
+    if (fl.k > 0) {
+      const kf = 1 - Math.exp(-fl.k * dt);
+      this.vx += (fl.vx - this.vx) * kf;
+      this.vz += (fl.vz - this.vz) * kf;
+      if (ride || Math.abs(fl.vy) > 0.05) this.vy += (fl.vy - this.vy) * kf;
     }
 
     // 移動と当たり判定
@@ -192,9 +226,9 @@ export class CrabController {
     pz += this.vz * dt;
     this.grounded = false;
     for (let it = 0; it < 4; it++) {
-      const d = w.solid(px, py, pz);
+      const d = w.contactSolid(px, py, pz);
       if (d >= RADIUS) break;
-      const n = w.solidNormal(px, py, pz);
+      const n = w.contactNormal(px, py, pz);
       const push = RADIUS - d;
       px += n[0] * push;
       py += n[1] * push;
@@ -213,26 +247,29 @@ export class CrabController {
       }
     }
     // 下り坂・段差：直前まで接地していて上へ跳んでいなければ、少し下の地面へ吸着する
-    if (!this.grounded && wasGrounded && this.vy <= 0.5 && !this.swimming) {
+    if (!this.grounded && wasGrounded && this.vy <= 0.5 && !this.swimming && !ride) {
       let t = 0;
       for (let i = 0; i < 6; i++) {
-        const dd = w.solid(px, py - t, pz) - RADIUS;
+        const dd = w.contactSolid(px, py - t, pz) - RADIUS;
         if (dd < 0.004) break;
         t += dd;
         if (t > 0.32) break;
       }
-      if (t <= 0.32) {
+      // 吸着するのは床（上向きの面）だけ。壁（透明な管・アクリル・岩の側面）に触れているだけなら接地にしない
+      // （壁に沿って歩くと、宙に浮いたまま接地扱いになって壁を伝い登るのを防ぐ）
+      const nf = t <= 0.32 ? w.contactNormal(px, py - t, pz) : null;
+      if (nf && nf[1] > 0.55) {
         py -= t;
         this.grounded = true;
-        const n = w.solidNormal(px, py - RADIUS * 0.5, pz);
+        const n = w.contactNormal(px, py - RADIUS * 0.5, pz);
         if (n[1] > 0.55) this.groundN.splice(0, 3, ...n);
       }
     }
-    // ガラス壁（内側に留める）と水槽の上端
-    px = clamp(px, TANK.minX + RADIUS, TANK.maxX - RADIUS);
-    pz = clamp(pz, TANK.minZ + RADIUS, TANK.maxZ - RADIUS);
-    py = Math.min(py, TANK.topY + 2);
-    if (py < TANK.floorY + RADIUS) py = TANK.floorY + RADIUS;
+    // 部屋の外へは出ない（ガラス・水槽台・濾過槽の壁は contactSolid の当たり判定で止まる）
+    px = clamp(px, ROOM.minX + RADIUS, ROOM.maxX - RADIUS);
+    pz = clamp(pz, ROOM.minZ + RADIUS, ROOM.maxZ - RADIUS);
+    py = clamp(py, ROOM.floorY + RADIUS, ROOM.ceilY - RADIUS);
+    this.region = w.regionAt(px, py, pz);
 
     // 実際に動いた量から水平の速さを再計算（壁に当たった時に足踏みしない）
     const mvx = (px - this.x) / Math.max(dt, 1e-4);
@@ -264,9 +301,10 @@ export class CrabController {
     this.landImpact *= Math.exp(-dt * 6);
 
     // 水面を横切った出来事（水しぶき・泡・波紋）
-    const under = py < TANK.waterY;
+    const under = py < level;
     if (under !== this.wasUnder) {
-      this.events.push({ kind: under ? 'enterWater' : 'exitWater', x: this.x, y: TANK.waterY, z: this.z, power: clamp(Math.abs(this.vy) / 5 + this.speed / 8, 0.2, 1) });
+      // 管の出入り（水面の高さが ±1000）は水面を横切ったことにしない
+      if (Math.abs(level) < 500) this.events.push({ kind: under ? 'enterWater' : 'exitWater', x: this.x, y: level, z: this.z, power: clamp(Math.abs(this.vy) / 5 + this.speed / 8, 0.2, 1) });
       this.wasUnder = under;
     }
 
@@ -286,7 +324,8 @@ export class CrabController {
     if (this.grounded) this.stridePhase += (this.speed * dt) / (0.64 * (this.speed > 3.2 ? 0.1 : 0.075));
 
     // 状態
-    if (this.swimming) this.state = 'swim';
+    if (ride) this.state = 'ride';
+    else if (this.swimming) this.state = 'swim';
     else if (this.grounded) this.state = this.speed < 0.25 ? 'idle' : this.speed < (this.walkSpeed + this.runSpeed) * 0.5 * lerp(1, 0.72, s) ? 'walk' : 'run';
     else if (this.sinking || (s > 0.5 && this.vy < 0)) this.state = 'sink';
     else this.state = this.vy > 0 ? 'jump' : 'fall';

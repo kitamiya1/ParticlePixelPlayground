@@ -69,7 +69,7 @@ export class AquaLife {
     const rng = this.rng;
     // 群れ：砂の広場の上 / 洞窟と柱のあいだの開けた水 / 柱の奥（滝壺の手前）
     const defs: [number, number, number, number, number, number, number, number][] = [
-      [-8.5, 3.4, 5.4, 3.8, 1.9, 0.5, 0.9, 9],
+      [-10.4, 3.4, 5.4, 2.8, 1.9, 0.5, 0.9, 9], // 排水管（x −6.5, z 5.6）にかからないよう西寄り
       [-3.4, 4.1, -0.6, 2.6, 2.0, 0.6, 1.1, 8],
       [-0.2, 3.9, -7.4, 2.2, 1.3, 0.4, 0.8, 7],
     ];
@@ -83,7 +83,7 @@ export class AquaLife {
     // エビの住みか（x, z, 歩き回る範囲）：広場・森・岩の柱の根元・浅瀬・流木の小屋の中・倒木の中・洞窟の中
     const L = world.landmarks;
     const homes: [number, number, number][] = [
-      [-6.2, 6.0, 1.2], [-10.4, 7.4, 1.0], [-2.6, 6.6, 0.9],
+      [-4.4, 7.4, 1.0], [-10.4, 7.4, 1.0], [-2.6, 6.6, 0.9],
       [-11.4, -5.6, 1.2], [-6.8, -6.2, 0.9],
       [-1.3, -5.0, 0.9], [0.6, 5.6, 0.8],
       [L.hut.x, L.hut.z, 0.6],
@@ -149,10 +149,10 @@ export class AquaLife {
       f.x += f.vx * dt;
       f.y += f.vy * dt;
       f.z += f.vz * dt;
-      // 岩・流木・底床から押し戻す
-      const d = w.solid(f.x, f.y, f.z);
+      // 岩・流木・底床・透明な管から押し戻す
+      const d = w.contactSolid(f.x, f.y, f.z);
       if (d < 0.22) {
-        const n = w.solidNormal(f.x, f.y, f.z);
+        const n = w.contactNormal(f.x, f.y, f.z);
         const push = 0.22 - d;
         f.x += n[0] * push;
         f.y += n[1] * push;
@@ -238,7 +238,7 @@ export class AquaLife {
       nx = clamp(nx, TANK.minX + 0.2, TANK.maxX - 0.2);
       nz = clamp(nz, TANK.minZ + 0.2, TANK.maxZ - 0.2);
       // 壁（岩・流木の側面）には入らない
-      if (w.solid(nx, s.y + 0.08, nz) > 0.03) {
+      if (w.solid(nx, s.y + 0.08, nz) > 0.03 && w.pipeClear(nx, nz) > 0.08) {
         s.x = nx;
         s.z = nz;
       } else {

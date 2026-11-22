@@ -1,6 +1,7 @@
 // 水槽の見た目の生成（CPU 側。Three.js に依存しない）。方式 F v2 の分担に合わせて 2 種類を作る。
 // - E 側（三角形メッシュ。MeshBuild の MeshBuilder / surfaceNets を共有）：
-//   底床（高さ場の網 + ガラス際の断面）・小石・岩（洞窟を含む SDF）・流木・水槽の枠・台と部屋・カニ。
+//   底床（高さ場の網 + ガラス際の断面）・小石・岩（洞窟を含む SDF）・流木・水槽の枠・部屋・カニ。
+//   水槽台・底板と天板・濾過槽の中身・部屋の家具は AquariumStandBuild（buildAquariumMeshes から呼ぶ）。
 // - C 側（法線を向いた不透明な円盤。SurfelRenderer にそのまま渡せる SplatPointSet）：
 //   水草（テープ状の葉・有茎草・前景の絨毯草）・流木と岩の苔・陸地の苔・シダ・葉の広い草・汀線の細い草。
 // 色は頂点 / 円盤ごとに持ち、照明の当たり（日照）は AquariumWorld.sunVisibility を粗い格子に焼いて写す。
@@ -11,6 +12,7 @@ import type { SplatPointSet } from '../render/shared/PointSet';
 import { sampleSdfSurface, sdCapsule, sdEllipsoid, smin, type Box3Like, type Sdf } from '../visual/sdf/sdf';
 import type { Find } from './AquariumSpots';
 import { LAMP_DIR, TANK, type AquariumWorld } from './AquariumWorld';
+import { buildStandMeshes } from './AquariumStandBuild';
 import { crabParts } from './crabModel';
 
 const u8 = (v: number) => Math.max(0, Math.min(255, Math.round(v * 255)));
@@ -67,6 +69,12 @@ export interface AquariumMeshes {
   woods: TriMesh;
   frame: TriMesh;
   room: TriMesh;
+  /** 水槽台・濾過槽の中身・底板と天板・部屋の家具（AquariumStandBuild） */
+  stand: TriMesh;
+  /** 水槽台の外側の面（箱庭カメラで透かす） */
+  cabinetOuter: TriMesh;
+  /** 台の中の照明（自ら光る） */
+  emissive: TriMesh;
 }
 
 const SAND = { light: hex('#dccba0'), mid: hex('#c5b085'), dark: hex('#a48f6a'), gravel: hex('#8a7b62'), wet: hex('#8c7656'), wetDark: hex('#66533e') };
@@ -126,6 +134,8 @@ function buildTerrain(world: AquariumWorld, light: LightGrid): TriMesh {
   }
   for (let j = 0; j < nz - 1; j++) {
     for (let i = 0; i < nx - 1; i++) {
+      // 縦の管が砂を貫く所は網を張らない（穴の縁は管の外壁と砂の断面の円筒が隠す）
+      if (world.stand.columnClear(TANK.minX + (i + 0.5) * step, TANK.minZ + (j + 0.5) * step) < 0.02) continue;
       const a = ids[j * nx + i], b = ids[j * nx + i + 1], c = ids[(j + 1) * nx + i], d = ids[(j + 1) * nx + i + 1];
       mb.tri(a, b, d, 0, 1, 0);
       mb.tri(a, d, c, 0, 1, 0);
@@ -189,6 +199,7 @@ function buildPebbles(world: AquariumWorld, light: LightGrid, rng: Rng): TriMesh
     const want = 0.18 + (1 - smoothstep(0.2, 1.6, near)) * 0.6 + (1 - smoothstep(0, 1.2, Math.abs(h - TANK.waterY))) * 0.4 + (z > 6 ? 0.15 : 0);
     if (rng() > want) continue;
     if (near < 0.15) continue;
+    if (world.pipeClear(x, z) < 0.15) continue;
     const r = 0.05 + Math.pow(rng(), 2.2) * 0.14;
     const rx = r * (0.8 + rng() * 0.5), ry = r * (0.45 + rng() * 0.3), rz = r * (0.8 + rng() * 0.5);
     const rot = rng() * Math.PI * 2;
@@ -271,7 +282,10 @@ const BARK = [hex('#4e3a2a'), hex('#6e5139'), hex('#8a6a4a')];
 
 function buildWoods(world: AquariumWorld, light: LightGrid): TriMesh {
   const mb = new MeshBuilder();
+  const { logA, logB } = world.landmarks;
   for (const w of world.woods) {
+    // 中空の倒木の内壁は暗く（節穴から差す光と、明るい出口との対比を付ける）
+    const hollow = w.name === 'hollowlog' ? w.holes[0] : null;
     surfaceNets(w.sdf, w.box, 0.06, mb, (x, y, z, nx, ny, nz) => {
       const l = Math.hypot(nx, ny, nz) || 1;
       const n = [nx / l, ny / l, nz / l];
@@ -279,6 +293,14 @@ function buildWoods(world: AquariumWorld, light: LightGrid): TriMesh {
       let c = mixRGB(BARK[0], BARK[1], g);
       if (g > 0.72) c = mixRGB(c, BARK[2], 0.6);
       if (y < TANK.waterY) c = mixRGB(c, hex('#3f4a30'), 0.25 + Math.max(0, n[1]) * 0.25);
+      if (hollow) {
+        const r = sdCapsule(x, y, z, hollow.a[0], hollow.a[1], hollow.a[2], hollow.b[0], hollow.b[1], hollow.b[2], 0);
+        // 口から 0.9 以上奥ほど暗い（口の近くは外の光が回り込む）
+        const ax = logB[0] - logA[0], az = logB[2] - logA[2], al = Math.hypot(ax, az);
+        const t = ((x - logA[0]) * ax + (z - logA[2]) * az) / al;
+        const deep = smoothstep(0.2, 1.3, Math.min(t, al - t));
+        if (r < 0.7) c = mixRGB(c, hex('#1e1712'), 0.55 * deep);
+      }
       const ao = 0.7 + 0.3 * smoothstep(0, 0.3, world.solid(x + n[0] * 0.3, y + n[1] * 0.3, z + n[2] * 0.3));
       return mb.vertex(x, y, z, nx, ny, nz, u8(c[0] * ao), u8(c[1] * ao), u8(c[2] * ao), light.sample(x + n[0] * 0.15, y + n[1] * 0.15, z + n[2] * 0.15), 0.5);
     });
@@ -303,7 +325,7 @@ function addBox(mb: MeshBuilder, x0: number, y0: number, z0: number, x1: number,
   face('left', [[x0, y0, z0], [x0, y1, z0], [x0, y1, z1], [x0, y0, z1]], [-1, 0, 0]);
 }
 
-/** 水槽の枠（上縁・下の縁・角のシリコン）と、水槽の下の台 */
+/** 水槽の枠（上縁・下の縁・角のシリコン）。底板・台の天板・台の箱は AquariumStandBuild（管の穴・中の濾過槽があるため） */
 function buildFrame(): TriMesh {
   const mb = new MeshBuilder();
   const g = TANK.glass;
@@ -316,7 +338,6 @@ function buildFrame(): TriMesh {
   addBox(mb, x0 - bw, -0.35, z0 - bw, x1 + bw, bh - 0.35, z0 + 0.05, k);
   addBox(mb, x0 - bw, -0.35, z0, x0 + 0.05, bh - 0.35, z1, k);
   addBox(mb, x1 - 0.05, -0.35, z0, x1 + bw, bh - 0.35, z1, k);
-  addBox(mb, x0, -0.35, z0, x1, TANK.floorY, z1, () => hex('#202225'));
   // 上縁
   const ty = TANK.topY, th = 0.32, tw = 0.36;
   addBox(mb, x0 - 0.04, ty - th, z1 - tw + g, x1 + 0.04, ty + 0.04, z1 + 0.04, k);
@@ -328,10 +349,6 @@ function buildFrame(): TriMesh {
   for (const [cx, cz] of [[TANK.minX, TANK.minZ], [TANK.maxX, TANK.minZ], [TANK.minX, TANK.maxZ], [TANK.maxX, TANK.maxZ]]) {
     addBox(mb, cx - 0.09, TANK.floorY, cz - 0.09, cx + 0.09, ty - th, cz + 0.09, () => sil);
   }
-  // 台（木の天板 + 箱）
-  const top = hex('#5a4030'), side = hex('#3f2c21');
-  addBox(mb, x0 - 1.4, -1.0, z0 - 1.4, x1 + 1.4, -0.35, z1 + 1.4, (f) => (f === 'top' ? top : side));
-  addBox(mb, x0 - 1.0, -12, z0 - 1.0, x1 + 1.0, -1.0, z1 + 1.0, (f) => (f === 'front' ? hex('#4a3427') : side), 0.6);
   return mb.finish();
 }
 
@@ -367,8 +384,9 @@ export function buildAquariumMeshes(world: AquariumWorld): { meshes: AquariumMes
   lap('woods');
   const frame = buildFrame();
   const room = buildRoom();
+  const st = buildStandMeshes(world);
   lap('frame');
-  return { meshes: { terrain, pebbles, rocks, woods, frame, room }, light, ms };
+  return { meshes: { terrain, pebbles, rocks, woods, frame, room, stand: st.stand, cabinetOuter: st.cabinetOuter, emissive: st.emissive }, light, ms };
 }
 
 /** カニ：部位の SDF をボーンごとに三角形にする（頂点はボーンのローカル座標） */
@@ -439,6 +457,7 @@ function tapeGrass(P: PointsOut, world: AquariumWorld, rng: Rng, cx: number, cz:
     const a = rng() * Math.PI * 2, rr = Math.sqrt(rng()) * radius;
     const x = cx + Math.cos(a) * rr, z = cz + Math.sin(a) * rr;
     if (world.forestPathDist(x, z) < PATH_CLEAR) continue;
+    if (world.pipeClear(x, z) < 0.35) continue;
     const g = world.groundAt(x, z);
     if (world.solid(x, g + 0.1, z) < 0.05) continue;
     const depth = TANK.waterY - g;
@@ -473,6 +492,7 @@ function stemPlants(P: PointsOut, world: AquariumWorld, rng: Rng, cx: number, cz
     const a = rng() * Math.PI * 2, rr = Math.sqrt(rng()) * radius;
     const x = cx + Math.cos(a) * rr, z = cz + Math.sin(a) * rr;
     if (world.forestPathDist(x, z) < PATH_CLEAR) continue;
+    if (world.pipeClear(x, z) < 0.3) continue;
     const g = world.groundAt(x, z);
     if (world.solid(x, g + 0.1, z) < 0.05) continue;
     const H = Math.min(TANK.waterY - g - 0.25, (0.55 + rng() * 0.45) * (TANK.waterY - g) * 0.85);
@@ -510,6 +530,7 @@ function carpet(P: PointsOut, world: AquariumWorld, rng: Rng, cx: number, cz: nu
     const x = cx + Math.cos(a) * rr, z = cz + Math.sin(a) * rr;
     // ふちは途切れがちに
     if (rr / radius > 0.75 + noise2(x * 2, z * 2, 31) * 0.25) continue;
+    if (world.pipeClear(x, z) < 0.04) continue;
     const g = world.groundAt(x, z);
     if (world.solid(x, g + 0.08, z) < 0.04) continue;
     const hgt = 0.02 + rng() * rng() * 0.12;

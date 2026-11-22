@@ -6,6 +6,9 @@
 //   既存の PixelPipeline で 1 回だけかける（F v2 と同じ）。
 // - そのあと同じターゲットへ、深度テストありで滝・浮遊粒子・泡（不透明）→ 光の筋・水面・ガラス（半透明）を描く。
 // 水中の色・霞・光の揺らぎ（コースティクス）は shaders.ts の WATER_CHUNK（PPP_WATER のときだけ有効）。
+// 水槽の外（水槽台・濾過槽・配管・部屋）：不透明な物は E 側のメッシュ（AquariumStandBuild）、透明な管・アクリル・
+// 濾過槽の水面・管の中の水は AquariumPlumbingFx。濾過槽の水は uSumpMin / uSumpMax の水の箱として霞の計算に入る。
+// 箱庭カメラでは水槽台の外側の面のうちカメラを向く面をディザで透かし（CUTAWAY）、中の濾過槽と配管を見せる。
 
 import * as THREE from 'three';
 import { clamp } from '../core/math';
@@ -25,6 +28,9 @@ import { LAMP_DIR, TANK, type AquariumWorld } from './AquariumWorld';
 import type { CrabController, CrabEvent } from './CrabController';
 import { CRAB_BONE_COUNT } from './crabModel';
 import type { CrabRig } from './CrabRig';
+import { AquariumPlumbingFx } from './AquariumPlumbingFx';
+import { SUMP, SUMP_IN } from './AquariumStand';
+import { bubbleFragment, bubbleVertex, fallFragment, fallVertex, pointFragment, shaftFragment, shaftVertex, waterFragment, waterVertex } from './aquaShaders';
 
 function triGeometry(m: TriMesh): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
@@ -72,7 +78,32 @@ varying vec3 vColor;
 varying vec3 vWorld;
 varying vec3 vNormal;
 varying vec2 vMisc;
+#ifdef USE_BEAMS
+// 流木のトンネルの節穴から差す光：光の円柱の中にある面（内壁・床・カニ）を明るくする
+uniform vec4 uBeamP[3]; // 水面での始点, 半径
+uniform vec4 uBeamD[3]; // 向き, 長さ
+float pppBeamLight(vec3 p) {
+  float k = 0.0;
+  for (int i = 0; i < 3; i++) {
+    vec3 d = p - uBeamP[i].xyz;
+    float t = dot(d, uBeamD[i].xyz);
+    if (t > 0.0 && t < uBeamD[i].w) {
+      float r = length(d - uBeamD[i].xyz * t);
+      k += 1.0 - smoothstep(uBeamP[i].w * 0.45, uBeamP[i].w * 1.05, r);
+    }
+  }
+  return k;
+}
+#endif
+#ifdef CUTAWAY
+uniform float uCutaway;
+${BAYER}
+#endif
 void main() {
+#ifdef CUTAWAY
+  // 箱庭カメラ：カメラを向く外側の面を大きく抜いて、中が見えるようにする（縁の気配は残す）
+  if (uCutaway > 0.5 && dot(normalize(vNormal), cameraPosition - vWorld) > 0.0 && bayer4(gl_FragCoord.xy) < 0.82) discard;
+#endif
   vec3 n = normalize(vNormal);
   vec3 base = vColor;
   // 画素ごとの細かな 3 段の明暗（砂粒・岩肌・甲羅の粒）。画素より細かくなる遠景では消す（ちらつき防止）
@@ -84,6 +115,9 @@ void main() {
   base *= 1.0 + q * 0.13 * vMisc.y * detail;
   vec4 wp = vec4(vWorld, 1.0);
   vec3 c = pppWorldLit(vec3(0.0), wp, n, base, 0.0, vMisc.x);
+#ifdef USE_BEAMS
+  c += base * vec3(1.0, 0.94, 0.78) * pppBeamLight(vWorld) * 0.95 * max(dot(n, -uBeamD[0].xyz), 0.3);
+#endif
 #if defined(USE_BONES) || defined(USE_LIFT)
   // 方式 F v2 のキャラクターの持ち上げと同じ（背景の岩・砂から浮かせる。小さな生き物にも弱めに使う）
   vec3 vd = normalize(cameraPosition - vWorld);
@@ -125,6 +159,15 @@ void main() {
   vMisc = vec2(1.0, 0.25);
   gl_Position = projectionMatrix * viewMatrix * wp;
 }
+`;
+
+/** 台の中の照明（LED の帯）：照明の影響を受けずに光る */
+const emissiveFragment = /* glsl */ `
+varying vec3 vColor;
+varying vec3 vWorld;
+varying vec3 vNormal;
+varying vec2 vMisc;
+void main() { gl_FragColor = vec4(vColor * 1.2, 1.0); }
 `;
 
 /** 光る石：自ら光る結晶（照明の影響を受けず、ゆっくり明滅する）。aMisc = (明滅の位相, 明るさ) */
@@ -186,81 +229,6 @@ void main() {
 }
 `;
 
-/** 水面：揺らぐ法線・フレネル反射・照明の映り込み・波紋。水中から見ると全反射で明るい鏡になる */
-const waterVertex = /* glsl */ `
-varying vec3 vWorld;
-void main() {
-  vec4 wp = modelMatrix * vec4(position, 1.0);
-  vWorld = wp.xyz;
-  gl_Position = projectionMatrix * viewMatrix * wp;
-}
-`;
-const waterFragment = /* glsl */ `
-uniform float uTime;
-uniform vec3 uSunDir;
-uniform float uWaterY;
-uniform vec3 uWaterFog;
-uniform vec4 uRipple;   // x, z, 開始時刻, 強さ
-uniform vec4 uRipple2;
-uniform vec3 uFall;     // 滝壺の x, z, 半径
-uniform vec3 uCharPos;
-varying vec3 vWorld;
-${BAYER}
-vec2 waveGrad(vec2 p, float t) {
-  vec2 g = vec2(0.0);
-  g += vec2(0.9, 0.4) * cos(dot(p, vec2(0.9, 0.4)) * 1.3 + t * 1.1) * 0.06;
-  g += vec2(-0.5, 0.8) * cos(dot(p, vec2(-0.5, 0.8)) * 2.1 + t * 1.6) * 0.045;
-  g += vec2(0.3, -0.95) * cos(dot(p, vec2(0.3, -0.95)) * 3.7 - t * 2.0) * 0.03;
-  g += vec2(0.7, 0.7) * cos(dot(p, vec2(0.7, 0.7)) * 6.3 + t * 2.7) * 0.018;
-  return g;
-}
-float ring(vec2 p, vec4 r, float t) {
-  float age = t - r.z;
-  if (age < 0.0 || age > 2.5) return 0.0;
-  float d = length(p - r.xy);
-  float front = age * 1.6;
-  return sin((d - front) * 14.0) * exp(-abs(d - front) * 4.0) * exp(-age * 1.4) * r.w;
-}
-void main() {
-  vec3 V = normalize(cameraPosition - vWorld);
-  bool below = cameraPosition.y < uWaterY;
-  vec2 g = waveGrad(vWorld.xz, uTime);
-  float rp = ring(vWorld.xz, uRipple, uTime) + ring(vWorld.xz, uRipple2, uTime);
-  // カニが水面近くを動くと小さな波紋
-  float cd = length(vWorld.xz - uCharPos.xz);
-  rp += sin(cd * 16.0 - uTime * 7.0) * exp(-cd * 3.0) * 0.35 * (1.0 - smoothstep(0.0, 0.5, abs(uCharPos.y + 0.24 - uWaterY)));
-  vec3 n = normalize(vec3(-g.x - rp * 0.25, 1.0, -g.y - rp * 0.25));
-  float shimmer = 0.5 + 0.5 * sin(dot(vWorld.xz, vec2(3.1, 2.3)) + g.x * 40.0 + uTime);
-  vec3 col;
-  float a;
-  // 滝壺の泡
-  float fd = length(vWorld.xz - uFall.xy);
-  float foam = (1.0 - smoothstep(uFall.z * 0.3, uFall.z, fd + (sin(atan(vWorld.z - uFall.y, vWorld.x - uFall.x) * 7.0 + uTime * 3.0) * 0.12)));
-  if (!below) {
-    float cosV = max(dot(n, V), 0.0);
-    float fres = 0.04 + 0.96 * pow(1.0 - cosV, 5.0);
-    vec3 refl = mix(vec3(0.62, 0.66, 0.64), vec3(0.92, 0.92, 0.86), smoothstep(0.2, 0.9, reflect(-V, n).y));
-    col = mix(uWaterFog * 1.5 + vec3(0.02, 0.06, 0.05), refl, clamp(fres * 1.4, 0.0, 1.0));
-    a = 0.1 + fres * 0.7;
-    float spec = pow(max(dot(reflect(-V, n), uSunDir), 0.0), 90.0);
-    col += vec3(1.0, 0.98, 0.9) * spec * 2.0;
-    a = clamp(a + spec, 0.0, 0.95);
-    // 映り込みの明暗のゆらぎ
-    col *= 0.92 + 0.16 * shimmer;
-  } else {
-    // 水中から：浅い角度は全反射（明るい鏡）、真上近くは「スネルの窓」で上が透けて見える
-    float up = -V.y;
-    float window = smoothstep(0.62, 0.72, up);
-    col = mix(uWaterFog * 1.7 + vec3(0.05, 0.1, 0.08) * shimmer, vec3(0.85, 0.96, 0.95), window);
-    a = mix(0.82, 0.32, window);
-    float sp = pow(max(dot(refract(-V, -n, 1.33), uSunDir), 0.0), 40.0);
-    col += vec3(0.9, 1.0, 0.95) * sp * 0.8 * window;
-  }
-  col = mix(col, vec3(0.95, 0.98, 0.98), foam * 0.85);
-  a = max(a, foam * 0.9);
-  gl_FragColor = vec4(col, a);
-}
-`;
 
 /** ガラス：うすい色・フレネル・斜めの映り込みの帯・水面の線（メニスカス） */
 const glassVertex = /* glsl */ `
@@ -295,42 +263,6 @@ void main() {
 }
 `;
 
-/** 水面から差し込む光の筋（円柱状に回り込む細長い板、加算合成） */
-const shaftVertex = /* glsl */ `
-attribute vec3 iStart;
-attribute vec4 iParam; // 幅, 長さ, 位相（負なら揺らさない）, 強さ
-uniform vec3 uShaftDir;
-uniform float uTime;
-varying vec2 vUv;
-varying float vStrength;
-varying float vPhase;
-void main() {
-  vec3 axis = normalize(uShaftDir);
-  // 水面の揺らぎにつれて、光の筋の差し込む位置がゆっくり動く
-  float ph = abs(iParam.z);
-  vec3 st = iStart + step(0.0, iParam.z) * vec3(sin(uTime * 0.23 + ph) * 0.6, 0.0, cos(uTime * 0.19 + ph * 1.3) * 0.45);
-  vec3 p0 = st + axis * iParam.y * position.y;
-  vec3 vd = normalize(cameraPosition - p0);
-  vec3 side = normalize(cross(axis, vd) + vec3(1e-4));
-  vec3 p = p0 + side * position.x * iParam.x;
-  vUv = position.xy;
-  vStrength = iParam.w;
-  vPhase = iParam.z;
-  gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
-}
-`;
-const shaftFragment = /* glsl */ `
-uniform float uTime;
-varying vec2 vUv;
-varying float vStrength;
-varying float vPhase;
-void main() {
-  float u = vUv.x, v = vUv.y;
-  float k = pow(1.0 - u * u, 2.0) * smoothstep(0.0, 0.12, v) * pow(1.0 - v, 1.6);
-  k *= 0.55 + 0.45 * sin(uTime * 0.6 + abs(vPhase) + v * 2.5);
-  gl_FragColor = vec4(vec3(0.7, 0.95, 0.88) * k * vStrength * 0.16, 1.0);
-}
-`;
 
 /** 浮遊粒子（水中をゆっくり漂う 1〜2 画素の点） */
 const motesVertex = /* glsl */ `
@@ -353,84 +285,15 @@ void main() {
   gl_Position = projectionMatrix * mv;
 }
 `;
-const pointFragment = /* glsl */ `
-varying vec3 vColor;
-void main() { gl_FragColor = vec4(vColor, 1.0); }
-`;
 
-/** 泡・しぶき（CPU で動かす点。泡は輪の形、しぶきは白い点） */
-const bubbleVertex = /* glsl */ `
-attribute float aSize;
-attribute float aKind;
-uniform float uPxPerUnit;
-${LIGHTING_CHUNK}
-varying vec3 vColor;
-varying float vPx;
-varying float vKind;
-void main() {
-  vec4 mv = viewMatrix * vec4(position, 1.0);
-  float px = aSize * uPxPerUnit / max(-mv.z, 0.05);
-  vPx = clamp(px, 1.0, 14.0);
-  vKind = aKind;
-  vColor = aKind < 0.5 ? pppWaterTint(vec3(0.82, 0.96, 1.0), position) : vec3(0.92, 0.98, 1.0);
-  gl_PointSize = aSize <= 0.0 ? 0.0 : vPx;
-  gl_Position = aSize <= 0.0 ? vec4(2.0, 2.0, 2.0, 1.0) : projectionMatrix * mv;
-}
-`;
-const bubbleFragment = /* glsl */ `
-varying vec3 vColor;
-varying float vPx;
-varying float vKind;
-void main() {
-  vec2 q = gl_PointCoord * 2.0 - 1.0;
-  float r = length(q);
-  if (r > 1.0) discard;
-  if (vKind < 0.5 && vPx >= 4.0) {
-    // 大きな泡は輪 + ハイライト
-    bool hi = length(q - vec2(-0.35, -0.35)) < 0.3;
-    if (r < 0.62 && !hi) discard;
-    gl_FragColor = vec4(hi ? vec3(1.0) : vColor, 1.0);
-    return;
-  }
-  gl_FragColor = vec4(vColor, 1.0);
-}
-`;
 
-/** 滝：流れ落ちる縞（ディザ付きの抜きで半透明に見せる、深度は書く） */
-const fallVertex = /* glsl */ `
-varying vec2 vUv;
-varying vec3 vWorld;
-void main() {
-  vUv = uv;
-  vec4 wp = modelMatrix * vec4(position, 1.0);
-  vWorld = wp.xyz;
-  gl_Position = projectionMatrix * viewMatrix * wp;
-}
-`;
-const fallFragment = /* glsl */ `
-uniform float uTime;
-uniform float uLen;
-varying vec2 vUv;
-varying vec3 vWorld;
-${BAYER}
-float h1(float n) { return fract(sin(n * 12.9898) * 43758.5453); }
-void main() {
-  float w = vUv.x * 2.0 - 1.0;
-  float col = floor((w * 0.5 + 0.5) * 9.0);
-  float hh = h1(col + 3.0);
-  float s = fract(vUv.y * uLen * 1.4 - uTime * (1.8 + hh * 1.2) + hh * 5.0);
-  float cover = 0.92 - abs(w) * 0.55 - (1.0 - smoothstep(0.0, 0.08, vUv.y)) * 0.3;
-  if (bayer4(gl_FragCoord.xy) > cover) discard;
-  vec3 c = mix(vec3(0.55, 0.8, 0.86), vec3(0.95, 0.99, 1.0), step(0.55, s));
-  c *= 0.85 + 0.15 * step(0.0, w);
-  gl_FragColor = vec4(c, 1.0);
-}
-`;
 
 interface Bubble {
   x: number; y: number; z: number;
   vx: number; vy: number; vz: number;
   r: number; life: number; kind: 0 | 1; ph: number;
+  /** 消える水面の高さ（水槽・濾過槽の部屋ごと） */
+  top: number;
 }
 
 export class AquariumRenderer {
@@ -453,7 +316,17 @@ export class AquariumRenderer {
     /** 陸地の色味（暖かい光）と木漏れ日のまだらの強さ */
     uLandTint: { value: new THREE.Vector3(1.07, 1.02, 0.9) },
     uDapple: { value: 0.16 },
+    /** 濾過槽の部屋ごとの水の箱（max.y = 水面） */
+    uSumpMin: { value: SUMP.chambers.map((c) => new THREE.Vector3(c.x0, SUMP.floorTop, SUMP_IN.minZ)) },
+    uSumpMax: { value: SUMP.chambers.map((c) => new THREE.Vector3(c.x1, c.level, SUMP_IN.maxZ)) },
   });
+  /** 節穴から差す光の円柱（AquariumPlumbingFx が決める） */
+  private readonly beamU = {
+    uBeamP: { value: [new THREE.Vector4(0, -99, 0, 0), new THREE.Vector4(0, -99, 0, 0), new THREE.Vector4(0, -99, 0, 0)] },
+    uBeamD: { value: [new THREE.Vector4(0, -1, 0, 0), new THREE.Vector4(0, -1, 0, 0), new THREE.Vector4(0, -1, 0, 0)] },
+  };
+  private readonly cutU = { uCutaway: { value: 0 } };
+  readonly plumbing: AquariumPlumbingFx;
   private readonly meshScene = new THREE.Scene();
   private readonly fxScene = new THREE.Scene();
   private readonly alphaScene = new THREE.Scene();
@@ -511,12 +384,20 @@ export class AquariumRenderer {
 
     // E 側
     const worldMat = this.meshMaterial(false);
-    for (const m of [meshes.terrain, meshes.pebbles, meshes.rocks, meshes.woods, meshes.frame, meshes.room, explore.findsMesh]) {
+    for (const m of [meshes.terrain, meshes.pebbles, meshes.rocks, meshes.woods, meshes.frame, meshes.room, meshes.stand, explore.findsMesh]) {
       const mesh = new THREE.Mesh(triGeometry(m), worldMat);
       mesh.frustumCulled = false;
       this.meshScene.add(mesh);
       this.stats.tris += m.triCount;
     }
+    // 水槽台の外側の面（箱庭カメラで手前を透かす）と台の中の照明
+    const outerMesh = new THREE.Mesh(triGeometry(meshes.cabinetOuter), this.meshMaterial(false, { CUTAWAY: '' }));
+    const ledMesh = new THREE.Mesh(triGeometry(meshes.emissive), new THREE.ShaderMaterial({ vertexShader: meshVertex, fragmentShader: emissiveFragment }));
+    for (const m of [outerMesh, ledMesh]) {
+      m.frustumCulled = false;
+      this.meshScene.add(m);
+    }
+    this.stats.tris += meshes.cabinetOuter.triCount + meshes.emissive.triCount;
     this.crabMesh = new THREE.Mesh(triGeometry(crab), this.meshMaterial(true));
     this.crabMesh.frustumCulled = false;
     this.crabMesh.matrixAutoUpdate = false;
@@ -548,7 +429,7 @@ export class AquariumRenderer {
     this.bubbleGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.maxBubbles * 3), 3).setUsage(THREE.DynamicDrawUsage));
     this.bubbleGeo.setAttribute('aSize', new THREE.BufferAttribute(new Float32Array(this.maxBubbles), 1).setUsage(THREE.DynamicDrawUsage));
     this.bubbleGeo.setAttribute('aKind', new THREE.BufferAttribute(new Float32Array(this.maxBubbles), 1).setUsage(THREE.DynamicDrawUsage));
-    const bubblePts = new THREE.Points(this.bubbleGeo, new THREE.ShaderMaterial({ vertexShader: bubbleVertex, fragmentShader: bubbleFragment, uniforms: { ...u }, defines: { PPP_WATER: '' } }));
+    const bubblePts = new THREE.Points(this.bubbleGeo, new THREE.ShaderMaterial({ vertexShader: bubbleVertex, fragmentShader: bubbleFragment, uniforms: { ...u, uMaxPx: { value: 14 } }, defines: { PPP_WATER: '' } }));
     bubblePts.frustumCulled = false;
     this.fxScene.add(bubblePts);
 
@@ -577,6 +458,9 @@ export class AquariumRenderer {
         uTime: u.uTime, uSunDir: u.uSunDir, uWaterY: u.uWaterY, uWaterFog: u.uWaterFog, uCharPos: u.uCharPos,
         uRipple: { value: new THREE.Vector4(0, 0, -10, 0) }, uRipple2: { value: new THREE.Vector4(0, 0, -10, 0) },
         uFall: { value: new THREE.Vector3(wf.bottom[0], wf.bottom[2], 0.8) },
+        // 縦穴式の排水口：水面に丸い穴（この中は水面を描かない）
+        uDrain: { value: new THREE.Vector3(world.stand.drainAxis[0], world.stand.drainAxis[1], world.stand.mouthR) },
+        uDrainRim: { value: world.stand.drainRim },
       },
       transparent: true,
       depthWrite: false,
@@ -596,12 +480,20 @@ export class AquariumRenderer {
       m.renderOrder = 3;
       this.alphaScene.add(m);
     }
+
+    // 配管・濾過槽・節穴の光
+    this.plumbing = new AquariumPlumbingFx(world, u, { fx: this.fxScene, alpha: this.alphaScene }, { uTime: u.uTime, uSunDir: u.uSunDir, uWaterFog: u.uWaterFog, uCharPos: u.uCharPos });
+    this.plumbing.beamList.forEach((b, i) => {
+      if (i > 2) return;
+      this.beamU.uBeamP.value[i].set(b.start[0], b.start[1], b.start[2], b.r);
+      this.beamU.uBeamD.value[i].set(b.dir[0], b.dir[1], b.dir[2], b.len);
+    });
   }
 
-  private meshMaterial(bones: boolean): THREE.ShaderMaterial {
+  private meshMaterial(bones: boolean, extra: Record<string, string> = {}): THREE.ShaderMaterial {
     // 共有ユニフォームは同じオブジェクトを参照させる（方式 A〜F のマテリアルと同じ作り）
-    const uniforms: Record<string, THREE.IUniform> = { ...this.uniforms, ...this.lift, uReceiveBlob: { value: bones ? 0 : 1 } };
-    const defines: Record<string, string> = { PPP_WATER: '' };
+    const uniforms: Record<string, THREE.IUniform> = { ...this.uniforms, ...this.lift, ...this.beamU, ...this.cutU, uReceiveBlob: { value: bones ? 0 : 1 } };
+    const defines: Record<string, string> = { PPP_WATER: '', USE_BEAMS: '', ...extra };
     if (bones) {
       uniforms.uBones = { value: this.rig.bones };
       defines.USE_BONES = '';
@@ -782,11 +674,7 @@ export class AquariumRenderer {
       // 水草の森・柱のてっぺん
       [-12.5, -6.8, 1.3, 5.5, 0.4, 0.9], [-6.8, -7.6, 1.0, 5.0, 2.6, 0.8], [-3.0, -6.2, 1.0, 2.6, 1.1, 1.0],
     ];
-    // 倒木の節穴へ差し込む細い光（揺らさない：位相を負にする）
-    const { logA, logB } = this.world.landmarks;
-    const kx = logA[0] + (logB[0] - logA[0]) * 0.58, ky = logA[1] + (logB[1] - logA[1]) * 0.58 + 0.9, kz = logA[2] + (logB[2] - logA[2]) * 0.58;
-    const tk = (TANK.waterY - 0.05 - ky) / LAMP_DIR[1];
-    shafts.push([kx + LAMP_DIR[0] * tk, kz + LAMP_DIR[2] * tk, 0.32, tk + 1.4, -0.5, 1.3]);
+    // 倒木の節穴へ差し込む光は AquariumPlumbingFx（芯のはっきりした筋 + 床の光だまり + 光の中の粒）
     const start = new Float32Array(shafts.length * 3), param = new Float32Array(shafts.length * 4);
     shafts.forEach(([x, z, w, l, ph, st], i) => {
       start.set([x, TANK.waterY - 0.05, z], i * 3);
@@ -808,13 +696,17 @@ export class AquariumRenderer {
   // ---------------- 泡・しぶき ----------------
 
   private spawn(kind: 0 | 1, x: number, y: number, z: number, n: number, spread: number, r0: number, vUp: number) {
+    // 泡が消える水面：生まれた所の水の水面（管の中ではすぐ消える。しぶきは少し下の水面で消える）
+    let top = this.world.waterLevelAt(x, kind ? y - 0.12 : y, z);
+    if (top > 500) top = y + 0.3;
+    else if (top < -500) top = kind ? -1e3 : y;
     for (let i = 0; i < n; i++) {
       if (this.bubbles.length >= this.maxBubbles) this.bubbles.shift();
       const a = Math.random() * Math.PI * 2, rr = Math.random() * spread;
       this.bubbles.push({
         x: x + Math.cos(a) * rr, y: y + Math.random() * spread * 0.5, z: z + Math.sin(a) * rr,
         vx: (Math.random() - 0.5) * (kind ? 2.4 : 0.3), vy: vUp * (0.6 + Math.random() * 0.6), vz: (Math.random() - 0.5) * (kind ? 2.4 : 0.3),
-        r: r0 * (0.5 + Math.random()), life: kind ? 0.6 + Math.random() * 0.4 : 6, kind, ph: Math.random() * 6.28,
+        r: r0 * (0.5 + Math.random()), life: kind ? 0.6 + Math.random() * 0.4 : 6, kind, ph: Math.random() * 6.28, top,
       });
     }
   }
@@ -827,9 +719,10 @@ export class AquariumRenderer {
   private handleEvents(events: CrabEvent[], crab: CrabController, time: number) {
     for (const e of events) {
       if (e.kind === 'enterWater' || e.kind === 'exitWater') {
-        this.ripple(e.x, e.z, 0.6 + e.power, time);
-        this.spawn(1, e.x, TANK.waterY + 0.05, e.z, Math.round(6 + e.power * 14), 0.2, 0.05, 2.6 + e.power * 2);
-        if (e.kind === 'enterWater') this.spawn(0, e.x, TANK.waterY - 0.3, e.z, Math.round(8 + e.power * 12), 0.3, 0.045, 1.2);
+        // 波紋は水槽の水面だけ（濾過槽の水面はしぶきと泡）
+        if (Math.abs(e.y - TANK.waterY) < 0.01) this.ripple(e.x, e.z, 0.6 + e.power, time);
+        this.spawn(1, e.x, e.y + 0.05, e.z, Math.round(6 + e.power * 14), 0.2, 0.05, 2.6 + e.power * 2);
+        if (e.kind === 'enterWater') this.spawn(0, e.x, e.y - 0.3, e.z, Math.round(8 + e.power * 12), 0.3, 0.045, 1.2);
       } else if (e.kind === 'swimStart') {
         this.spawn(0, e.x, e.y + 0.2, e.z, 8, 0.25, 0.04, 1.0);
       } else if (e.kind === 'stroke') {
@@ -899,14 +792,14 @@ export class AquariumRenderer {
         b.x += (Math.sin(b.ph) * 0.25 + b.vx) * dt;
         b.z += (Math.cos(b.ph * 0.8) * 0.25 + b.vz) * dt;
         b.y += b.vy * dt;
-        if (b.y > wl - 0.03 || this.world.solid(b.x, b.y, b.z) < 0) b.life = 0;
+        if (b.y > b.top - 0.03 || this.world.solid(b.x, b.y, b.z) < 0) b.life = 0;
       } else {
         // しぶき：重力で落ち、水面より下で消える
         b.vy -= 14 * dt;
         b.x += b.vx * dt;
         b.y += b.vy * dt;
         b.z += b.vz * dt;
-        if (b.y < wl && b.vy < 0) b.life = 0;
+        if (b.y < b.top && b.vy < 0) b.life = 0;
       }
       if (b.life > 0) this.bubbles[w++] = b;
     }
@@ -946,6 +839,9 @@ export class AquariumRenderer {
     this.handleEvents(crab.drainEvents(), crab, time);
     this.updateBubbles(dt, crab);
     this.updateCreatures();
+    this.plumbing.update(dt, time);
+    this.cutU.uCutaway.value = cam.mode === 'diorama' ? 1 : 0;
+    this.plumbing.boost.value = cam.mode === 'diorama' ? 1 : 0;
 
     // カメラ（低解像度ターゲットの大きさ = キャンバス + 余白。透視投影なので画素スナップのずれは 0）
     const c = this.camera;
