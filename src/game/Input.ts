@@ -15,6 +15,8 @@ export class Input {
   touchMove = { x: 0, y: 0 };
   /** 画面上の走るボタン */
   touchRun = false;
+  /** 画面上のジャンプボタン（水槽ゲーム用。押している間 true） */
+  touchJump = false;
   // 画面に触れている指（2 本でピンチ・平行移動）
   private touches = new Map<number, { x: number; y: number }>();
   private pinchDist = 0;
@@ -111,6 +113,11 @@ export class Input {
   /** 走る入力（Shift または画面の走るボタン） */
   isRunning(): boolean {
     return this.touchRun || this.isDown('ShiftLeft') || this.isDown('ShiftRight');
+  }
+
+  /** ジャンプ入力を押し続けているか（Space または画面のジャンプボタン） */
+  isJumpHeld(): boolean {
+    return this.touchJump || this.isDown('Space');
   }
 
   /** 移動入力（x: 右, y: 前）。キーが押されていなければ仮想スティックの値 */

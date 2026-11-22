@@ -7,6 +7,72 @@ float bayer8(vec2 a) { return bayer4(0.5 * a) * 0.25 + bayer2(a); }
 `;
 
 /**
+ * 水槽ゲーム（aquarium.html）用の水中表現。PPP_WATER を定義したマテリアルだけで有効になり、
+ * 定義しない既存の方式 A〜F のシェーダーは変わらない（#ifdef の外には何も足さない）。
+ * - pppCaustic：水中の面への直射光を、水面の揺らぎ（コースティクス）と水深による減衰で変える
+ * - pppWaterTint：水深による色の吸収 + カメラから点までの「水の中を通る長さ」に応じた青緑の霞
+ *   （水槽の水の箱で線分を切り取るので、水槽の外から見ても・水中から見ても同じ式で決まる）
+ */
+const WATER_CHUNK = /* glsl */ `
+#ifdef PPP_WATER
+uniform float uWaterY;
+uniform vec3 uTankMin;
+uniform vec3 uTankMax;
+uniform vec3 uWaterFog;
+uniform vec3 uWaterAbsorb;
+uniform float uWaterDensity;
+uniform float uWaterHaze;
+uniform float uCaustic;
+uniform float uWaterAtten;
+float pppCausticPattern(vec2 p, float t) {
+  float a = sin(p.x * 1.7 + sin(p.y * 1.3 + t) * 1.2 + t * 0.7) + sin(p.y * 1.9 + sin(p.x * 1.1 - t * 0.8) * 1.3 - t * 0.6);
+  float b = sin(p.x * 2.6 - sin(p.y * 2.2 - t * 1.1) * 0.9 - t * 0.9) + sin(p.y * 2.3 + sin(p.x * 2.9 + t * 0.7) * 1.1 + t);
+  return pow(1.0 - abs(a) * 0.5, 10.0) + pow(1.0 - abs(b) * 0.5, 12.0) * 0.6;
+}
+/** 水槽の水の中か（水面より下 かつ 水槽の内側） */
+float pppInWater(vec3 p) {
+  return step(p.y, uWaterY) * step(uTankMin.x, p.x) * step(p.x, uTankMax.x) * step(uTankMin.z, p.z) * step(p.z, uTankMax.z);
+}
+/** 水深による直射光の減衰（光の段階化の前に掛ける） */
+float pppCaustic(vec3 p, vec3 n) {
+  if (pppInWater(p) < 0.5) return 1.0;
+  return exp(-(uWaterY - p.y) * uWaterAtten);
+}
+/** 水面の揺らぎが底に落とす光の網（段階化の後に足す。段階の境目で模様がつぶれないように） */
+float pppCausticGlow(vec3 p, vec3 n) {
+  if (pppInWater(p) < 0.5) return 0.0;
+  float depth = uWaterY - p.y;
+  // 水面の位置まで光の向きに沿って戻した座標で模様を決める
+  vec2 q = p.xz - uSunDir.xz / max(uSunDir.y, 0.2) * depth;
+  float k = pppCausticPattern(q * 2.1, uTime * 1.3);
+  return uCaustic * k * max(n.y, 0.0) * exp(-depth * uWaterAtten * 2.0);
+}
+/** 線分 ro→p のうち、水の箱（水槽の内側 × 水面より下）の中にある長さ */
+float pppWaterPath(vec3 ro, vec3 p) {
+  vec3 d = p - ro;
+  d = mix(d, vec3(1e-4), step(abs(d), vec3(1e-4)));
+  vec3 inv = 1.0 / d;
+  vec3 t0 = (uTankMin - ro) * inv;
+  vec3 t1 = (vec3(uTankMax.x, uWaterY, uTankMax.z) - ro) * inv;
+  vec3 lo = min(t0, t1), hi = max(t0, t1);
+  float a = max(max(lo.x, lo.y), max(lo.z, 0.0));
+  float b = min(min(hi.x, hi.y), min(hi.z, 1.0));
+  return max(b - a, 0.0) * length(d);
+}
+vec3 pppWaterTint(vec3 c, vec3 p) {
+  float inside = step(uTankMin.x, p.x) * step(p.x, uTankMax.x) * step(uTankMin.z, p.z) * step(p.z, uTankMax.z);
+  float under = (1.0 - smoothstep(uWaterY - 0.03, uWaterY + 0.03, p.y)) * inside;
+  float depth = max(uWaterY - p.y, 0.0);
+  c *= mix(vec3(1.0), uWaterAbsorb, under * (1.0 - exp(-depth * 0.22)));
+  float L = pppWaterPath(cameraPosition, p);
+  float f = (1.0 - exp(-L * uWaterDensity)) * uWaterHaze;
+  vec3 fogc = uWaterFog * (0.6 + 0.4 * exp(-depth * 0.15));
+  return mix(c, fogc, clamp(f, 0.0, 0.92));
+}
+#endif
+`;
+
+/**
  * 方式 A（粒）・C（サーフェル）・D（ボクセル）・E（ピクセル化メッシュ）で共有する光・影・風・霞の計算。
  * 同じ式・同じユニフォームを使うことで、描く図形以外の条件を揃える。
  * pppWorldLit: objPos は風の揺れの位相用（オブジェクト座標）、wp は風で動かすワールド座標。
@@ -35,6 +101,7 @@ float hash13(vec3 p) {
   p += dot(p, p.zyx + 31.32);
   return fract((p.x + p.y) * p.z);
 }
+${WATER_CHUNK}
 
 vec3 pppWorldLit(vec3 objPos, inout vec4 wp, vec3 wn, vec3 baseColor, float w, float sunVis) {
   // 風：位置に沿って流れる突風 + 個別の揺れ
@@ -60,9 +127,16 @@ vec3 pppWorldLit(vec3 objPos, inout vec4 wp, vec3 wn, vec3 baseColor, float w, f
     sh *= 1.0 - blob * uShadowStrength;
   }
   float direct = ndl * sh;
+#ifdef PPP_WATER
+  direct *= pppCaustic(wp.xyz, wn);
+#endif
   if (uLightSteps > 0.5) direct = floor(direct * uLightSteps + 0.5) / uLightSteps;
   vec3 hemi = mix(uGroundColor, uSkyColor, wn.y * 0.5 + 0.5);
   vec3 c = baseColor * (hemi * uAmbient * (1.0 - blob * 0.3) + uSunColor * direct);
+#ifdef PPP_WATER
+  c += baseColor * uSunColor * pppCausticGlow(wp.xyz, wn) * sh;
+  c = pppWaterTint(c, wp.xyz);
+#endif
 
   // 奥行き：視線方向の霞 + 島の下の靄
   vec4 mv = viewMatrix * wp;

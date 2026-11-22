@@ -36,7 +36,7 @@ export interface TriMesh {
   index: Uint32Array;
 }
 
-class MeshBuilder {
+export class MeshBuilder {
   private pos: number[] = [];
   private nrm: number[] = [];
   private col: number[] = [];
@@ -106,7 +106,7 @@ const CUBE_EDGES: [number, number][] = (() => {
  * 4×4×4 のブロック単位で、表面から遠いブロックは 1 回の評価で値を埋めて評価回数を減らす（方式 D と同じ考え方）。
  * vertex(x, y, z, nx, ny, nz) で頂点を登録し、その番号を返させる（色付けは呼び出し側）。
  */
-function surfaceNets(sdf: Sdf, box: Box3Like, h: number, mb: MeshBuilder, vertex: (x: number, y: number, z: number, nx: number, ny: number, nz: number) => number) {
+export function surfaceNets(sdf: Sdf, box: Box3Like, h: number, mb: MeshBuilder, vertex: (x: number, y: number, z: number, nx: number, ny: number, nz: number) => number) {
   const [ox, oy, oz] = box.min;
   const nx = Math.max(2, Math.ceil((box.max[0] - ox) / h) + 1);
   const ny = Math.max(2, Math.ceil((box.max[1] - oy) / h) + 1);

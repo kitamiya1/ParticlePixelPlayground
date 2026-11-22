@@ -5,18 +5,56 @@ import type { Input } from '../game/Input';
 
 const STICK_RADIUS = 48; // ノブが動ける半径（CSS px）
 
+/** 追加のボタン（水槽ゲーム用。指定しなければ従来どおりスティックと走るボタンだけ） */
+export interface TouchControlsOptions {
+  /** 走るボタンの表示名（既定「走る」） */
+  runLabel?: string;
+  /** ジャンプボタン（押している間 Input.touchJump = true） */
+  jump?: boolean;
+  /** カメラ切り替えボタン（押したときに呼ぶ） */
+  onCamera?: () => void;
+}
+
 export class TouchControls {
   readonly root: HTMLElement;
 
-  constructor(private readonly input: Input) {
+  constructor(private readonly input: Input, opts: TouchControlsOptions = {}) {
     this.root = document.createElement('div');
     this.root.id = 'touch-ui';
     this.root.innerHTML = `
       <div class="stick"><div class="knob"></div></div>
-      <button class="run" type="button">走る</button>`;
+      <button class="run" type="button">${opts.runLabel ?? '走る'}</button>${opts.jump ? `
+      <button class="jump" type="button">ジャンプ</button>` : ''}${opts.onCamera ? `
+      <button class="cam" type="button">カメラ</button>` : ''}`;
     document.body.appendChild(this.root);
     this.bindStick(this.root.querySelector<HTMLElement>('.stick')!);
     this.bindRun(this.root.querySelector<HTMLButtonElement>('.run')!);
+    const jump = this.root.querySelector<HTMLButtonElement>('.jump');
+    if (jump) this.bindHold(jump, (on) => (this.input.touchJump = on));
+    const cam = this.root.querySelector<HTMLButtonElement>('.cam');
+    if (cam && opts.onCamera) {
+      const fn = opts.onCamera;
+      cam.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        fn();
+      });
+      cam.addEventListener('contextmenu', (e) => e.preventDefault());
+    }
+  }
+
+  /** 押している間だけ on になるボタン */
+  private bindHold(btn: HTMLButtonElement, set: (on: boolean) => void) {
+    const apply = (on: boolean) => {
+      set(on);
+      btn.classList.toggle('on', on);
+    };
+    btn.addEventListener('pointerdown', (e) => {
+      capture(btn, e.pointerId);
+      apply(true);
+    });
+    btn.addEventListener('pointerup', () => apply(false));
+    btn.addEventListener('pointercancel', () => apply(false));
+    btn.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
   private bindStick(base: HTMLElement) {

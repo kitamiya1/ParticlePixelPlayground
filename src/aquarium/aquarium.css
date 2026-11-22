@@ -1,0 +1,39 @@
+/* 水槽探検ゲームの画面（既存の style.css の上に重ねる。設定パネルは無いので画面全体を使う） */
+body.aqua #app { inset: 0; }
+body.aqua #loading { color: #9fc7c0; }
+
+#hud { position: fixed; left: calc(12px + env(safe-area-inset-left)); top: calc(12px + env(safe-area-inset-top)); display: flex; flex-direction: column; gap: 6px;
+  pointer-events: none; z-index: 2; font-variant-numeric: tabular-nums; }
+#hud .card { background: rgba(10, 22, 28, 0.72); border: 1px solid rgba(160, 220, 210, 0.18); border-radius: 6px; padding: 7px 11px; line-height: 1.55; }
+#hud .title { font-weight: 700; color: #b9ece0; letter-spacing: 0.04em; }
+#hud .row { display: flex; gap: 10px; align-items: center; }
+#hud .tag { padding: 1px 7px; border-radius: 3px; background: #2e8079; color: #e8fff8; font-size: 12px; }
+#hud .tag.land { background: #6a7a3a; }
+#hud .tag.cam { background: #4a5a7a; }
+#hud .bar { width: 92px; height: 7px; border-radius: 4px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+#hud .bar i { display: block; height: 100%; background: #7cd6c4; }
+#hud .sub { color: #9fb8b2; font-size: 11px; }
+#hud a { pointer-events: auto; color: #8fd4ff; }
+
+body.aqua #help { line-height: 1.65; }
+#help kbd { display: inline-block; min-width: 18px; padding: 0 4px; border-radius: 3px; background: rgba(255, 255, 255, 0.14); font: inherit; font-size: 11px; text-align: center; }
+
+#crab-marker { position: fixed; left: 0; top: 0; transform: translate(-50%, -100%); display: none; pointer-events: none; z-index: 2;
+  color: #ffe1c8; font-weight: 700; font-size: 12px; text-align: center; text-shadow: 0 1px 2px #000; }
+#crab-marker::after { content: ''; display: block; width: 0; height: 0; margin: 2px auto 0; border: 7px solid transparent; border-top: 9px solid #ff8a5a; border-bottom: 0; }
+
+/* タッチ：右下にジャンプ（大）・ダッシュ、上にカメラ切り替え */
+body.aqua #touch-ui .jump { position: fixed; right: calc(20px + env(safe-area-inset-right)); bottom: calc(30px + env(safe-area-inset-bottom));
+  width: 96px; height: 96px; border-radius: 50%; font-size: 15px; font-weight: 700; background: rgba(46, 128, 121, 0.72);
+  border: 2px solid rgba(255, 255, 255, 0.4); touch-action: none; user-select: none; -webkit-user-select: none; z-index: 3; }
+body.aqua #touch-ui .jump.on { background: rgba(124, 214, 196, 0.9); color: #0b1e2a; }
+body.aqua #touch-ui .run { right: calc(128px + env(safe-area-inset-right)); bottom: calc(22px + env(safe-area-inset-bottom)); width: 72px; height: 72px; font-size: 13px; }
+body.aqua #touch-ui .cam { position: fixed; right: calc(20px + env(safe-area-inset-right)); bottom: calc(140px + env(safe-area-inset-bottom));
+  width: 72px; height: 44px; border-radius: 22px; font-size: 13px; background: rgba(74, 90, 122, 0.8); border: 2px solid rgba(255, 255, 255, 0.35);
+  touch-action: none; user-select: none; -webkit-user-select: none; z-index: 3; }
+body.aqua.touch #help { top: auto; bottom: calc(160px + env(safe-area-inset-bottom)); left: calc(12px + env(safe-area-inset-left)); max-width: 62%; }
+@media (max-width: 760px) {
+  body.aqua #touch-ui { display: block; }
+  body.aqua #help { display: block; }
+  #hud .card { padding: 5px 9px; font-size: 12px; }
+}
