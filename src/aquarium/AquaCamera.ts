@@ -4,10 +4,13 @@
 //   水面の高さちょうどに来ないよう（水面を真横から見て割れて見えないよう）カニのいる側へずらす。
 // - 箱庭カメラ：水槽の外から全体を見回す。回転・ズームのみ（カニの位置は画面上の印で示す）。
 // 切り替えてもカニの位置・向きは変えない（カメラの状態は別々に持つ）。
+// - 見晴らし：見晴らしの良い場所（setVista）でカニが立ち止まり、しばらく視点を触らないでいると、
+//   冒険カメラがその場所の眺めの向きへゆっくり回り込む（ドラッグ・ホイールですぐ手放す）。
 
 import { clamp } from '../core/math';
 import type { Input } from '../game/Input';
 import { TANK, type AquariumWorld } from './AquariumWorld';
+import type { VistaView } from './AquariumSpots';
 import type { CrabController } from './CrabController';
 
 export type CameraMode = 'adventure' | 'diorama';
@@ -48,6 +51,13 @@ export class AquaCamera {
   /** 遮蔽で寄っているか（表示用） */
   occluded = false;
   autoRotate = false;
+  /** いまいる見晴らしの良い場所の眺め（無ければ null） */
+  private vista: VistaView | null = null;
+  /** カニが止まっている時間・視点を最後に触ってからの時間 */
+  private stillT = 0;
+  private userT = 10;
+  /** 見晴らしの眺めへ回り込んでいる最中か（表示用） */
+  viewing = false;
 
   constructor(private readonly world: AquariumWorld) {}
 
@@ -57,6 +67,11 @@ export class AquaCamera {
     this.target.x = c.x;
     this.target.y = c.y + 0.3;
     this.target.z = c.z;
+  }
+
+  setVista(v: VistaView | null) {
+    if (v !== this.vista) this.viewing = false;
+    this.vista = v;
   }
 
   toggle(): CameraMode {
@@ -71,6 +86,19 @@ export class AquaCamera {
     o.pitch = clamp(o.pitch + input.dragDY * 0.004, o.minPitch, o.maxPitch);
     if (input.wheel !== 0) o.zoom = clamp(o.zoom * Math.pow(1.12, input.wheel), o.minZoom, o.maxZoom);
     if (this.autoRotate && this.mode === 'diorama') o.yaw += dt * 0.12;
+    const touched = input.dragDX !== 0 || input.dragDY !== 0 || input.wheel !== 0;
+    this.userT = touched ? 0 : this.userT + dt;
+    this.stillT = c.state === 'idle' && c.grounded ? this.stillT + dt : 0;
+    // 見晴らし：止まって 1.2 秒・視点を触らず 1.5 秒で、眺めの向きへ回り込む
+    const v = this.vista;
+    this.viewing = this.mode === 'adventure' && v !== null && this.stillT > 1.2 && this.userT > 1.5;
+    if (this.viewing && v) {
+      const k = 1 - Math.exp(-dt * 0.9);
+      const dy = Math.atan2(Math.sin(v.yaw - o.yaw), Math.cos(v.yaw - o.yaw));
+      o.yaw += dy * k;
+      o.pitch += (clamp(v.pitch, o.minPitch, o.maxPitch) - o.pitch) * k;
+      o.zoom += (clamp(v.zoom, o.minZoom, o.maxZoom) - o.zoom) * k;
+    }
 
     // 注視点はカニを追う（箱庭カメラ中も追っておき、戻したときに飛ばないようにする）
     const kf = 1 - Math.exp(-dt * 8);

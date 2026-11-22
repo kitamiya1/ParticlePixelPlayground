@@ -8,7 +8,8 @@
 import { clamp, fbm2, hash2, hex, lerp, mixRGB, mulberry32, noise2, noise3, smoothstep, type RGB, type Rng } from '../core/math';
 import { MeshBuilder, surfaceNets, type TriMesh } from '../render/pixelmesh/MeshBuild';
 import type { SplatPointSet } from '../render/shared/PointSet';
-import { sampleSdfSurface, type Box3Like, type Sdf } from '../visual/sdf/sdf';
+import { sampleSdfSurface, sdCapsule, sdEllipsoid, smin, type Box3Like, type Sdf } from '../visual/sdf/sdf';
+import type { Find } from './AquariumSpots';
 import { LAMP_DIR, TANK, type AquariumWorld } from './AquariumWorld';
 import { crabParts } from './crabModel';
 
@@ -17,7 +18,7 @@ const u8 = (v: number) => Math.max(0, Math.min(255, Math.round(v * 255)));
 // ---------------- 日照の格子 ----------------
 
 /** 照明の当たり（日照）を粗い 3D 格子に焼いたもの。頂点・円盤ごとに追跡すると重いので補間して使う */
-class LightGrid {
+export class LightGrid {
   private readonly cell = 0.7;
   private readonly n: [number, number, number];
   private readonly min: [number, number, number] = [TANK.minX, TANK.floorY, TANK.minZ];
@@ -429,11 +430,15 @@ class PointsOut {
 }
 
 /** テープ状の葉の水草（バリスネリアのような細長い葉が水面近くまで伸びる） */
+/** 水草の森の細い通路・小部屋を空けておく幅（植物を置かない） */
+const PATH_CLEAR = 0.5;
+
 function tapeGrass(P: PointsOut, world: AquariumWorld, rng: Rng, cx: number, cz: number, radius: number, blades: number) {
   const cols = [hex('#3f7434'), hex('#55913f'), hex('#79b252'), hex('#9cc66a')];
   for (let b = 0; b < blades; b++) {
     const a = rng() * Math.PI * 2, rr = Math.sqrt(rng()) * radius;
     const x = cx + Math.cos(a) * rr, z = cz + Math.sin(a) * rr;
+    if (world.forestPathDist(x, z) < PATH_CLEAR) continue;
     const g = world.groundAt(x, z);
     if (world.solid(x, g + 0.1, z) < 0.05) continue;
     const depth = TANK.waterY - g;
@@ -467,6 +472,7 @@ function stemPlants(P: PointsOut, world: AquariumWorld, rng: Rng, cx: number, cz
   for (let s = 0; s < stems; s++) {
     const a = rng() * Math.PI * 2, rr = Math.sqrt(rng()) * radius;
     const x = cx + Math.cos(a) * rr, z = cz + Math.sin(a) * rr;
+    if (world.forestPathDist(x, z) < PATH_CLEAR) continue;
     const g = world.groundAt(x, z);
     if (world.solid(x, g + 0.1, z) < 0.05) continue;
     const H = Math.min(TANK.waterY - g - 0.25, (0.55 + rng() * 0.45) * (TANK.waterY - g) * 0.85);
@@ -514,6 +520,9 @@ function carpet(P: PointsOut, world: AquariumWorld, rng: Rng, cx: number, cz: nu
 
 /** SDF の表面（上向きの面）に苔を付ける */
 function mossOnSurface(P: PointsOut, sdf: Sdf, box: Box3Like, rng: Rng, step: number, opts: { minNy: number; colors: RGB[]; size: number; under: boolean | null; mask: number; seed: number }) {
+  // 外接箱が丸ごと水中（または水上）で、条件に合う点が 1 つも無いものは表面を探さない（生成時間の節約）
+  if (opts.under === false && box.max[1] < TANK.waterY + 0.05) return;
+  if (opts.under === true && box.min[1] > TANK.waterY - 0.05) return;
   sampleSdfSurface(sdf, box, step, rng, (x, y, z, nx, ny, nz) => {
     if (ny < opts.minNy) return;
     if (opts.under === true && y > TANK.waterY - 0.05) return;
@@ -630,24 +639,50 @@ function hairGrass(P: PointsOut, world: AquariumWorld, rng: Rng) {
   }
 }
 
-export function buildAquariumSurfels(world: AquariumWorld, light: LightGrid): { set: SplatPointSet; ms: number; counts: Record<string, number> } {
+export function buildAquariumSurfels(world: AquariumWorld, light: LightGrid): { set: SplatPointSet; ms: number; counts: Record<string, number>; times: Record<string, number> } {
   const t0 = performance.now();
   const rng = mulberry32(9);
   const P = new PointsOut(light);
   const counts: Record<string, number> = {};
-  let last = 0;
+  const times: Record<string, number> = {};
+  let last = 0, lastT = t0;
   const mark = (k: string) => {
     counts[k] = P.count - last;
     last = P.count;
+    const now = performance.now();
+    times[k] = Math.round(now - lastT);
+    lastT = now;
   };
   // 水草（奥に背の高い葉、中景に有茎草、前景に絨毯）
   for (const [cx, cz, r, n] of [[-15.5, -8.4, 1.7, 46], [-10.5, -8.6, 1.6, 36], [-6.2, -8.6, 1.3, 30], [-0.8, -8.4, 1.5, 34], [-16.6, -2.5, 1.0, 22], [3.8, -8.2, 0.9, 14]] as const) tapeGrass(P, world, rng, cx, cz, r, n);
+  // 水草の森：奥の左半分を背の高い葉で埋める（細い通路と小部屋だけ空ける）
+  const frng = mulberry32(31);
+  for (let cz = -9.3; cz <= -4.6; cz += 1.25) {
+    for (let cx = -15.4; cx <= -4.4; cx += 1.35) {
+      const jx = cx + (frng() - 0.5) * 0.7, jz = cz + (frng() - 0.5) * 0.5;
+      tapeGrass(P, world, frng, jx, jz, 0.9, 13);
+    }
+  }
+  // 小部屋を囲む厚い壁（外からは中が見えない）
+  const [rx, , rz] = world.landmarks.forestRoom;
+  for (let i = 0; i < 7; i++) {
+    const a = Math.PI * 0.05 + (i / 6) * Math.PI * 0.9;
+    tapeGrass(P, world, frng, rx + Math.cos(a) * 1.7, rz + Math.sin(a) * 1.5, 0.6, 16);
+  }
   mark('テープ状の水草');
   stemPlants(P, world, rng, -15.4, -5.0, 1.2, 24, true);
   stemPlants(P, world, rng, -6.6, -6.2, 1.0, 18, true);
   stemPlants(P, world, rng, 0.6, -6.4, 1.0, 16, false);
   stemPlants(P, world, rng, -12.0, 3.2, 0.9, 12, false, 0.19);
   stemPlants(P, world, rng, -2.6, 1.8, 0.7, 9, true);
+  // 森の中の色の変化（赤い有茎草の茂み）と、流木の小屋の手前を隠す茂み
+  for (const [x, z, r, n, red] of [[-12.8, -7.4, 0.8, 12, true], [-8.0, -6.2, 0.7, 10, false], [-14.4, -8.8, 0.7, 10, false], [-5.0, -8.6, 0.6, 8, true]] as const) stemPlants(P, world, frng, x, z, r, n, red);
+  const hut = world.landmarks.hut;
+  for (const [dx, dz] of [[-1.0, 1.5], [0.4, 1.7], [1.5, 1.0], [-1.6, 0.4]] as const) stemPlants(P, world, frng, hut.x + dx, hut.z + dz, 0.5, 7, dx > 0);
+  // 倒木のまわり（両端の口を少し隠す）
+  const { logA, logB } = world.landmarks;
+  stemPlants(P, world, frng, logA[0] - 0.4, logA[2] + 1.2, 0.5, 6, false, 0.17);
+  tapeGrass(P, world, frng, logB[0] + 0.3, logB[2] - 1.3, 0.6, 8);
   mark('有茎草');
   carpet(P, world, rng, -9.2, 6.6, 2.6);
   carpet(P, world, rng, -3.4, 7.6, 1.8);
@@ -662,7 +697,10 @@ export function buildAquariumSurfels(world: AquariumWorld, light: LightGrid): { 
   // 陸地
   landMoss(P, world, rng);
   const landMossC = [hex('#4f8a36'), hex('#6a9e3e'), hex('#3e6e2c'), hex('#5c9440')];
-  for (const r of world.rocks) mossOnSurface(P, r.sdf, r.box, rng, 0.08, { minNy: 0.5, colors: landMossC, size: 0.1, under: false, mask: -0.15, seed: r.seed + 50 });
+  for (const r of world.rocks.filter((q) => !q.name.startsWith('mossball'))) mossOnSurface(P, r.sdf, r.box, rng, 0.08, { minNy: 0.5, colors: landMossC, size: 0.1, under: false, mask: -0.15, seed: r.seed + 50 });
+  // 苔玉：横・下向きの面まで苔で覆う
+  const ballC = [hex('#4f8a36'), hex('#5f943b'), hex('#6fa64e'), hex('#3e6e2c')];
+  for (const r of world.rocks.filter((q) => q.name.startsWith('mossball'))) mossOnSurface(P, r.sdf, r.box, rng, 0.06, { minNy: -0.6, colors: ballC, size: 0.09, under: false, mask: -2, seed: r.seed + 60 });
   for (const w of world.woods) mossOnSurface(P, w.sdf, w.box, rng, 0.06, { minNy: 0.3, colors: landMossC, size: 0.08, under: false, mask: -0.1, seed: w.seed + 50 });
   mark('陸地の苔');
   for (const [x, z, s] of [[9.4, -3.6, 1], [12.2, 4.6, 1.15], [16.8, -6.4, 0.9], [8.6, 7.0, 0.85], [17.0, 8.2, 0.9], [13.0, 1.4, 0.8], [10.4, -6.0, 0.75]] as const) fern(P, world, rng, x, z, s);
@@ -671,8 +709,156 @@ export function buildAquariumSurfels(world: AquariumWorld, light: LightGrid): { 
   mark('葉の広い草');
   hairGrass(P, world, rng);
   mark('汀線の草');
-  return { set: P.toSet(rng), ms: performance.now() - t0, counts };
+  // 崖の抜け道の入口を隠すシダ（陸地の奥の角）
+  const tin = world.landmarks.tunnelIn;
+  for (const [x, z, s] of [[tin[0] - 0.4, tin[2] + 1.6, 0.85], [tin[0] + 1.3, tin[2] + 1.9, 0.7], [tin[0] - 1.6, tin[2] + 1.0, 0.6]] as const) fern(P, world, frng, x, z, s);
+  mark('抜け道のシダ');
+  const set = P.toSet(rng);
+  times['並べ替え'] = Math.round(performance.now() - lastT);
+  return { set, ms: performance.now() - t0, counts, times };
 }
 
 /** 照明の向き（描画側の太陽の向きと同じ） */
 export { LAMP_DIR };
+
+// ---------------- 発見物・小さな生き物（E 側） ----------------
+
+const SHELL_TINT = [
+  [hex('#f4ead0'), hex('#c8b48a')],
+  [hex('#ea9a62'), hex('#f1caa0')],
+  [hex('#8f6444'), hex('#e3d4ad')],
+];
+
+/** 貝殻（二枚貝：放射状の筋の入った扇形の殻）と巻貝（だんだん小さくなる球の螺旋） */
+export function buildFindsMesh(finds: Find[], light: LightGrid): TriMesh {
+  const mb = new MeshBuilder();
+  for (const f of finds) {
+    if (f.kind !== 'shell' && f.kind !== 'spiral') continue;
+    const [px, py, pz] = f.pos;
+    const s = f.scale;
+    const cr = Math.cos(f.rot), sr = Math.sin(f.rot);
+    const [c0, c1] = SHELL_TINT[f.tint % SHELL_TINT.length];
+    // ローカル座標（向き・大きさを掛ける前）の SDF
+    let sdf: Sdf;
+    let box: Box3Like;
+    if (f.kind === 'shell') {
+      sdf = (x, y, z) => {
+        const d = sdEllipsoid(x, y, z, 0, 0, 0, 0.13, 0.055, 0.12);
+        // 下半分を切って伏せた殻にし、付け根を少し尖らせる
+        return Math.max(d, -y - 0.005) + Math.max(0, -z - 0.06) * 0.25;
+      };
+      box = { min: [-0.16, -0.03, -0.15], max: [0.16, 0.08, 0.15] };
+    } else {
+      sdf = (x, y, z) => {
+        let d = Infinity;
+        for (let i = 0; i < 6; i++) {
+          const a = i * 1.25, r = 0.075 * Math.pow(0.78, i), rad = 0.05 * Math.pow(0.8, i);
+          d = smin(d, sdEllipsoid(x, y, z, Math.cos(a) * rad, r * 0.6 + i * 0.028, Math.sin(a) * rad + i * 0.02, r * 1.15, r, r * 1.15), 0.03);
+        }
+        return d;
+      };
+      box = { min: [-0.14, -0.06, -0.12], max: [0.14, 0.26, 0.2] };
+    }
+    surfaceNets(sdf, box, 0.018, mb, (x, y, z, nx, ny, nz) => {
+      // 二枚貝は放射状の筋、巻貝は巻きの縞
+      const t = f.kind === 'shell' ? Math.sin(Math.atan2(x, z + 0.06) * 18) * 0.5 + 0.5 : Math.sin(y * 70) * 0.5 + 0.5;
+      const c = mixRGB(c0, c1, t * 0.7);
+      const wx = px + (x * cr + z * sr) * s, wy = py + y * s, wz = pz + (-x * sr + z * cr) * s;
+      return mb.vertex(wx, wy, wz, nx * cr + nz * sr, ny, -nx * sr + nz * cr, u8(c[0]), u8(c[1]), u8(c[2]), light.sample(wx, wy + 0.15, wz), 0.25);
+    });
+  }
+  return mb.finish();
+}
+
+const GLOW_TINT = [
+  [hex('#4aa08d'), hex('#b4dcc4')],
+  [hex('#4a78a0'), hex('#cfe6f2')],
+];
+
+/** 光る石：細長い結晶の束。aMisc.x = 明滅の位相（0..1）、aMisc.y = 明るさ（根元は暗く先は明るい） */
+export function buildGlowMesh(finds: Find[]): TriMesh {
+  const mb = new MeshBuilder();
+  finds.forEach((f, fi) => {
+    if (f.kind !== 'glow') return;
+    const [px, py, pz] = f.pos;
+    const s = f.scale;
+    const [c0, c1] = GLOW_TINT[f.tint % GLOW_TINT.length];
+    const rng = mulberry32(100 + fi);
+    const crystals: { b: [number, number, number]; r: number }[] = [];
+    for (let i = 0; i < 5; i++) {
+      const a = rng() * Math.PI * 2, lean = i === 0 ? 0.1 : 0.35 + rng() * 0.4;
+      const L = (i === 0 ? 0.32 : 0.14 + rng() * 0.14) * s;
+      crystals.push({ b: [Math.cos(a) * Math.sin(lean) * L, Math.cos(lean) * L, Math.sin(a) * Math.sin(lean) * L], r: (i === 0 ? 0.06 : 0.04) * s });
+    }
+    const sdf: Sdf = (x, y, z) => {
+      let d = Infinity;
+      for (const c of crystals) d = smin(d, sdCapsule(x, y, z, 0, -0.02, 0, c.b[0], c.b[1], c.b[2], c.r, c.r * 0.2), 0.02);
+      return d;
+    };
+    const R = 0.4 * s;
+    surfaceNets(sdf, { min: [-R, -0.06, -R], max: [R, R + 0.05, R] }, 0.016, mb, (x, y, z, nx, ny, nz) => {
+      const t = clamp(y / (0.3 * s), 0, 1);
+      const c = mixRGB(c0, c1, 0.3 + t * 0.7);
+      return mb.vertex(px + x, py + y, pz + z, nx, ny, nz, u8(c[0]), u8(c[1]), u8(c[2]), (fi * 0.37) % 1, 0.4 + t * 0.6);
+    });
+  });
+  return mb.finish();
+}
+
+/** 小魚（ネオンテトラのような小型の魚）。体の軸は +z が頭。aMisc.y = 尾の振れの強さ（頭 0 → 尾 1） */
+export function buildFishMesh(): TriMesh {
+  const mb = new MeshBuilder();
+  const sdf: Sdf = (x, y, z) => {
+    let d = sdEllipsoid(x, y, z, 0, 0, 0.01, 0.034, 0.058, 0.15);
+    d = smin(d, sdEllipsoid(x, y, z, 0, 0, -0.17, 0.008, 0.06, 0.05), 0.03); // 尾びれ
+    d = smin(d, sdEllipsoid(x, y, z, 0, 0.055, -0.03, 0.006, 0.03, 0.04), 0.02); // 背びれ
+    return d;
+  };
+  const blue = hex('#86b4d4'), cyan = hex('#cfe6f2'), red = hex('#d06a3e'), silver = hex('#d2d6d6'), back = hex('#2c4a6e'), fin = hex('#aab0b4');
+  surfaceNets(sdf, { min: [-0.06, -0.09, -0.24], max: [0.06, 0.1, 0.18] }, 0.011, mb, (x, y, z, nx, ny, nz) => {
+    let c: RGB;
+    if (z < -0.13) c = fin;
+    else if (y > 0.02) c = back;
+    else if (y > -0.008) c = mixRGB(blue, cyan, smoothstep(0.1, -0.05, z) * 0.6);
+    else c = z < 0.03 ? red : silver;
+    // 目
+    if (z > 0.1 && Math.abs(y - 0.012) < 0.016 && Math.abs(x) > 0.018) c = hex('#0c0d12');
+    const tail = smoothstep(0.06, -0.2, z);
+    return mb.vertex(x, y, z, nx, ny, nz, u8(c[0]), u8(c[1]), u8(c[2]), 1, tail);
+  });
+  return mb.finish();
+}
+
+/** エビ（小さな赤いエビ）。体の軸は +z が頭。体の節は弧を描き、尾は扇形。aMisc.y = 尾の側ほど大きい（尾を打つ動き用） */
+export function buildShrimpMesh(): TriMesh {
+  const mb = new MeshBuilder();
+  const segs: [number, number, number, number][] = [];
+  for (let i = 0; i <= 6; i++) {
+    const t = i / 6;
+    // 頭（t = 0）→ 尾（t = 1）。背中が丸く、尾の先は下へ曲がる
+    segs.push([0, 0.045 + Math.sin(Math.PI * t * 0.9) * 0.03 - t * t * 0.03, 0.12 - t * 0.27, 0.036 - t * 0.02]);
+  }
+  const sdf: Sdf = (x, y, z) => {
+    let d = Infinity;
+    for (let i = 0; i < segs.length - 1; i++) {
+      const a = segs[i], b = segs[i + 1];
+      d = smin(d, sdCapsule(x, y, z, a[0], a[1], a[2], b[0], b[1], b[2], a[3], b[3]), 0.012);
+    }
+    d = smin(d, sdEllipsoid(x, y, z, 0, 0.012, -0.175, 0.045, 0.008, 0.03), 0.015); // 尾扇
+    d = smin(d, sdCapsule(x, y, z, 0, 0.05, 0.14, 0, 0.075, 0.2, 0.01, 0.004), 0.01); // 額角
+    // 脚（太めにして画素に残す）
+    for (let k = 0; k < 3; k++) {
+      const zz = 0.06 - k * 0.04;
+      for (const sx of [-1, 1]) d = smin(d, sdCapsule(x, y, z, sx * 0.012, 0.03, zz, sx * 0.04, -0.005, zz + 0.01, 0.008, 0.006), 0.008);
+    }
+    return d;
+  };
+  const red = hex('#d06a3e'), dark = hex('#a84530'), light = hex('#ea9a62');
+  surfaceNets(sdf, { min: [-0.07, -0.03, -0.23], max: [0.07, 0.12, 0.23] }, 0.01, mb, (x, y, z, nx, ny, nz) => {
+    let c = Math.sin(z * 75) > 0.55 ? light : red;
+    if (y < 0.02) c = dark;
+    if (z > 0.09 && z < 0.12 && Math.abs(x) > 0.022 && y > 0.05) c = hex('#0c0d12');
+    return mb.vertex(x, y, z, nx, ny, nz, u8(c[0]), u8(c[1]), u8(c[2]), 1, smoothstep(0.02, -0.18, z));
+  });
+  return mb.finish();
+}

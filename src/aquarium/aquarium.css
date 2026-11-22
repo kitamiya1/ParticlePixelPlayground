@@ -37,3 +37,45 @@ body.aqua.touch #help { top: auto; bottom: calc(160px + env(safe-area-inset-bott
   body.aqua #help { display: block; }
   #hud .card { padding: 5px 9px; font-size: 12px; }
 }
+
+/* 探索：いまいる場所・発見の数 */
+#hud .place { font-weight: 700; color: #e8fff8; font-size: 13px; }
+#hud .place.hidden { color: #ffe08a; }
+#help .hint { color: #b9ece0; }
+
+/* 場所の名前（場所が変わったとき）と、初めて訪れたときの発見の表示 */
+#place-banner { position: fixed; left: 50%; top: calc(18px + env(safe-area-inset-top)); transform: translate(-50%, -12px); opacity: 0;
+  transition: opacity 0.5s, transform 0.5s; pointer-events: none; z-index: 3; text-align: center; max-width: min(92vw, 560px);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85); }
+#place-banner.show { opacity: 1; transform: translate(-50%, 0); }
+#place-banner .kicker { font-size: 12px; letter-spacing: 0.12em; color: #9fe3d4; min-height: 0; }
+#place-banner .name { font-size: 22px; font-weight: 700; color: #f2fff9; letter-spacing: 0.08em; }
+#place-banner .desc { font-size: 13px; color: #d4ebe5; margin-top: 2px; }
+#place-banner.first { background: rgba(10, 22, 28, 0.62); border: 1px solid rgba(160, 220, 210, 0.25); border-radius: 8px; padding: 8px 18px 10px; }
+#place-banner.hidden .kicker { color: #ffe08a; }
+#place-banner.hidden.first { border-color: rgba(255, 224, 138, 0.45); }
+
+/* 見晴らしで景色を眺めている間の小さな表示 */
+#vista-tag { position: fixed; right: calc(16px + env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom)); opacity: 0; transition: opacity 0.6s;
+  pointer-events: none; z-index: 2; font-size: 12px; color: #e8fff8; background: rgba(10, 22, 28, 0.55); padding: 3px 12px; border-radius: 12px; white-space: nowrap; }
+#vista-tag.show { opacity: 1; }
+
+/* 箱庭カメラ：訪れた場所の名前 */
+#spot-labels { display: none; }
+#spot-labels.show { display: block; }
+.spot-label { position: fixed; left: 0; top: 0; display: none; pointer-events: none; z-index: 1; font-size: 11px; color: #e8fff8; white-space: nowrap;
+  background: rgba(10, 22, 28, 0.6); border: 1px solid rgba(160, 220, 210, 0.3); border-radius: 3px; padding: 0 5px; }
+.spot-label.hidden { color: #ffe08a; border-color: rgba(255, 224, 138, 0.45); }
+
+/* 中くらいの幅（横持ちのスマホ・小さな窓）：左上の表示を避けて右寄りに出す */
+@media (min-width: 761px) and (max-width: 1100px) {
+  #place-banner { left: calc(50% + 130px); max-width: calc(100vw - 290px); }
+}
+@media (max-width: 760px) {
+  /* 縦長の画面では左上の表示の下に出す（重ならないように） */
+  #place-banner { top: calc(200px + env(safe-area-inset-top)); }
+  #place-banner .name { font-size: 18px; }
+  #place-banner .desc { font-size: 12px; }
+  #vista-tag { right: auto; left: 50%; transform: translateX(-50%); bottom: auto; top: calc(300px + env(safe-area-inset-top)); white-space: normal; text-align: center; max-width: 80vw; }
+  .spot-label { font-size: 10px; }
+}

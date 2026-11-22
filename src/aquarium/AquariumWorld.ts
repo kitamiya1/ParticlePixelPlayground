@@ -44,10 +44,11 @@ export interface RockFormation {
   sdf: Sdf;
 }
 
-/** 流木（カプセルの枝の集まり） */
+/** 流木（カプセルの枝の集まり。holes で中をくり抜くと中空の倒木になる） */
 export interface Driftwood {
   name: string;
   branches: { a: [number, number, number]; b: [number, number, number]; ra: number; rb: number }[];
+  holes: { a: [number, number, number]; b: [number, number, number]; r: number }[];
   seed: number;
   box: Box3Like;
   sdf: Sdf;
@@ -65,7 +66,8 @@ function boxDist(b: Box3Like, x: number, y: number, z: number): number {
   return Math.hypot(dx, dy, dz);
 }
 
-function makeRock(name: string, zone: RockZone, parts: RockFormation['parts'], seed: number, rough: number, holes: RockFormation['holes'] = []): RockFormation {
+/** cap を指定すると、その高さで上面を平らに削る（台地・高台） */
+function makeRock(name: string, zone: RockZone, parts: RockFormation['parts'], seed: number, rough: number, holes: RockFormation['holes'] = [], cap?: number): RockFormation {
   const min: [number, number, number] = [Infinity, Infinity, Infinity];
   const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
   for (const p of parts) {
@@ -82,13 +84,14 @@ function makeRock(name: string, zone: RockZone, parts: RockFormation['parts'], s
     // 大きなうねり + 角ばった細かい凹凸（層状の割れ目に見えるよう、縦方向に圧縮したノイズ）
     d -= noise3(x * 0.55, y * 0.55, z * 0.55, seed) * rough * 0.55;
     d -= noise3(x * 1.7, y * 2.6, z * 1.7, seed + 7) * rough * 0.16;
+    if (cap !== undefined) d = smax(d, y - cap, 0.18);
     for (const h of holes) d = smax(d, -sdCapsule(x, y, z, h.a[0], h.a[1], h.a[2], h.b[0], h.b[1], h.b[2], h.r), 0.3);
     return d;
   };
   return { name, zone, parts, holes, seed, rough, box: { min, max }, sdf };
 }
 
-function makeWood(name: string, branches: Driftwood['branches'], seed: number): Driftwood {
+function makeWood(name: string, branches: Driftwood['branches'], seed: number, holes: Driftwood['holes'] = []): Driftwood {
   const min: [number, number, number] = [Infinity, Infinity, Infinity];
   const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
   for (const b of branches) {
@@ -98,13 +101,28 @@ function makeWood(name: string, branches: Driftwood['branches'], seed: number): 
       max[k] = Math.max(max[k], b.a[k] + r, b.b[k] + r);
     }
   }
+  // 枝ごとの外接球（中心・半径）。smin(d, e, k) は e ≥ d + k なら d のままなので、
+  // 外接球までの距離がそれ以上の枝は計算を省いても結果は変わらない（枝の多い流木の生成を速くする）
+  const K = 0.18;
+  const spheres = branches.map((b) => {
+    const c = [(b.a[0] + b.b[0]) / 2, (b.a[1] + b.b[1]) / 2, (b.a[2] + b.b[2]) / 2];
+    return { c, r: Math.hypot(b.b[0] - b.a[0], b.b[1] - b.a[1], b.b[2] - b.a[2]) / 2 + Math.max(b.ra, b.rb) };
+  });
   const sdf: Sdf = (x, y, z) => {
     let d = Infinity;
-    for (const b of branches) d = smin(d, sdCapsule(x, y, z, b.a[0], b.a[1], b.a[2], b.b[0], b.b[1], b.b[2], b.ra, b.rb), 0.18);
+    for (let i = 0; i < branches.length; i++) {
+      const s = spheres[i];
+      const dx = x - s.c[0], dy = y - s.c[1], dz = z - s.c[2];
+      if (Math.sqrt(dx * dx + dy * dy + dz * dz) - s.r >= d + K) continue;
+      const b = branches[i];
+      d = smin(d, sdCapsule(x, y, z, b.a[0], b.a[1], b.a[2], b.b[0], b.b[1], b.b[2], b.ra, b.rb), K);
+    }
     // 木目に沿った溝（枝の向きにかかわらず効くよう、3 軸のノイズを細く）
-    return d - noise3(x * 2.2, y * 2.2, z * 2.2, seed) * 0.035;
+    d -= noise3(x * 2.2, y * 2.2, z * 2.2, seed) * 0.035;
+    for (const h of holes) d = smax(d, -sdCapsule(x, y, z, h.a[0], h.a[1], h.a[2], h.b[0], h.b[1], h.b[2], h.r), 0.06);
+    return d;
   };
-  return { name, branches, seed, box: { min, max }, sdf };
+  return { name, branches, holes, seed, box: { min, max }, sdf };
 }
 
 export class AquariumWorld {
@@ -123,6 +141,25 @@ export class AquariumWorld {
   readonly waterfall = { source: [7.9, -8.3] as [number, number], top: [5.9, 10.3, -8.3] as [number, number, number], bottom: [3.9, TANK.waterY, -8.0] as [number, number, number], width: 1.2 };
   /** エアストーン（泡が出る所） */
   readonly airStone: [number, number, number];
+  /**
+   * 探索スポットの基準点（AquariumSpots・AquariumBuild が参照する。地形を作るときに決まる位置）
+   * - forestPath：水草の森の奥へ続く細い通路（折れ線。x, z）、forestRoom：通路の先の小部屋（x, z, 半径）
+   * - caveRoom：洞窟の脇道の先の小部屋の中心、caveCrack：小部屋から岩の裏へ抜ける割れ目の出口
+   * - logA / logB：中空の倒木の両端（軸の中心）、hut：流木の小屋の中心（x, z）と入口の向き
+   * - plateau：浅瀬の高台の上面の中心、tunnelIn / tunnelOut：崖の抜け道の入口・出口（崖の上）
+   */
+  readonly landmarks = {
+    forestPath: [] as [number, number][],
+    forestRoom: [0, 0, 0] as [number, number, number],
+    caveRoom: [0, 0, 0] as [number, number, number],
+    caveCrack: [0, 0, 0] as [number, number, number],
+    logA: [0, 0, 0] as [number, number, number],
+    logB: [0, 0, 0] as [number, number, number],
+    hut: { x: 0, z: 0, door: 0 },
+    plateau: [0, 0, 0] as [number, number, number],
+    tunnelIn: [0, 0, 0] as [number, number, number],
+    tunnelOut: [0, 0, 0] as [number, number, number],
+  };
 
   constructor() {
     this.nx = Math.round((TANK.maxX - TANK.minX) / this.cell) + 1;
@@ -135,6 +172,7 @@ export class AquariumWorld {
     }
     this.buildRocks();
     this.buildWoods();
+    this.buildForestPath();
     this.airStone = [-16.6, this.groundAt(-16.6, -8.6) + 0.12, -8.6];
   }
 
@@ -144,7 +182,9 @@ export class AquariumWorld {
     const xs = x + 2.4 * Math.sin(z * 0.26 + 0.6);
     const back = (TANK.maxZ - z) / (TANK.maxZ - TANK.minZ); // 0 = 手前, 1 = 奥
     const sand = 0.75 + 1.25 * back + 0.28 * fbm2(x * 0.18, z * 0.18, 3, 11) + 0.06 * fbm2(x * 0.9, z * 0.9, 2, 12);
-    const land = 6.7 + 0.45 * fbm2(x * 0.16, z * 0.16, 3, 13) + 0.1 * fbm2(x * 0.7, z * 0.7, 2, 14);
+    // 陸地：手前右に苔の丘のふくらみ
+    const hill = 0.6 * Math.exp(-((x - 12.5) ** 2 + (z - 5.5) ** 2) / 8);
+    const land = 6.7 + 0.45 * fbm2(x * 0.16, z * 0.16, 3, 13) + 0.1 * fbm2(x * 0.7, z * 0.7, 2, 14) + hill;
     const t = smoothstep(-6, 11, xs);
     let h = lerp(sand, land, t);
     // ガラス際は少しだけ下げる（底床の断面が見えるように）
@@ -157,6 +197,20 @@ export class AquariumWorld {
     const sandY = (x: number, z: number) => this.rawHeight(x, z);
     // 水中：カニが通れる洞窟（x 方向に貫くトンネル）
     const tz0 = -1.2, tz1 = -1.9;
+    const ta: [number, number, number] = [-15.2, sandY(-14, tz0) + 0.62, tz0];
+    const tb: [number, number, number] = [-4.8, sandY(-6, tz1) + 0.62, tz1];
+    // 隠れた場所：トンネルの途中から奥（-z）へ細い脇道 → 小部屋（光る石）→ 岩の裏（水草の森の側）へ抜ける割れ目
+    const sx = -10.8, sz = lerp(tz0, tz1, (sx - ta[0]) / (tb[0] - ta[0]));
+    const room: [number, number, number] = [-10.2, sandY(-10.2, -3.0) + 0.5, -3.0];
+    const crackOut: [number, number, number] = [-9.8, sandY(-9.8, -5.0) + 0.42, -5.0];
+    this.landmarks.caveRoom = room;
+    this.landmarks.caveCrack = [crackOut[0], crackOut[1] - 0.42, -4.4];
+    const caveHoles: RockFormation['holes'] = [
+      { a: ta, b: tb, r: 0.82 },
+      { a: [sx, sandY(sx, sz) + 0.42, sz], b: [room[0] - 0.3, room[1] - 0.08, room[2] + 0.4], r: 0.42 },
+      { a: [room[0] - 0.35, room[1], room[2] + 0.1], b: [room[0] + 0.35, room[1] + 0.05, room[2] - 0.1], r: 0.8 },
+      { a: [room[0] + 0.1, room[1] - 0.08, room[2] - 0.3], b: crackOut, r: 0.42 },
+    ];
     this.rocks.push(
       makeRock(
         'cave',
@@ -169,7 +223,7 @@ export class AquariumWorld {
         ],
         21,
         0.55,
-        [{ a: [-15.2, sandY(-14, tz0) + 0.62, tz0], b: [-4.8, sandY(-6, tz1) + 0.62, tz1], r: 0.82 }],
+        caveHoles,
       ),
     );
     // 水中：水面のすぐ下まで届く岩の柱（泳いで乗れる）
@@ -184,6 +238,20 @@ export class AquariumWorld {
     this.rocks.push(makeRock('ledge3', 'land', [{ c: [15.9, 7.9, -1.6], r: [1.7, 1.85, 1.7] }], 81, 0.45));
     this.rocks.push(makeRock('landfront', 'land', [{ c: [14.6, 6.9, 6.4], r: [1.8, 1.25, 1.5] }], 91, 0.4));
     // 陸地の奥：滝の崖（西側の面は水中に立つ）
+    // 隠れた場所：陸地の奥の角（段々の岩の裏）から崖の中を登って崖の上（滝の落ち口の東）へ抜ける道
+    // 入口は地面の高さのまま崖の中まで水平に入り、そこから登る（入口で段差にならないように）
+    const gin = sandY(16.9, -8.9);
+    const tin: [number, number, number] = [16.9, gin + 0.3, -8.9];
+    const tbend: [number, number, number] = [14.2, gin + 0.38, -8.9];
+    const tmid: [number, number, number] = [12.0, 9.0, -8.9];
+    const tout: [number, number, number] = [10.0, 11.1, -8.7];
+    this.landmarks.tunnelIn = [15.5, gin, -8.9];
+    this.landmarks.tunnelOut = tout;
+    const cliffHoles: RockFormation['holes'] = [
+      { a: tin, b: tbend, r: 0.55 },
+      { a: tbend, b: tmid, r: 0.55 },
+      { a: tmid, b: tout, r: 0.55 },
+    ];
     this.rocks.push(
       makeRock(
         'cliff',
@@ -195,8 +263,31 @@ export class AquariumWorld {
         ],
         101,
         0.5,
+        cliffHoles,
       ),
     );
+    // 浅瀬の高台：汀線の水中から立ち上がる上の平らな岩（上面は水面より少し上。西の水中を見渡せる）
+    this.rocks.push(
+      makeRock(
+        'plateau',
+        'water',
+        [
+          { c: [2.4, 4.9, 3.6], r: [1.9, 1.4, 1.6] },
+          { c: [1.0, 4.3, 4.9], r: [1.2, 0.85, 1.0] },
+          { c: [3.6, 5.1, 2.6], r: [1.1, 0.75, 0.9] },
+        ],
+        111,
+        0.3,
+        [],
+        6.0,
+      ),
+    );
+    this.landmarks.plateau = [2.4, 6.0, 3.6];
+    // 陸地の苔の丘：苔に覆われた丸い石（苔玉）
+    for (const [i, [x, z, r]] of ([[10.0, 5.0, 0.85], [11.4, 7.8, 0.65], [16.4, 2.4, 0.75], [13.6, 3.6, 0.5]] as const).entries()) {
+      const g = sandY(x, z);
+      this.rocks.push(makeRock(`mossball${i + 1}`, 'land', [{ c: [x, g + r * 0.35, z], r: [r, r * 0.78, r] }], 121 + i * 10, 0.2));
+    }
   }
 
   private buildWoods() {
@@ -227,6 +318,85 @@ export class AquariumWorld {
         6,
       ),
     );
+    // 中空の倒木（流木のトンネル）：砂の広場と洞窟の間に横たわり、中をくぐって抜けられる。上に節穴が開いている
+    const g = (x: number, z: number) => this.groundAt(x, z);
+    const la: [number, number, number] = [-9.6, g(-9.6, 3.4) + 0.5, 3.4];
+    const lb: [number, number, number] = [-5.0, g(-5.0, 2.9) + 0.5, 2.9];
+    this.landmarks.logA = la;
+    this.landmarks.logB = lb;
+    const ld = [lb[0] - la[0], lb[1] - la[1], lb[2] - la[2]];
+    const ll = Math.hypot(ld[0], ld[1], ld[2]);
+    const u = ld.map((v) => v / ll);
+    const ext = (p: number[], s: number): [number, number, number] => [p[0] + u[0] * s, p[1] + u[1] * s, p[2] + u[2] * s];
+    const knot = ext(la, ll * 0.58);
+    this.woods.push(
+      makeWood(
+        'hollowlog',
+        [
+          { a: la, b: lb, ra: 0.9, rb: 0.82 },
+          // 折れた枝の付け根と、根元の張り出し
+          { a: ext(la, ll * 0.3), b: [la[0] + 1.2, la[1] + 1.5, la[2] + 1.1], ra: 0.2, rb: 0.08 },
+          { a: ext(la, 0.2), b: [la[0] - 0.9, la[1] - 0.3, la[2] - 0.9], ra: 0.32, rb: 0.14 },
+          { a: ext(la, 0.2), b: [la[0] - 0.6, la[1] + 0.9, la[2] + 0.5], ra: 0.26, rb: 0.08 },
+        ],
+        7,
+        [
+          { a: ext(la, -0.9), b: ext(lb, 0.9), r: 0.62 },
+          { a: [knot[0], knot[1] + 0.4, knot[2]], b: [knot[0] + 0.1, knot[1] + 1.3, knot[2]], r: 0.3 },
+        ],
+      ),
+    );
+    // 流木の小屋（隠れた場所）：細い流木を円錐に立てかけた小部屋。入口は奥（岩の柱の側）を向き、手前からは見えない
+    const hx = 0.6, hz = -3.6, door = -Math.PI / 2;
+    this.landmarks.hut = { x: hx, z: hz, door };
+    const top: [number, number, number] = [hx, g(hx, hz) + 2.1, hz];
+    const sticks: Driftwood['branches'] = [];
+    const N = 14;
+    for (let i = 0; i < N; i++) {
+      const a = door + (i / N) * Math.PI * 2;
+      if (i === 0) continue; // 入口
+      const bx = hx + Math.cos(a) * 1.5, bz = hz + Math.sin(a) * 1.5;
+      const base: [number, number, number] = [bx, g(bx, bz) - 0.12, bz];
+      // 先端は頂点を少し越えて突き出す
+      const tip: [number, number, number] = [top[0] + (top[0] - base[0]) * 0.22 + Math.sin(i * 2.3) * 0.08, top[1] + (top[1] - base[1]) * 0.22, top[2] + (top[2] - base[2]) * 0.22];
+      sticks.push({ a: base, b: tip, ra: 0.14 + 0.03 * Math.sin(i * 1.7), rb: 0.06 });
+    }
+    // 外側に絡んだ枝（屋根の上）
+    sticks.push({ a: [hx - 1.0, top[1] - 0.8, hz + 0.75], b: [hx + 0.9, top[1] - 0.15, hz - 0.3], ra: 0.09, rb: 0.05 });
+    sticks.push({ a: [hx + 0.95, top[1] - 0.9, hz + 0.8], b: [hx - 0.5, top[1] + 0.1, hz - 0.6], ra: 0.08, rb: 0.04 });
+    this.woods.push(makeWood('hut', sticks, 8));
+  }
+
+  /** 水草の森の細い通路と、その先の小部屋（植物の配置で作る。当たり判定は無い） */
+  private buildForestPath() {
+    this.landmarks.forestPath = [[-4.6, -4.4], [-6.0, -5.6], [-5.6, -7.0], [-7.0, -8.0], [-8.2, -8.5]];
+    this.landmarks.forestRoom = [-8.6, this.groundAt(-8.6, -8.9), -8.9];
+  }
+
+  /** 点から水草の森の通路・小部屋までの距離（植物を避けて置くのに使う） */
+  forestPathDist(x: number, z: number): number {
+    const P = this.landmarks.forestPath;
+    let d = Infinity;
+    for (let i = 0; i < P.length - 1; i++) {
+      const [ax, az] = P[i], [bx, bz] = P[i + 1];
+      const vx = bx - ax, vz = bz - az;
+      const t = clamp(((x - ax) * vx + (z - az) * vz) / (vx * vx + vz * vz), 0, 1);
+      d = Math.min(d, Math.hypot(x - ax - vx * t, z - az - vz * t));
+    }
+    const [rx, , rz] = this.landmarks.forestRoom;
+    return Math.min(d, Math.hypot(x - rx, z - rz) - 0.9);
+  }
+
+  /** (x, y, z) から真下へ探って、最初に当たる固体の上面の高さ（無ければ底床） */
+  surfaceBelow(x: number, y: number, z: number): number {
+    let py = y;
+    for (let i = 0; i < 40; i++) {
+      const d = this.solid(x, py, z);
+      if (d < 0.01) return py;
+      py -= Math.max(d * 0.9, 0.015);
+      if (py < TANK.floorY) break;
+    }
+    return this.groundAt(x, z);
   }
 
   // ---------------- 高さ場 ----------------

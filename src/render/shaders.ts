@@ -24,6 +24,9 @@ uniform float uWaterDensity;
 uniform float uWaterHaze;
 uniform float uCaustic;
 uniform float uWaterAtten;
+uniform float uCurrent;
+uniform vec3 uLandTint;
+uniform float uDapple;
 float pppCausticPattern(vec2 p, float t) {
   float a = sin(p.x * 1.7 + sin(p.y * 1.3 + t) * 1.2 + t * 0.7) + sin(p.y * 1.9 + sin(p.x * 1.1 - t * 0.8) * 1.3 - t * 0.6);
   float b = sin(p.x * 2.6 - sin(p.y * 2.2 - t * 1.1) * 0.9 - t * 0.9) + sin(p.y * 2.3 + sin(p.x * 2.9 + t * 0.7) * 1.1 + t);
@@ -58,6 +61,14 @@ float pppWaterPath(vec3 ro, vec3 p) {
   float a = max(max(lo.x, lo.y), max(lo.z, 0.0));
   float b = min(min(hi.x, hi.y), min(hi.z, 1.0));
   return max(b - a, 0.0) * length(d);
+}
+/** 陸地（水槽の内側で水面より上）の色味：暖かい光 + ゆっくり動く木漏れ日のまだら（水中との色の差を付ける） */
+vec3 pppLandTint(vec3 c, vec3 p, vec3 n, float sh) {
+  float inside = step(uTankMin.x, p.x) * step(p.x, uTankMax.x) * step(uTankMin.z, p.z) * step(p.z, uTankMax.z);
+  float land = smoothstep(uWaterY + 0.02, uWaterY + 0.25, p.y) * inside;
+  float k = sin(p.x * 1.3 + uTime * 0.35 + sin(p.z * 0.9 + uTime * 0.2) * 1.5) * sin(p.z * 1.1 - uTime * 0.3 + sin(p.x * 0.7) * 1.2);
+  vec3 lc = c * uLandTint * (1.0 + uDapple * k * max(n.y, 0.0) * sh);
+  return mix(c, lc, land);
 }
 vec3 pppWaterTint(vec3 c, vec3 p) {
   float inside = step(uTankMin.x, p.x) * step(p.x, uTankMax.x) * step(uTankMin.z, p.z) * step(p.z, uTankMax.z);
@@ -112,9 +123,23 @@ vec3 pppWorldLit(vec3 objPos, inout vec4 wp, vec3 wn, vec3 baseColor, float w, f
     float sway = sin(uTime * 2.1 - wave + ph * 0.3) * 0.6 + sin(uTime * 3.7 + ph) * 0.25;
     vec2 side = vec2(-uWindDir.y, uWindDir.x);
     vec2 off = uWindDir * (gust * 0.6 + sway * 0.45) + side * sin(uTime * 1.3 + ph) * 0.15;
+#ifdef PPP_WATER
+    // 水中は風の揺れを弱める（代わりに下の水の流れで揺らす）
+    off *= mix(1.0, 0.3, pppInWater(wp.xyz));
+#endif
     wp.xz += off * w * uWind * 0.32;
     wp.y -= length(off) * w * uWind * 0.04;
   }
+#ifdef PPP_WATER
+  // 水中の植物：ゆっくり向きの変わる水の流れ + 根元から先へ伝わるうねり（葉が波打つ）
+  if (w > 0.0 && uCurrent > 0.0 && pppInWater(wp.xyz) > 0.5) {
+    float ph2 = hash13(objPos * 3.17) * 6.2831;
+    vec2 flow = vec2(sin(uTime * 0.31 + wp.z * 0.21), cos(uTime * 0.27 + wp.x * 0.17));
+    float wave = sin(uTime * 1.25 - wp.y * 1.6 + dot(wp.xz, vec2(0.4, 0.3)) + ph2 * 0.15);
+    vec2 side2 = vec2(-flow.y, flow.x);
+    wp.xz += (flow * (0.55 + 0.25 * wave) + side2 * wave * 0.35) * w * uCurrent;
+  }
+#endif
 
   // 光：半球環境光 + 太陽（焼き込み影 × 段階化）
   float ndl = max(dot(wn, uSunDir), 0.0);
@@ -135,6 +160,7 @@ vec3 pppWorldLit(vec3 objPos, inout vec4 wp, vec3 wn, vec3 baseColor, float w, f
   vec3 c = baseColor * (hemi * uAmbient * (1.0 - blob * 0.3) + uSunColor * direct);
 #ifdef PPP_WATER
   c += baseColor * uSunColor * pppCausticGlow(wp.xyz, wn) * sh;
+  c = pppLandTint(c, wp.xyz, wn, sh);
   c = pppWaterTint(c, wp.xyz);
 #endif
 

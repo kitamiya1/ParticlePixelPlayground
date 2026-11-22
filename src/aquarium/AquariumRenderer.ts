@@ -18,7 +18,9 @@ import type { SplatPointSet } from '../render/shared/PointSet';
 import { SurfelRenderer } from '../render/surfel/SurfelRenderer';
 import type { RenderSettings } from '../settings';
 import type { AquaCamera } from './AquaCamera';
+import type { AquaLife } from './AquaLife';
 import type { AquariumMeshes } from './AquariumBuild';
+import type { Find } from './AquariumSpots';
 import { LAMP_DIR, TANK, type AquariumWorld } from './AquariumWorld';
 import type { CrabController, CrabEvent } from './CrabController';
 import { CRAB_BONE_COUNT } from './crabModel';
@@ -82,13 +84,105 @@ void main() {
   base *= 1.0 + q * 0.13 * vMisc.y * detail;
   vec4 wp = vec4(vWorld, 1.0);
   vec3 c = pppWorldLit(vec3(0.0), wp, n, base, 0.0, vMisc.x);
-#ifdef USE_BONES
-  // 方式 F v2 のキャラクターの持ち上げと同じ（背景の岩・砂から浮かせる）
+#if defined(USE_BONES) || defined(USE_LIFT)
+  // 方式 F v2 のキャラクターの持ち上げと同じ（背景の岩・砂から浮かせる。小さな生き物にも弱めに使う）
   vec3 vd = normalize(cameraPosition - vWorld);
   float rim = pow(1.0 - clamp(dot(n, vd), 0.0, 1.0), 2.0);
   c = c * (1.0 + uCharLift) + uCharLift * 0.04 + rim * uCharLift * 2.0 * vec3(1.0, 0.92, 0.8);
 #endif
   gl_FragColor = vec4(c, 1.0);
+}
+`;
+
+/**
+ * 小さな生き物（インスタンス描画）：体の軸は +z が頭。iAnim = (位相, 強さ)。
+ * 小魚は尾ほど大きく体を左右にくねらせ、エビは尾を下へ打つ（逃げるときに強い）。光は E 側と同じ meshFragment。
+ */
+const creatureVertex = /* glsl */ `
+attribute vec3 aColor;
+attribute vec2 aMisc;
+attribute vec2 iAnim;
+varying vec3 vColor;
+varying vec3 vWorld;
+varying vec3 vNormal;
+varying vec2 vMisc;
+void main() {
+  vec3 p = position, n = normal;
+  float tail = aMisc.y;
+#ifdef FISH
+  float sw = sin(iAnim.x - p.z * 16.0) * (0.012 + tail * 0.05) * (0.7 + iAnim.y * 0.8);
+  p.x += sw;
+  n.x -= cos(iAnim.x - p.z * 16.0) * tail * 0.6;
+#else
+  float bob = sin(iAnim.x) * 0.006 * (1.0 - iAnim.y);
+  p.y += bob * (0.5 + tail) - tail * tail * iAnim.y * 0.07 * (0.6 + 0.4 * sin(iAnim.x * 2.0));
+  p.z += tail * iAnim.y * 0.035;
+#endif
+  vec4 wp = modelMatrix * instanceMatrix * vec4(p, 1.0);
+  vWorld = wp.xyz;
+  vNormal = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * n);
+  vColor = aColor;
+  vMisc = vec2(1.0, 0.25);
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}
+`;
+
+/** 光る石：自ら光る結晶（照明の影響を受けず、ゆっくり明滅する）。aMisc = (明滅の位相, 明るさ) */
+const glowFragment = /* glsl */ `
+${LIGHTING_CHUNK}
+varying vec3 vColor;
+varying vec3 vWorld;
+varying vec3 vNormal;
+varying vec2 vMisc;
+void main() {
+  float pulse = 0.78 + 0.22 * sin(uTime * 1.7 + vMisc.x * 6.2831);
+  vec3 c = vColor * (0.6 + 0.7 * vMisc.y) * pulse * 1.2;
+  c = pppWaterTint(c, vWorld);
+  gl_FragColor = vec4(c, 1.0);
+}
+`;
+
+/** 光る石のまわりの淡い光（加算合成の円） */
+const haloVertex = /* glsl */ `
+attribute float aPhase;
+attribute float aSize;
+uniform float uTime;
+uniform float uPxPerUnit;
+varying float vA;
+void main() {
+  vec4 mv = viewMatrix * vec4(position, 1.0);
+  vA = 0.7 + 0.3 * sin(uTime * 1.7 + aPhase * 6.2831);
+  gl_PointSize = clamp(aSize * uPxPerUnit / max(-mv.z, 0.05), 2.0, 90.0);
+  gl_Position = projectionMatrix * mv;
+}
+`;
+const haloFragment = /* glsl */ `
+varying float vA;
+void main() {
+  float r = length(gl_PointCoord * 2.0 - 1.0);
+  if (r > 1.0) discard;
+  float k = pow(1.0 - r, 2.2) * vA;
+  gl_FragColor = vec4(vec3(0.45, 0.95, 0.85) * k * 0.55, 1.0);
+}
+`;
+
+/** 陸地の上を漂う花粉・塵（暖かい色。水中の浮遊粒子と色味を分ける） */
+const pollenVertex = /* glsl */ `
+attribute vec4 aSeed;
+uniform float uTime;
+uniform float uPxPerUnit;
+varying vec3 vColor;
+void main() {
+  float t = uTime;
+  vec3 p = position;
+  p.x += sin(t * (0.11 + aSeed.x * 0.15) + aSeed.y * 6.28) * 0.8;
+  p.y += sin(t * (0.23 + aSeed.y * 0.2) + aSeed.z * 6.28) * 0.35;
+  p.z += cos(t * (0.13 + aSeed.z * 0.12) + aSeed.w * 6.28) * 0.6;
+  vec4 mv = viewMatrix * vec4(p, 1.0);
+  float tw = pow(max(0.0, sin(t * (0.8 + aSeed.x) + aSeed.w * 31.0)), 16.0);
+  vColor = mix(mix(vec3(0.95, 0.8, 0.62), vec3(0.82, 0.9, 0.6), aSeed.y), vec3(1.0, 0.98, 0.9), tw);
+  gl_PointSize = clamp((0.03 + aSeed.z * 0.02) * uPxPerUnit / max(-mv.z, 0.05), 1.0, 2.0) + tw;
+  gl_Position = projectionMatrix * mv;
 }
 `;
 
@@ -204,14 +298,18 @@ void main() {
 /** 水面から差し込む光の筋（円柱状に回り込む細長い板、加算合成） */
 const shaftVertex = /* glsl */ `
 attribute vec3 iStart;
-attribute vec4 iParam; // 幅, 長さ, 位相, 強さ
+attribute vec4 iParam; // 幅, 長さ, 位相（負なら揺らさない）, 強さ
 uniform vec3 uShaftDir;
+uniform float uTime;
 varying vec2 vUv;
 varying float vStrength;
 varying float vPhase;
 void main() {
   vec3 axis = normalize(uShaftDir);
-  vec3 p0 = iStart + axis * iParam.y * position.y;
+  // 水面の揺らぎにつれて、光の筋の差し込む位置がゆっくり動く
+  float ph = abs(iParam.z);
+  vec3 st = iStart + step(0.0, iParam.z) * vec3(sin(uTime * 0.23 + ph) * 0.6, 0.0, cos(uTime * 0.19 + ph * 1.3) * 0.45);
+  vec3 p0 = st + axis * iParam.y * position.y;
   vec3 vd = normalize(cameraPosition - p0);
   vec3 side = normalize(cross(axis, vd) + vec3(1e-4));
   vec3 p = p0 + side * position.x * iParam.x;
@@ -229,7 +327,7 @@ varying float vPhase;
 void main() {
   float u = vUv.x, v = vUv.y;
   float k = pow(1.0 - u * u, 2.0) * smoothstep(0.0, 0.12, v) * pow(1.0 - v, 1.6);
-  k *= 0.55 + 0.45 * sin(uTime * 0.6 + vPhase + v * 2.5);
+  k *= 0.55 + 0.45 * sin(uTime * 0.6 + abs(vPhase) + v * 2.5);
   gl_FragColor = vec4(vec3(0.7, 0.95, 0.88) * k * vStrength * 0.16, 1.0);
 }
 `;
@@ -248,8 +346,10 @@ void main() {
   p.x += sin(t * (0.2 + aSeed.y * 0.3) + aSeed.z * 6.28) * 0.35;
   p.z += cos(t * (0.17 + aSeed.x * 0.25) + aSeed.w * 6.28) * 0.35;
   vec4 mv = viewMatrix * vec4(p, 1.0);
-  vColor = pppWaterTint(mix(vec3(0.62, 0.72, 0.62), vec3(0.9, 0.95, 0.86), aSeed.w), p);
-  gl_PointSize = clamp((0.025 + aSeed.z * 0.03) * uPxPerUnit / max(-mv.z, 0.05), 1.0, 2.0);
+  // ときどき光を受けてきらめく
+  float tw = pow(max(0.0, sin(t * (0.5 + aSeed.y * 0.7) + aSeed.x * 40.0)), 20.0) * step(0.55, aSeed.z);
+  vColor = pppWaterTint(mix(mix(vec3(0.62, 0.72, 0.62), vec3(0.9, 0.95, 0.86), aSeed.w), vec3(1.0), tw), p);
+  gl_PointSize = clamp((0.025 + aSeed.z * 0.03) * uPxPerUnit / max(-mv.z, 0.05), 1.0, 2.0) + tw;
   gl_Position = projectionMatrix * mv;
 }
 `;
@@ -348,6 +448,11 @@ export class AquariumRenderer {
     uWaterHaze: { value: 1 },
     uCaustic: { value: 0.55 },
     uWaterAtten: { value: 0.05 },
+    /** 水中の植物を揺らす水の流れの強さ */
+    uCurrent: { value: 0.42 },
+    /** 陸地の色味（暖かい光）と木漏れ日のまだらの強さ */
+    uLandTint: { value: new THREE.Vector3(1.07, 1.02, 0.9) },
+    uDapple: { value: 0.16 },
   });
   private readonly meshScene = new THREE.Scene();
   private readonly fxScene = new THREE.Scene();
@@ -360,7 +465,17 @@ export class AquariumRenderer {
   private readonly shaftMat: THREE.ShaderMaterial;
   private readonly bubbles: Bubble[] = [];
   private readonly bubbleGeo: THREE.BufferGeometry;
-  private readonly maxBubbles = 420;
+  private readonly maxBubbles = 720;
+  private readonly fishMesh: THREE.InstancedMesh;
+  private readonly shrimpMesh: THREE.InstancedMesh;
+  private readonly springs: { pos: [number, number, number]; scale: number; t: number }[] = [];
+  private pearlT = 0;
+  private readonly m4 = new THREE.Matrix4();
+  private readonly q4 = new THREE.Quaternion();
+  private readonly e4 = new THREE.Euler(0, 0, 0, 'YXZ');
+  private readonly v4 = new THREE.Vector3();
+  private readonly s4 = new THREE.Vector3(1, 1, 1);
+  private readonly life: AquaLife;
   private airStoneT = 0;
   private mouthT = 2;
   private fallSprayT = 0;
@@ -372,7 +487,15 @@ export class AquariumRenderer {
   /** SurfelRenderer に渡す人型のリグ（キャラクターを持たないので使われない） */
   private readonly noRig = new CharacterRig();
 
-  constructor(canvas: HTMLCanvasElement, private readonly world: AquariumWorld, meshes: AquariumMeshes, crab: TriMesh, plants: SplatPointSet, private readonly rig: CrabRig) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    private readonly world: AquariumWorld,
+    meshes: AquariumMeshes,
+    crab: TriMesh,
+    plants: SplatPointSet,
+    private readonly rig: CrabRig,
+    explore: { finds: Find[]; findsMesh: TriMesh; glowMesh: TriMesh; fishMesh: TriMesh; shrimpMesh: TriMesh; life: AquaLife },
+  ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', alpha: false });
     this.renderer.autoClear = false;
     const u = this.uniforms;
@@ -388,7 +511,7 @@ export class AquariumRenderer {
 
     // E 側
     const worldMat = this.meshMaterial(false);
-    for (const m of [meshes.terrain, meshes.pebbles, meshes.rocks, meshes.woods, meshes.frame, meshes.room]) {
+    for (const m of [meshes.terrain, meshes.pebbles, meshes.rocks, meshes.woods, meshes.frame, meshes.room, explore.findsMesh]) {
       const mesh = new THREE.Mesh(triGeometry(m), worldMat);
       mesh.frustumCulled = false;
       this.meshScene.add(mesh);
@@ -399,6 +522,16 @@ export class AquariumRenderer {
     this.crabMesh.matrixAutoUpdate = false;
     this.meshScene.add(this.crabMesh);
     this.stats.tris += crab.triCount;
+
+    // 探索の要素：光る石・小さな生き物
+    this.life = explore.life;
+    const glow = new THREE.Mesh(triGeometry(explore.glowMesh), new THREE.ShaderMaterial({ uniforms: { ...this.uniforms }, defines: { PPP_WATER: '' }, vertexShader: meshVertex, fragmentShader: glowFragment }));
+    glow.frustumCulled = false;
+    this.meshScene.add(glow);
+    this.fishMesh = this.creatureMesh(explore.fishMesh, explore.life.fish.length, true);
+    this.shrimpMesh = this.creatureMesh(explore.shrimpMesh, explore.life.shrimp.length, false);
+    this.stats.tris += explore.glowMesh.triCount + explore.fishMesh.triCount * explore.life.fish.length + explore.shrimpMesh.triCount * explore.life.shrimp.length;
+    for (const f of explore.finds) if (f.kind === 'spring') this.springs.push({ pos: f.pos, scale: f.scale, t: Math.random() });
 
     // C 側：既存の SurfelRenderer（キャラクターは持たない = 方式 F と同じ）。水中表現だけ定義で足す
     this.surfel = new SurfelRenderer(u, this.noRig, plants, null);
@@ -432,6 +565,10 @@ export class AquariumRenderer {
     const shafts = this.buildShafts();
     shafts.renderOrder = 1;
     this.alphaScene.add(shafts);
+    const halos = this.buildHalos(explore.finds);
+    halos.renderOrder = 1;
+    this.alphaScene.add(halos);
+    this.fxScene.add(this.buildPollen());
     const wf = world.waterfall;
     this.waterMat = new THREE.ShaderMaterial({
       vertexShader: waterVertex,
@@ -470,6 +607,85 @@ export class AquariumRenderer {
       defines.USE_BONES = '';
     }
     return new THREE.ShaderMaterial({ uniforms, defines, vertexShader: meshVertex, fragmentShader: meshFragment, side: THREE.FrontSide });
+  }
+
+  private creatureMesh(m: TriMesh, count: number, fish: boolean): THREE.InstancedMesh {
+    const g = triGeometry(m);
+    g.setAttribute('iAnim', new THREE.InstancedBufferAttribute(new Float32Array(count * 2), 2).setUsage(THREE.DynamicDrawUsage));
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { ...this.uniforms, uCharLift: { value: 0.14 }, uReceiveBlob: { value: 0 } },
+      defines: fish ? { PPP_WATER: '', USE_LIFT: '', FISH: '' } : { PPP_WATER: '', USE_LIFT: '' },
+      vertexShader: creatureVertex,
+      fragmentShader: meshFragment,
+    });
+    const im = new THREE.InstancedMesh(g, mat, count);
+    im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    im.frustumCulled = false;
+    this.meshScene.add(im);
+    return im;
+  }
+
+  /** 小さな生き物の位置・向き・動きの位相をインスタンスへ写す */
+  private updateCreatures() {
+    const L = this.life;
+    const fa = this.fishMesh.geometry.getAttribute('iAnim') as THREE.InstancedBufferAttribute;
+    L.fish.forEach((f, i) => {
+      this.e4.set(-f.pitch, f.heading, 0, 'YXZ');
+      this.q4.setFromEuler(this.e4);
+      this.m4.compose(this.v4.set(f.x, f.y, f.z), this.q4, this.s4);
+      this.fishMesh.setMatrixAt(i, this.m4);
+      fa.setXY(i, f.phase, f.fear);
+    });
+    this.fishMesh.instanceMatrix.needsUpdate = fa.needsUpdate = true;
+    const sa = this.shrimpMesh.geometry.getAttribute('iAnim') as THREE.InstancedBufferAttribute;
+    L.shrimp.forEach((s, i) => {
+      this.e4.set(0, s.heading, 0, 'YXZ');
+      this.q4.setFromEuler(this.e4);
+      this.m4.compose(this.v4.set(s.x, s.y, s.z), this.q4, this.s4);
+      this.shrimpMesh.setMatrixAt(i, this.m4);
+      sa.setXY(i, s.phase, s.state === 'dart' ? 1 : 0);
+    });
+    this.shrimpMesh.instanceMatrix.needsUpdate = sa.needsUpdate = true;
+  }
+
+  private buildHalos(finds: Find[]): THREE.Points {
+    const glows = finds.filter((f) => f.kind === 'glow');
+    const pos = new Float32Array(glows.length * 3), ph = new Float32Array(glows.length), size = new Float32Array(glows.length);
+    glows.forEach((f, i) => {
+      pos.set([f.pos[0], f.pos[1] + 0.15 * f.scale, f.pos[2]], i * 3);
+      // 光る石のメッシュと同じ位相（buildGlowMesh の fi * 0.37）
+      ph[i] = (finds.indexOf(f) * 0.37) % 1;
+      size[i] = 1.3 * f.scale;
+    });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('aPhase', new THREE.BufferAttribute(ph, 1));
+    g.setAttribute('aSize', new THREE.BufferAttribute(size, 1));
+    const m = new THREE.Points(g, new THREE.ShaderMaterial({ vertexShader: haloVertex, fragmentShader: haloFragment, uniforms: { uTime: this.uniforms.uTime, uPxPerUnit: this.uniforms.uPxPerUnit }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    m.frustumCulled = false;
+    return m;
+  }
+
+  private buildPollen(): THREE.Points {
+    const n = 420;
+    const pos = new Float32Array(n * 3), seed = new Float32Array(n * 4);
+    let s = 777;
+    const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+    let k = 0;
+    for (let tries = 0; k < n && tries < 20000; tries++) {
+      const x = 3 + rnd() * (TANK.maxX - 3.4), z = TANK.minZ + 0.4 + rnd() * (TANK.maxZ - TANK.minZ - 0.8);
+      const g = this.world.groundAt(x, z);
+      if (g < TANK.waterY + 0.15) continue;
+      pos.set([x, g + 0.4 + rnd() * rnd() * 3.5, z], k * 3);
+      seed.set([rnd(), rnd(), rnd(), rnd()], k * 4);
+      k++;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos.subarray(0, k * 3), 3));
+    g.setAttribute('aSeed', new THREE.BufferAttribute(seed.subarray(0, k * 4), 4));
+    const m = new THREE.Points(g, new THREE.ShaderMaterial({ vertexShader: pollenVertex, fragmentShader: pointFragment, uniforms: { uTime: this.uniforms.uTime, uPxPerUnit: this.uniforms.uPxPerUnit } }));
+    m.frustumCulled = false;
+    return m;
   }
 
   /** 滝：崖の上を流れる帯（岩の上面に沿う）→ 落ち口から前へ飛び出して落ちる弧、を 1 本の帯にする */
@@ -531,7 +747,7 @@ export class AquariumRenderer {
   }
 
   private buildMotes(): THREE.Points {
-    const n = 1600;
+    const n = 2400;
     const pos = new Float32Array(n * 3), seed = new Float32Array(n * 4);
     let s = 12345;
     const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
@@ -563,7 +779,14 @@ export class AquariumRenderer {
       [-15, -4, 1.4, 6.5, 0.0, 1.0], [-11.5, 1.5, 1.0, 6.0, 1.3, 0.8], [-8, -5.5, 1.8, 7.0, 2.1, 1.0], [-5, 3, 1.1, 6.0, 3.7, 0.9],
       [-2, -2, 1.5, 5.5, 4.4, 0.8], [-13, 6, 1.2, 6.0, 5.2, 0.7], [-6.5, 7.5, 0.9, 5.5, 0.7, 0.7], [0.5, 5.5, 1.0, 4.5, 2.9, 0.6],
       [-17, 0, 0.9, 6.0, 3.3, 0.6], [-9.5, -8.5, 1.2, 6.0, 1.9, 0.8],
+      // 水草の森・柱のてっぺん
+      [-12.5, -6.8, 1.3, 5.5, 0.4, 0.9], [-6.8, -7.6, 1.0, 5.0, 2.6, 0.8], [-3.0, -6.2, 1.0, 2.6, 1.1, 1.0],
     ];
+    // 倒木の節穴へ差し込む細い光（揺らさない：位相を負にする）
+    const { logA, logB } = this.world.landmarks;
+    const kx = logA[0] + (logB[0] - logA[0]) * 0.58, ky = logA[1] + (logB[1] - logA[1]) * 0.58 + 0.9, kz = logA[2] + (logB[2] - logA[2]) * 0.58;
+    const tk = (TANK.waterY - 0.05 - ky) / LAMP_DIR[1];
+    shafts.push([kx + LAMP_DIR[0] * tk, kz + LAMP_DIR[2] * tk, 0.32, tk + 1.4, -0.5, 1.3]);
     const start = new Float32Array(shafts.length * 3), param = new Float32Array(shafts.length * 4);
     shafts.forEach(([x, z, w, l, ph, st], i) => {
       start.set([x, TANK.waterY - 0.05, z], i * 3);
@@ -625,6 +848,25 @@ export class AquariumRenderer {
       this.airStoneT += 0.11;
       const [x, y, z] = this.world.airStone;
       this.spawn(0, x, y, z, 1, 0.08, 0.035, 1.2);
+    }
+    // 泡の湧き場所：砂の底から細かな泡がまとまって上る
+    for (const sp of this.springs) {
+      sp.t -= dt;
+      while (sp.t < 0) {
+        sp.t += 0.09 / sp.scale;
+        this.spawn(0, sp.pos[0], sp.pos[1] + 0.04, sp.pos[2], 1, 0.1 * sp.scale, Math.random() < 0.15 ? 0.05 : 0.028, 0.8);
+      }
+    }
+    // 水草の光合成の泡（森と広場の絨毯から、ときどき小さな泡が離れて上る）
+    this.pearlT -= dt;
+    while (this.pearlT < 0) {
+      this.pearlT += 0.07;
+      const inForest = Math.random() < 0.7;
+      const x = inForest ? -15.4 + Math.random() * 11 : -11.5 + Math.random() * 6;
+      const z = inForest ? -9.4 + Math.random() * 4.8 : 4.6 + Math.random() * 3.8;
+      const g = this.world.groundAt(x, z);
+      const y = inForest ? g + (wl - g) * (0.45 + Math.random() * 0.45) : g + 0.12;
+      if (this.world.solid(x, y, z) > 0.05) this.spawn(0, x, y, z, 1, 0.02, 0.016, 0.35);
     }
     // 待機中のカニは、ときどき口から小さな泡を吐く
     this.mouthT -= dt;
@@ -703,6 +945,7 @@ export class AquariumRenderer {
 
     this.handleEvents(crab.drainEvents(), crab, time);
     this.updateBubbles(dt, crab);
+    this.updateCreatures();
 
     // カメラ（低解像度ターゲットの大きさ = キャンバス + 余白。透視投影なので画素スナップのずれは 0）
     const c = this.camera;
