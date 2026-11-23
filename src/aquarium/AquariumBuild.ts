@@ -12,7 +12,7 @@ import type { SplatPointSet } from '../render/shared/PointSet';
 import { sampleSdfSurface, sdCapsule, sdEllipsoid, smin, type Box3Like, type Sdf } from '../visual/sdf/sdf';
 import type { Find } from './AquariumSpots';
 import { LAMP_DIR, TANK, type AquariumWorld } from './AquariumWorld';
-import { buildStandMeshes } from './AquariumStandBuild';
+import { buildStandMeshes, SLEEVE_PAD } from './AquariumStandBuild';
 import { crabParts } from './crabModel';
 
 const u8 = (v: number) => Math.max(0, Math.min(255, Math.round(v * 255)));
@@ -119,9 +119,26 @@ function buildTerrain(world: AquariumWorld, light: LightGrid): TriMesh {
   const nx = Math.round((TANK.maxX - TANK.minX) / step) + 1;
   const nz = Math.round((TANK.maxZ - TANK.minZ) / step) + 1;
   const ids = new Int32Array(nx * nz);
+  // 縦の管が砂を貫く所は、管の外周に沿った丸い穴にする：穴の円の内側に入った格子点を円周まで押し出し（inHole）、
+  // 3 点とも押し出した三角形と、押し出しで裏返った三角形は張らない。穴の縁は砂の断面の円筒（sandSleeve）と同じ半径
+  const holes = world.stand.columns.map((c) => ({ x: c.x, z: c.z, r: c.r + SLEEVE_PAD }));
+  const inHole = new Uint8Array(nx * nz);
+  const gx0 = new Float32Array(nx * nz), gz0 = new Float32Array(nx * nz);
   for (let j = 0; j < nz; j++) {
     for (let i = 0; i < nx; i++) {
-      const x = TANK.minX + i * step, z = TANK.minZ + j * step;
+      let x = TANK.minX + i * step, z = TANK.minZ + j * step;
+      for (const c of holes) {
+        const dx = x - c.x, dz = z - c.z, r = Math.hypot(dx, dz);
+        if (r >= c.r) continue;
+        inHole[j * nx + i] = 1;
+        // 中心ちょうどの点は、どの三角形でも 3 点とも穴の中なので使われない
+        if (r > 1e-6) {
+          x = c.x + (dx / r) * c.r;
+          z = c.z + (dz / r) * c.r;
+        }
+      }
+      gx0[j * nx + i] = x;
+      gz0[j * nx + i] = z;
       const h = world.groundAt(x, z);
       const [gx, gy, gz] = world.groundNormal(x, z);
       const c = groundColor(world, x, z, h);
@@ -132,13 +149,20 @@ function buildTerrain(world: AquariumWorld, light: LightGrid): TriMesh {
       ids[j * nx + i] = mb.vertex(x, h, z, gx, gy, gz, u8(c[0] * ao), u8(c[1] * ao), u8(c[2] * ao), sun, grain);
     }
   }
+  // 穴の縁の三角形：3 点とも穴の円周上なら張らない。押し出しで向き（上から見た回り方）が変わった・ほぼつぶれたものも張らない
+  const holeTri = (p: number, q: number, r: number) => {
+    if (inHole[p] + inHole[q] + inHole[r] === 0) return true;
+    if (inHole[p] && inHole[q] && inHole[r]) return false;
+    const area = (gx0[q] - gx0[p]) * (gz0[r] - gz0[p]) - (gz0[q] - gz0[p]) * (gx0[r] - gx0[p]);
+    // 格子のままの三角形の外積は +step²（上から見て同じ回り方）。押し出し後に同じ向きで 2% 以上残るものだけ張る
+    return area > 0.02 * step * step;
+  };
   for (let j = 0; j < nz - 1; j++) {
     for (let i = 0; i < nx - 1; i++) {
-      // 縦の管が砂を貫く所は網を張らない（穴の縁は管の外壁と砂の断面の円筒が隠す）
-      if (world.stand.columnClear(TANK.minX + (i + 0.5) * step, TANK.minZ + (j + 0.5) * step) < 0.02) continue;
-      const a = ids[j * nx + i], b = ids[j * nx + i + 1], c = ids[(j + 1) * nx + i], d = ids[(j + 1) * nx + i + 1];
-      mb.tri(a, b, d, 0, 1, 0);
-      mb.tri(a, d, c, 0, 1, 0);
+      const ia = j * nx + i, ib = ia + 1, ic = ia + nx, id = ic + 1;
+      const a = ids[ia], b = ids[ib], c = ids[ic], d = ids[id];
+      if (holeTri(ia, ib, id)) mb.tri(a, b, d, 0, 1, 0);
+      if (holeTri(ia, id, ic)) mb.tri(a, d, c, 0, 1, 0);
     }
   }
   // ガラス際の断面（地表から水槽の底まで。ガラス越しに層が見える）

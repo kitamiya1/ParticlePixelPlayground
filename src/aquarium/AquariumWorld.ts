@@ -504,6 +504,32 @@ export class AquariumWorld {
     return gradient((a, b, c) => this.viewSolid(a, b, c, region), x, y, z);
   }
 
+  /**
+   * カメラ自身が入ってはいけない所（カニの当たり判定 contactSolid とは別）。遮蔽（viewSolid）と同じ物に加えて、
+   * 水槽の中を追うときは砂の高さを水槽の外へも延ばす（ガラスの外へ出たカメラが、砂の断面より下へ潜って中が見えなくならない）。
+   * 透明な板（ガラス・アクリル）はカメラが通り抜けてよい物として含めない（板の中に留まらないことだけ panelSolid で守る）
+   */
+  cameraSolid(x: number, y: number, z: number, region: Region): number {
+    let d = this.viewSolid(x, y, z, region);
+    if (region === 'tank' && (x < TANK.minX || x > TANK.maxX || z < TANK.minZ || z > TANK.maxZ)) d = Math.min(d, y - this.groundAt(x, z));
+    return d;
+  }
+
+  cameraNormal(x: number, y: number, z: number, region: Region): [number, number, number] {
+    return gradient((a, b, c) => this.cameraSolid(a, b, c, region), x, y, z);
+  }
+
+  /** カメラが通り抜けてよい透明な板（カニが水槽の中ならガラス、濾過槽の中ならアクリル）。無ければ大きな値 */
+  panelSolid(x: number, y: number, z: number, region: Region): number {
+    if (region === 'tank') return this.stand.glassSolid(x, y, z);
+    if (region === 'sump') return this.stand.acrylicSolid(x, y, z);
+    return 1e3;
+  }
+
+  panelNormal(x: number, y: number, z: number, region: Region): [number, number, number] {
+    return gradient((a, b, c) => this.panelSolid(a, b, c, region), x, y, z);
+  }
+
   regionAt(x: number, y: number, z: number): Region {
     return this.stand.regionAt(x, y, z);
   }

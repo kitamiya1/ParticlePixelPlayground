@@ -80,7 +80,7 @@ varying vec3 vNormal;
 varying vec2 vMisc;
 #ifdef USE_BEAMS
 // 流木のトンネルの節穴から差す光：光の円柱の中にある面（内壁・床・カニ）を明るくする
-uniform vec4 uBeamP[3]; // 水面での始点, 半径
+uniform vec4 uBeamP[3]; // 始点（節穴の少し外側。流木の外の水中は照らさない）, 半径
 uniform vec4 uBeamD[3]; // 向き, 長さ
 float pppBeamLight(vec3 p) {
   float k = 0.0;

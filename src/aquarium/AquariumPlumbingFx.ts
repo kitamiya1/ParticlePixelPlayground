@@ -13,6 +13,9 @@ import { LAMP_DIR, TANK } from './aquaConst';
 import { SUMP, SUMP_IN, type Pipe, type Vec3 } from './AquariumStand';
 import type { AquariumWorld } from './AquariumWorld';
 
+/** 節穴の光の筋を、節穴の外側どれだけ手前から描くか（光が穴へ入っていく所が分かる程度の短さ） */
+const KNOT_LEAD = 0.35;
+
 const pipeVertex = /* glsl */ `
 attribute float aAlong;
 attribute float aLayer;
@@ -322,10 +325,11 @@ export class AquariumPlumbingFx {
     for (let i = 0; i < 110; i++) this.particles.push({ pipe: 1, s: rnd() * S.ret.length, ang: rnd() * 6.28, rad: Math.sqrt(rnd()) * 0.36, speed: 4.5 + rnd() * 2.5, kind: 0, size: 0.04 + rnd() * 0.05, ph: rnd() * 6.28 });
 
     // ---- 流木のトンネルの節穴から差す光 ----
+    // 流木専用の光なので、節穴のすぐ上（KNOT_LEAD）から倒木の内側の床までだけにする。節穴より上の水中は
+    // 水槽全体の光の筋（AquariumRenderer.buildShafts）の受け持ちで、ここで強い芯の筋を描くと流木の外に光の柱が立って見える
     for (const k of world.landmarks.knots) {
       const dir: Vec3 = [-LAMP_DIR[0], -LAMP_DIR[1], -LAMP_DIR[2]];
-      const up = (TANK.waterY - 0.05 - k.c[1]) / LAMP_DIR[1];
-      const start: Vec3 = [k.c[0] + LAMP_DIR[0] * up, TANK.waterY - 0.05, k.c[2] + LAMP_DIR[2] * up];
+      const start: Vec3 = [k.c[0] - dir[0] * KNOT_LEAD, k.c[1] - dir[1] * KNOT_LEAD, k.c[2] - dir[2] * KNOT_LEAD];
       // 節穴を抜けたあと、倒木の内側の床に当たるまで
       let t = 0.45;
       for (let i = 0; i < 60 && t < 3; i++) {
@@ -333,10 +337,11 @@ export class AquariumPlumbingFx {
         if (d < 0.01) break;
         t += Math.max(d * 0.8, 0.02);
       }
-      this.beams.push({ start, dir, len: up + t, r: k.r * 1.05 });
+      this.beams.push({ start, dir, len: KNOT_LEAD + t, r: k.r * 1.05 });
     }
     const beamGeo = shaftGeometry(this.beams.map((b, i) => ({ start: b.start, width: b.r * 1.15, len: b.len + 0.15, phase: -(1 + i), strength: i === 0 ? 2.2 : 1.8 })));
-    const beamMat = new THREE.ShaderMaterial({ vertexShader: shaftVertex, fragmentShader: shaftFragment, defines: { BEAM: '' }, uniforms: { uTime: shared.uTime, uBeamFade: { value: 0 }, uShaftDir: { value: new THREE.Vector3(-LAMP_DIR[0], -LAMP_DIR[1], -LAMP_DIR[2]) } }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    // uBeamIn：筋の始まり（節穴の外側の短い部分）を薄く立ち上げる長さの割合
+    const beamMat = new THREE.ShaderMaterial({ vertexShader: shaftVertex, fragmentShader: shaftFragment, defines: { BEAM: '' }, uniforms: { uTime: shared.uTime, uBeamFade: { value: 0 }, uBeamIn: { value: 0.22 }, uShaftDir: { value: new THREE.Vector3(-LAMP_DIR[0], -LAMP_DIR[1], -LAMP_DIR[2]) } }, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
     const beamMesh = new THREE.Mesh(beamGeo, beamMat);
     beamMesh.frustumCulled = false;
     beamMesh.renderOrder = 1;
@@ -354,6 +359,7 @@ export class AquariumPlumbingFx {
     dMat.uniforms.uTime = shared.uTime;
     dMat.uniforms.uShaftDir = { value: new THREE.Vector3(0, -1, 0) };
     dMat.uniforms.uBeamFade = { value: 1 };
+    dMat.uniforms.uBeamIn = { value: 0.06 };
     const dMesh = new THREE.Mesh(dShafts, dMat);
     dMesh.frustumCulled = false;
     dMesh.renderOrder = 1;

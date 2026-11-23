@@ -379,7 +379,7 @@ export function buildStandMeshes(world: AquariumWorld): StandMeshes {
   collar(mb, [de[0], de[1] + 0.12, de[2]], [0, 1, 0], S.drain.outer, S.drain.outer + 0.1, 0.24, black, 0.6);
 
   // 管が砂を貫く所：管の内側から見える砂の層（内向きの円筒。外からは裏面で見えない）
-  for (const c of S.columns) sandSleeve(mb, world, c.x, c.z, c.r + 0.012);
+  for (const c of S.columns) sandSleeve(mb, world, c.x, c.z, c.r + SLEEVE_PAD);
 
   // 台の中の照明：濾過槽の真上、天板の裏の LED の帯
   flatBox(emissive, { min: [SUMP.minX + 0.5, DECK.y0 - 0.1, -0.35], max: [SUMP.maxX - 0.5, DECK.y0 - 0.01, 0.35] }, () => hex('#fff4dc'), 1);
@@ -387,6 +387,9 @@ export function buildStandMeshes(world: AquariumWorld): StandMeshes {
 
   return { stand: mb.finish(), cabinetOuter: outer.finish(), emissive: emissive.finish() };
 }
+
+/** 管が砂を貫く所の穴の半径の、管の外径からの余白（砂の網の丸い穴と砂の断面の円筒が同じ円になるように共有する） */
+export const SLEEVE_PAD = 0.012;
 
 /** 砂の断面（地表から底板まで、層の色）。管の内側から見える */
 function sandSleeve(mb: MeshBuilder, world: AquariumWorld, cx: number, cz: number, r: number) {

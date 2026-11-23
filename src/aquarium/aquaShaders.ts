@@ -139,6 +139,7 @@ export const shaftFragment = /* glsl */ `
 uniform float uTime;
 #ifdef BEAM
 uniform float uBeamFade;
+uniform float uBeamIn;  // 始まりを薄く立ち上げる長さの割合（節穴の光は穴の外側の短い部分）
 #endif
 varying vec2 vUv;
 varying float vStrength;
@@ -147,11 +148,11 @@ varying float vAlign;
 void main() {
   float u = vUv.x, v = vUv.y;
 #ifdef BEAM
-  // 節穴・管の口から差す細い光：芯がはっきりした筋（加算で明るく、端は柔らかく）。
+  // 節穴（の少し上から倒木の中まで）・管の口から差す細い光：芯がはっきりした筋（加算で明るく、端は柔らかく）。
   // uBeamFade = 0 なら先まで明るさを保つ（倒木の中の床まで届く）、1 なら先ほど薄れる（管の奥）
   float core = pow(max(1.0 - u * u, 0.0), 5.0);
   float along = mix(1.0 - smoothstep(0.9, 1.0, v), pow(1.0 - v, 1.1), uBeamFade);
-  float k = (core * 0.8 + pow(max(1.0 - u * u, 0.0), 1.5) * 0.35) * smoothstep(0.0, 0.06, v) * along;
+  float k = (core * 0.8 + pow(max(1.0 - u * u, 0.0), 1.5) * 0.35) * smoothstep(0.0, uBeamIn, v) * along;
   k *= 0.82 + 0.18 * sin(uTime * 1.1 + abs(vPhase) * 3.0 + v * 6.0);
   k *= 1.0 - smoothstep(0.9, 0.99, vAlign) * 0.85;
   gl_FragColor = vec4(vec3(1.0, 0.95, 0.78) * k * vStrength * 0.27, 1.0);
