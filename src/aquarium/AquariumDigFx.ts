@@ -8,7 +8,8 @@
 //   （頂点番号を 0 にして潰す。網の作り直しはしない）。岩・流木・水草・魚・濾過槽などは作り直さない。
 // - 周りの物：作り直した区画の中で、根元の砂が無くなった植物の円盤（SurfelRenderer.hideWorldPoints）と小石を消す。
 // - 演出：かき出すたびに砂粒（重力で落ちる・水中はゆっくり）と、水中では砂煙（ふくらんで消える）を舞わせる。
-//   掘れない物に当たったら灰色の小さなかけらだけ。掘っている間は掘る所に輪と、体からの点線（照準）を出す。
+//   掘れない物に当たったら灰色の小さなかけらだけ。掘っている間は掘る所に輪と、体からの点線（照準）を出す
+//   （掘れるときは輪を掘る向きに垂直＝穴の断面にし、当たった所の先へも点を伸ばして穴の伸びる向きを見せる）。
 
 import * as THREE from 'three';
 import { hex, mixRGB, type RGB } from '../core/math';
@@ -51,7 +52,7 @@ const SANDS = [hex('#dccba0'), hex('#c5b085'), hex('#a48f6a'), hex('#8c7656')];
 const SOILS = [hex('#4a3a2a'), hex('#5b4431'), hex('#3b5529'), hex('#6e5139')];
 const STONE = [hex('#8f8981'), hex('#655f59'), hex('#a39c92')];
 const CURSOR_OK = hex('#ffe08a'), CURSOR_NG = hex('#e07a5f'), CURSOR_FAR = hex('#9fc7c0');
-const RING = 14, DOTS = 5;
+const RING = 14, DOTS = 6, EXT = 4;
 
 export class AquariumDigFx {
   /** 1 フレームに区画を作り直す時間の上限（ms。少なくとも 1 区画は作る） */
@@ -122,8 +123,8 @@ export class AquariumDigFx {
     pts.frustumCulled = false;
     d.fxScene.add(pts);
 
-    // 照準（輪 + 点線 + 中心）
-    const n = RING + DOTS + 1;
+    // 照準（輪 + 点線 + 当たった所の先の点 + 中心）
+    const n = RING + DOTS + EXT + 1;
     const cg = new THREE.BufferGeometry();
     cg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
     cg.setAttribute('aColor', new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
@@ -371,7 +372,13 @@ export class AquariumDigFx {
     this.stats.grains = this.grains.length;
   }
 
-  /** 照準：掘る所に輪（面の向きに沿う）と、体から掘る所への点線。掘れる = 黄、掘れない = 赤、届かない = 薄い水色 */
+  /**
+   * 照準：体から掘る向きへの点線と、掘る所の輪。
+   * - 掘れる（黄）：輪は掘る向きに垂直（これから伸びる穴の太さの断面）。当たった所の先へも点線を少し伸ばし、
+   *   穴が伸びていく向きを見せる
+   * - 掘れない（赤）：当たった面に沿った小さな輪
+   * - 何も無い（届かない）：薄い水色の短い点線だけ（文字は出さず、カニの空振りで分かる）
+   */
   private updateCursor(dt: number, crab: CrabController) {
     const A = crab.digAim;
     this.cursor.visible = A.active;
@@ -381,31 +388,44 @@ export class AquariumDigFx {
     const col = this.cursorGeo.getAttribute('aColor') as THREE.BufferAttribute;
     const size = this.cursorGeo.getAttribute('aSize') as THREE.BufferAttribute;
     const m: DigMaterial = A.material;
-    const c = !A.hit ? CURSOR_FAR : diggable(m) ? CURSOR_OK : CURSOR_NG;
-    // 輪の面：当たった面の法線（届かなければ掘る向き）に垂直
-    const n = A.hit ? this.d.world.contactNormal(A.p[0], A.p[1], A.p[2]) : [-A.dir[0], -A.dir[1], -A.dir[2]];
+    const ok = A.face && diggable(m);
+    const c = !A.face ? CURSOR_FAR : ok ? CURSOR_OK : CURSOR_NG;
+    const d = A.dir;
+    // 輪の面：掘れる = 掘る向きに垂直、掘れない = 当たった面の法線に垂直
+    const n = ok || !A.face ? [-d[0], -d[1], -d[2]] : this.d.world.contactNormal(A.p[0], A.p[1], A.p[2]);
     const ref = Math.abs(n[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0];
     const t1 = norm(cross(ref, n)), t2 = cross(n, t1);
     const pulse = 0.5 + 0.5 * Math.sin(this.cursorT * 9);
-    const R = (diggable(m) ? DIG.rMax * 0.55 : 0.2) * (0.85 + 0.15 * pulse);
-    const lift = 0.05;
+    // 掘れる輪は穴の断面より少し細く（穴の縁に重なって見えるように）。体からの距離で太さが変わらないよう固定
+    const R = (ok ? DIG.rMax * 0.62 : 0.2) * (0.88 + 0.12 * pulse);
+    const lift = ok ? 0 : 0.05;
     for (let i = 0; i < RING; i++) {
       const a = (i / RING) * Math.PI * 2 + this.cursorT * 1.5;
       pos.setXYZ(i, A.p[0] + n[0] * lift + (t1[0] * Math.cos(a) + t2[0] * Math.sin(a)) * R, A.p[1] + n[1] * lift + (t1[1] * Math.cos(a) + t2[1] * Math.sin(a)) * R, A.p[2] + n[2] * lift + (t1[2] * Math.cos(a) + t2[2] * Math.sin(a)) * R);
       col.setXYZ(i, c[0], c[1], c[2]);
-      size.setX(i, 2);
+      size.setX(i, A.face ? 2 : 0);
     }
-    // 点線：体の中心から掘る所へ（流れるように動く）
-    const ox = crab.x, oy = crab.y + crab.radius, oz = crab.z;
+    // 点線：鋏の先（体の中心から 0.25 前）から掘る所へ流れる。何も無いときは届く距離の半分まで、細く
+    const ox = crab.x + d[0] * 0.25, oy = crab.y + crab.radius + d[1] * 0.25, oz = crab.z + d[2] * 0.25;
+    const L = A.face ? 1 : 0.55;
+    const ex = ox + (A.p[0] - ox) * L, ey = oy + (A.p[1] - oy) * L, ez = oz + (A.p[2] - oz) * L;
     for (let k = 0; k < DOTS; k++) {
-      const f = ((k + (this.cursorT * 2.5) % 1) / DOTS) * 0.9 + 0.08;
-      pos.setXYZ(RING + k, ox + (A.p[0] - ox) * f, oy + (A.p[1] - oy) * f, oz + (A.p[2] - oz) * f);
+      const f = (k + ((this.cursorT * 2.5) % 1)) / DOTS;
+      pos.setXYZ(RING + k, ox + (ex - ox) * f, oy + (ey - oy) * f, oz + (ez - oz) * f);
       col.setXYZ(RING + k, c[0], c[1], c[2]);
-      size.setX(RING + k, k === DOTS - 1 ? 1 : 2);
+      size.setX(RING + k, A.face ? 2 : k < DOTS - 2 ? 1.5 : 1);
     }
-    pos.setXYZ(RING + DOTS, A.p[0] + n[0] * lift, A.p[1] + n[1] * lift, A.p[2] + n[2] * lift);
-    col.setXYZ(RING + DOTS, 1, 1, 1);
-    size.setX(RING + DOTS, 2 + pulse);
+    // 掘れるときだけ：当たった所から先へ（穴が伸びる向き）、だんだん小さく
+    for (let k = 0; k < EXT; k++) {
+      const s = 0.14 * (k + 1) + 0.06 * ((this.cursorT * 2.5) % 1);
+      pos.setXYZ(RING + DOTS + k, A.p[0] + d[0] * s, A.p[1] + d[1] * s, A.p[2] + d[2] * s);
+      col.setXYZ(RING + DOTS + k, c[0], c[1], c[2]);
+      size.setX(RING + DOTS + k, ok ? (k < 2 ? 2 : 1) : 0);
+    }
+    const ci = RING + DOTS + EXT;
+    pos.setXYZ(ci, A.p[0] + n[0] * lift, A.p[1] + n[1] * lift, A.p[2] + n[2] * lift);
+    col.setXYZ(ci, 1, 1, 1);
+    size.setX(ci, A.face ? 2 + pulse : 0);
     pos.needsUpdate = col.needsUpdate = size.needsUpdate = true;
   }
 

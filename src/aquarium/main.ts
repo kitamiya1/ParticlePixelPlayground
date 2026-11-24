@@ -50,6 +50,8 @@ function boot() {
   const camera = new AquaCamera(world);
   camera.placeBehind(crab);
   const input = new Input(canvas);
+  // マウスの右ボタン：押したままずらして掘る（照準）
+  input.mouseDig = true;
 
   const built = buildAquariumMeshes(world);
   const plants = buildAquariumSurfels(world, built.light);
@@ -89,8 +91,8 @@ function boot() {
   const help = document.createElement('div');
   help.id = 'help';
   help.innerHTML = touch
-    ? `<b>操作</b><br>左スティック：移動　ダッシュ：押している間<br>ジャンプ：跳ぶ（水中で長押し＝遊泳）<br>掘る：押している間 前の砂を掘る（スティックで向き・ジャンプと同時で上へ）<br>画面ドラッグ：視点回転　2 本指：ズーム<br>カメラ：冒険 / 箱庭の切り替え<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</span>`
-    : `<b>操作</b><br><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る<br><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳）<br><kbd>F</kbd> 長押し：掘る（<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で向き・進む、<kbd>Space</kbd> で上へ、<kbd>Shift</kbd> で下へ）<br>ドラッグ：視点回転　ホイール：ズーム<br><kbd>V</kbd> カメラ切替　<kbd>R</kbd> スタート地点へ　<kbd>H</kbd> 説明を隠す<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</span>`;
+    ? `<b>操作</b><br>左スティック：移動　ダッシュ：押している間<br>ジャンプ：跳ぶ（水中で長押し＝遊泳）<br>掘る：押している間 前の砂を掘る。押したまま指をずらすと、その向き（上・下・左右・斜め）を掘る。スティックで進みながら掘れる<br>画面ドラッグ：視点回転　2 本指：ズーム<br>カメラ：冒険 / 箱庭の切り替え<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</span>`
+    : `<b>操作</b><br><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る<br><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳）<br><kbd>F</kbd> 長押し：掘る（押したままマウスを動かすと上下左右・斜めを狙う。<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で進む）<br>右ボタンを押したままドラッグ：その向きを掘る<br>ドラッグ：視点回転　ホイール：ズーム<br><kbd>V</kbd> カメラ切替　<kbd>R</kbd> スタート地点へ　<kbd>H</kbd> 説明を隠す<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</span>`;
   document.body.appendChild(help);
   if (touch) setTimeout(() => help.classList.add('fade'), 12000);
   const marker = document.createElement('div');
@@ -178,8 +180,8 @@ function boot() {
   // ---------------- ループ ----------------
   // 自動検証用：freeze = true でゲームの更新を止める。step(n, dt) は通常のループと同じ処理を n 回まわす
   // （ブラウザのタブが裏にあって requestAnimationFrame が間引かれていても、実際の入力の状態で時間を進められる）
-  // dig = true で掘るボタンを押したことにする（自動検証用）
-  const debug: { freeze: boolean; fps: number; dig: boolean; step: (n: number, dt?: number) => void } = { freeze: false, fps: 0, dig: false, step: () => {} };
+  // dig = true で掘るボタンを押したことにする。digAim = { x, y } で照準を決める（null = 実際の入力。自動検証用）
+  const debug: { freeze: boolean; fps: number; dig: boolean; digAim: { x: number; y: number } | null; step: (n: number, dt?: number) => void } = { freeze: false, fps: 0, dig: false, digAim: null, step: () => {} };
   let time = 0;
   let last = performance.now();
   let acc = 0, frames = 0, hudT = 0;
@@ -187,7 +189,7 @@ function boot() {
     const dt = debug.freeze ? 0 : Math.min(dtRaw, 0.05);
     time += dt;
     if (!debug.freeze) {
-      crab.update(dt, { move: input.moveAxis(), run: input.isRunning(), jumpHeld: input.isJumpHeld(), cameraYaw: camera.yaw, dig: input.isDigHeld() || debug.dig });
+      crab.update(dt, { move: input.moveAxis(), run: input.isRunning(), jumpHeld: input.isJumpHeld(), cameraYaw: camera.yaw, dig: input.isDigHeld() || debug.dig, digAim: debug.digAim ?? input.digAim() });
       camera.update(dt, input, crab);
       rig.update(dt, crab);
       life.update(dt, { x: crab.x, y: crab.y + crab.radius, z: crab.z });
@@ -245,11 +247,12 @@ function boot() {
       ($('h-swim') as HTMLElement).style.width = `${Math.round(crab.swimStamina * 100)}%`;
       $('h-perf').textContent = `${debug.fps.toFixed(0)} FPS ・ E ${(view.stats.tris / 1000).toFixed(0)}k 三角形 + C ${(view.stats.surfels / 1000).toFixed(0)}k 円盤`;
       // 穴掘り：照準の先の物（掘れる / 掘れない）と、掘った量・作り直しの時間
+      // （照準の先に何も無いときは文字を出さない。カニが空振りする動きで分かる）
       const A = crab.digAim, dg = $('h-dig');
-      dg.classList.toggle('off', !A.active);
-      if (A.active) {
-        dg.textContent = A.hit ? (diggable(A.material) ? `掘れる：${DIG_MATERIAL_LABEL[A.material]}` : `掘れない：${DIG_MATERIAL_LABEL[A.material]}`) : '届かない';
-        dg.classList.toggle('ng', A.hit && !diggable(A.material));
+      dg.classList.toggle('off', !A.active || !A.face);
+      if (A.active && A.face) {
+        dg.textContent = diggable(A.material) ? `掘れる：${DIG_MATERIAL_LABEL[A.material]}` : `掘れない：${DIG_MATERIAL_LABEL[A.material]}`;
+        dg.classList.toggle('ng', !diggable(A.material));
       }
       const fs = view.digFx.stats;
       $('h-digperf').textContent = world.dig.count ? `穴 ${world.dig.count} 個 ・ 区画 ${fs.chunks} ・ 作り直し ${fs.lastMs.toFixed(1)} ms（最大 ${fs.maxMs.toFixed(1)}）・ 待ち ${fs.pending}` : '';

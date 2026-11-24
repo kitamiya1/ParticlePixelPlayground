@@ -67,7 +67,7 @@ export type DigView = 'live' | 'snap';
 export type DigMaterial = 'sand' | 'soil' | 'rock' | 'wood' | 'glass' | 'bottom' | 'pipe' | 'treasure' | 'none';
 
 export const DIG_MATERIAL_LABEL: Record<DigMaterial, string> = {
-  sand: '砂', soil: '土', rock: '岩', wood: '流木', glass: 'ガラス', bottom: '水槽の底', pipe: '配管', treasure: '宝物のそば', none: '届かない',
+  sand: '砂', soil: '土', rock: '岩', wood: '流木', glass: 'ガラス', bottom: '水槽の底', pipe: '配管', treasure: '宝物のそば', none: 'なし',
 };
 
 export function diggable(m: DigMaterial): boolean {
@@ -385,6 +385,8 @@ export class DigField {
     for (const id of S.recent) {
       if (this.prims[id].r < r - 1e-3) {
         this.modify(id, null, r);
+        // 届かずに太らせただけのときは、太らせた空洞の先を「掘った所」にする（砂粒を出す位置）
+        if (tHit === null) at = [...this.prims[id].b];
         changed = true;
       }
     }

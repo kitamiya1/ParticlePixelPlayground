@@ -11,9 +11,17 @@
 //   （濾過槽は部屋ごとに水位が違う）。水の流れ（flowAt）は速度を目標の流速へ寄せる。管の中（ride）は重力・ジャンプ・
 //   遊泳を止め、水といっしょに運ばれる（排水管は真下へ、給水管はポンプの流れで水槽へ）。
 // - 穴掘り（dig）：掘るボタンを押している間、体の正面（鋏の側）を掘る向きへ回し、一定の間隔で前方の砂をかき出す
-//   （AquariumWorld.digProbe で当たった物を調べ、砂・土なら DigField.stroke で空洞を足す）。掘る向きは
-//   移動入力の向き（無ければいまの向き）、上下は自動（地表では斜め下、十分深くなったら水平）+ ジャンプで上・走るで下。
-//   掘っている間は横歩きせず、正面へゆっくり進む（掘れた分だけ前へ入っていける）。
+//   （AquariumWorld.digProbe で当たった物を調べ、砂・土なら DigField.stroke で空洞を足す）。
+//   掘る向き = 基準の向き + 照準（CrabInput.digAim。押したまま指・マウスをずらした量）。カメラではなくカニが基準：
+//   - 基準の向き：押したときの体の向き。移動入力があればその向きへ回る（スティックで曲がりながら掘れる）。
+//   - 左右：照準の x で基準から最大 ±90°（押したときにカメラがカニの正面側にいたら、画面の左右と合うよう反転。
+//     押している間は反転を変えない＝カメラが動いても掘る向きは変わらない）。
+//   - 上下：照準の y が 0 なら自動（地表では斜め下、十分深くなったら水平。ジャンプで上・走るで下も従来どおり）。
+//     y を上げる・下げるほど、DIG_PITCH_UP / DIG_PITCH_DOWN へ連続的に向く（ずらしている間は自動の切り替えを止める）。
+//   掘っている間は横歩きせず、体を掘る向きへ回す。移動入力があれば、その強さで掘る向きへゆっくり進む
+//   （掘れた分だけ前へ入っていける。照準を左右へずらしていくと、曲がったトンネルになる）。
+//   掘った穴の中は、急な床（継ぎ目の段・地表へ抜けた出口の縁）でもよじ登れる（DUG_FLOOR_NY・よじ登り）。
+//   照準の先に何も無い（届かない）ときはかき出さずに空振りする（digWhiff。見た目は CrabRig が鋏を宙で振る）。
 
 import { clamp, lerp, smoothstep } from '../core/math';
 import { TANK, type AquariumWorld } from './AquariumWorld';
@@ -42,7 +50,10 @@ export interface DigAim {
   p: [number, number, number];
   dir: [number, number, number];
   material: DigMaterial;
+  /** 届く距離の中で当たった（かき出せる） */
   hit: boolean;
+  /** 届く距離の少し先までに何かある（掘り進めた穴の突き当たり。無ければ空振り） */
+  face: boolean;
 }
 
 export interface CrabInput {
@@ -52,9 +63,19 @@ export interface CrabInput {
   cameraYaw: number;
   /** 掘るボタン（F キー / 画面の「掘る」）を押しているか */
   dig?: boolean;
+  /** 掘る向きの照準（x = 右, y = 上、長さ 0〜1。0 = 正面。Input.digAim） */
+  digAim?: { x: number; y: number };
 }
 
 const RADIUS = 0.24;
+/** 照準を上・下いっぱいにしたときの掘る向きの仰角（上は登れる坂の限界 57° より少し急、下は −57°）と、左右の最大 */
+export const DIG_PITCH_UP = 1.05;
+export const DIG_PITCH_DOWN = -1.0;
+export const DIG_YAW_MAX = Math.PI / 2;
+/** 照準を探る距離の、届く距離より先の分（掘り進めた穴の突き当たりを見つける） */
+const FACE_AHEAD = 0.8;
+/** 掘った穴の中で床とみなす面の法線の y の下限（約 66°。穴の外は 0.55 = 約 57°） */
+const DUG_FLOOR_NY = 0.4;
 
 export class CrabController {
   /** 足元の位置（球の中心は y + RADIUS） */
@@ -92,10 +113,19 @@ export class CrabController {
   readonly swimDuration = 2.6;
   readonly events: CrabEvent[] = [];
   /** 穴掘り：照準・かき出しの位相（1 回で π 進む。左右の鋏が交互にかく）・掘る向きの仰角・かき出した回数 */
-  readonly digAim: DigAim = { active: false, p: [0, 0, 0], dir: [0, 0, 1], material: 'none', hit: false };
+  readonly digAim: DigAim = { active: false, p: [0, 0, 0], dir: [0, 0, 1], material: 'none', hit: false, face: false };
   digPhase = 0;
   digPitch = 0;
   digStrokes = 0;
+  /** 掘る向きの方位（照準を足したもの）・基準の方位・左右の反転（押したときに決める） */
+  digYaw = 0;
+  private digBaseYaw = 0;
+  private digSign = 1;
+  /** 空振りの度合い（0..1。照準の先に何も無いとき 1 へ。見た目の鋏の振り方に使う） */
+  digWhiff = 0;
+  /** 空振りした回数・掘った穴の急な面をよじ登った回数（自動検証用） */
+  digWhiffs = 0;
+  climbs = 0;
   /** 経過時間（かき出しの続きの判定に使う） */
   private clock = 0;
   private digT = 0;
@@ -148,6 +178,7 @@ export class CrabController {
       this.digAim.active = false;
       this.digT = 0;
       if (this.digPitch !== 0) this.digPitch *= Math.exp(-dt * 6);
+      this.digWhiff *= Math.exp(-dt * 8);
     }
   }
 
@@ -156,46 +187,74 @@ export class CrabController {
 
   private updateDig(dt: number, inp: CrabInput) {
     const w = this.world;
-    // 上下の向き：地表では斜め下、足元が十分深くなったら（または水槽の底の近く）水平。ジャンプで上へ、走るで急に下へ
+    // 上下の向き：地表では斜め下、足元が十分深くなったら（または水槽の底の近く）水平。ジャンプで上へ、走るで急に下へ。
+    // 照準を上下へずらしている間は、ずらした量で連続的に上・下へ向ける（自動の切り替えは止める：
+    // 地表へ近づいて「斜め下」に戻り、上へ掘っている向きが急に変わることがないように）
+    const aimY = inp.digAim?.y ?? 0;
+    const swiping = Math.abs(aimY) > 0.02;
     const depth = w.groundAt(this.x, this.z) - this.y;
     const nearBottom = this.y < DIG.floorClip + 0.12;
-    if (depth > DIG.tunnelDepth - 0.05 || nearBottom) this.digDeep = true;
-    else if (depth < 0.25) this.digDeep = false;
-    let pitch = this.digDeep ? 0 : -0.48;
-    if (inp.jumpHeld) pitch = 0.75;
+    if (!swiping) {
+      if (depth > DIG.tunnelDepth - 0.05 || nearBottom) this.digDeep = true;
+      else if (depth < 0.25) this.digDeep = false;
+    }
+    const base = this.digDeep ? 0 : -0.48;
+    let pitch = base;
+    if (swiping) pitch = aimY > 0 ? base + (DIG_PITCH_UP - base) * aimY : base + ((nearBottom ? 0 : DIG_PITCH_DOWN) - base) * -aimY;
+    else if (inp.jumpHeld) pitch = 0.75;
     else if (inp.run && !nearBottom) pitch = -0.85;
     this.digPitch += (pitch - this.digPitch) * (1 - Math.exp(-dt * 10));
     const cp = Math.cos(this.digPitch);
-    const dir: [number, number, number] = [cp * Math.sin(this.heading), Math.sin(this.digPitch), cp * Math.cos(this.heading)];
+    const dir: [number, number, number] = [cp * Math.sin(this.digYaw), Math.sin(this.digPitch), cp * Math.cos(this.digYaw)];
     const o: [number, number, number] = [this.x, this.y + RADIUS, this.z];
     // 上へ掘るときは天井・掘り口までが遠くなるので、届く距離を延ばす
     const reach = DIG.reach + 0.45 * Math.max(0, this.digPitch);
-    const pr = w.digProbe(o[0], o[1], o[2], dir, reach);
+    // 届く距離の少し先（FACE_AHEAD）まで探る：届く距離の中で当たればかき出す。その先で当たった（掘り進めた穴の突き当たりが
+    // 少し先にある）なら、かき出さずに照準だけ出す（掘りながら進むと交互に起こるので、空振りの動きにはしない）
+    let pr = w.digProbe(o[0], o[1], o[2], dir, reach + FACE_AHEAD);
+    // 上へ掘っていて体の中心からは何も無い（地表へ抜けた）とき：足もとの少し上から水平にも探る。斜め上の穴が地表へ
+    // 抜けた所には、穴の床と地表の間に足もとの段（登れない急な縁）が残るので、それを掘り取って出口を平らにする
+    if (pr.t === null && this.digPitch > 0.15 && w.groundAt(this.x, this.z) - this.y > 0.06) {
+      const flat: [number, number, number] = [Math.sin(this.digYaw), 0, Math.cos(this.digYaw)];
+      const low = w.digProbe(o[0], o[1] - 0.12, o[2], flat, DIG.reach * 0.6);
+      if (low.t !== null) {
+        pr = low;
+        dir.splice(0, 3, ...flat);
+      }
+    }
+    const inReach = pr.t !== null && pr.t <= reach;
     const A = this.digAim;
     A.active = true;
-    A.p = pr.p;
+    A.p = pr.t !== null ? pr.p : [o[0] + dir[0] * reach, o[1] + dir[1] * reach, o[2] + dir[2] * reach];
     A.dir = dir;
     A.material = pr.material;
-    A.hit = pr.t !== null;
+    A.hit = inReach;
+    A.face = pr.t !== null;
+    const material: DigMaterial = inReach ? pr.material : 'none';
+    // 空振り：照準の先に何も無い（水・空気・掘った穴の中）
+    this.digWhiff += ((A.face ? 0 : 1) - this.digWhiff) * (1 - Math.exp(-dt * 8));
     // かき出し：左右の鋏で交互に（位相は 1 回で π）
     this.digPhase += (dt * Math.PI) / this.digInterval;
     this.digT -= dt;
     if (this.digT > 0) return;
     this.digT = Math.max(this.digT + this.digInterval, 0.02);
     this.digStrokes++;
-    if (pr.material === 'none' || diggable(pr.material)) {
-      // 斜め下へ掘るときは、元の地表から tunnelDepth より深くは掘らない（走る＝急に下へ、のときだけ深く掘れる）
+    if (!A.face) this.digWhiffs++;
+    if (material === 'none' || diggable(material)) {
+      // 斜め下へ掘るときは、元の地表から tunnelDepth より深くは掘らない（走る＝急に下へ・照準を下へずらした、のときだけ深く掘れる）
       // （十分深くなって水平に掘っている間は制限しない。岸の斜面の下では地表が上がっても床を水平に保つ）
-      const floorMin = inp.run || this.digDeep ? -Infinity : w.groundAt(pr.p[0], pr.p[2]) - DIG.tunnelDepth - 0.04;
-      // 届かないときも、直前に掘った空洞を太らせる（その場で掘り続けると穴が広がる）
-      const res = w.dig.stroke(o, dir, diggable(pr.material) ? pr.t : null, this.clock, floorMin, reach);
+      const down = inp.run || aimY < -0.3;
+      const floorMin = down || this.digDeep ? -Infinity : w.groundAt(pr.p[0], pr.p[2]) - DIG.tunnelDepth - 0.04;
+      // 届かないときも、直前に掘った空洞を太らせる（その場で掘り続けると穴が広がる）。そのときの砂粒は
+      // 太らせた空洞の先（res.at）から少しだけ（空振りの鋏の先からは出さない）
+      const res = w.dig.stroke(o, dir, diggable(material) ? pr.t : null, this.clock, floorMin, reach);
       if (res.changed) {
-        const at = diggable(pr.material) ? pr.p : res.at;
-        this.events.push({ kind: 'dig', x: at[0], y: at[1], z: at[2], power: res.r / DIG.rMax, dir, material: pr.material === 'none' ? 'sand' : pr.material });
+        const at = diggable(material) ? pr.p : res.at;
+        this.events.push({ kind: 'dig', x: at[0], y: at[1], z: at[2], power: (res.r / DIG.rMax) * (A.hit ? 1 : 0.3), dir, material: material === 'none' ? (A.face && diggable(pr.material) ? pr.material : 'sand') : material });
       }
     } else {
       w.dig.stats.blocked++;
-      this.events.push({ kind: 'digBlocked', x: pr.p[0], y: pr.p[1], z: pr.p[2], power: 0.5, dir, material: pr.material });
+      this.events.push({ kind: 'digBlocked', x: pr.p[0], y: pr.p[1], z: pr.p[2], power: 0.5, dir, material });
     }
   }
 
@@ -229,7 +288,14 @@ export class CrabController {
     const touching = this.grounded || this.coyote > 0 || (s > 0.5 && w.contactSolid(this.x, cy, this.z) < RADIUS + 0.2);
     const digging = !!inp.dig && !ride && !this.swimming && touching && this.region === 'tank';
 
-    if (first) this.digging = digging;
+    if (first) {
+      // 掘り始め：基準の向き = いまの体の向き。カメラがカニの正面側（顔を見ている）なら、照準の左右を画面に合わせて反転する
+      if (digging && !this.digging) {
+        this.digBaseYaw = this.digYaw = this.heading;
+        this.digSign = Math.cos(inp.cameraYaw - this.heading) > 0.2 ? -1 : 1;
+      }
+      this.digging = digging;
+    }
     // ジャンプ・遊泳の入力（掘っている間のジャンプは「上へ掘る」に使うので跳ばない）
     const pressed = first && inp.jumpHeld && !this.jumpPrev && !inp.dig;
     if (first) this.jumpPrev = inp.jumpHeld;
@@ -276,12 +342,15 @@ export class CrabController {
       maxSpeed = 0.8;
       accel = 2;
     }
-    // 掘っている間：正面（掘る向き）へゆっくり進む。掘れた分だけ穴の中へ入っていける
+    // 掘っている間：移動入力の強さで、掘る向き（照準を足した向き）へゆっくり進む。掘れた分だけ穴の中へ入っていける
+    // （移動入力の向きは基準の向きを回すのに使う。照準を左右へずらすと、その向きへ曲がりながら掘り進む）
+    const mx = digging ? Math.sin(this.digYaw) * mag : dx;
+    const mz = digging ? Math.cos(this.digYaw) * mag : dz;
     if (digging) {
       maxSpeed = 1.1;
       accel = 10;
     }
-    const tvx = dx * maxSpeed, tvz = dz * maxSpeed;
+    const tvx = mx * maxSpeed, tvz = mz * maxSpeed;
     // 入力が無いとき：地上ではすぐ止まり、水中・空中ではゆっくり減速する
     const k = 1 - Math.exp(-(hasInput ? accel : this.grounded ? 12 : lerp(0.6, 2.2, s)) * dt);
     this.vx += (tvx - this.vx) * k;
@@ -325,6 +394,9 @@ export class CrabController {
     py += this.vy * dt;
     pz += this.vz * dt;
     this.grounded = false;
+    // 床とみなす面の向き（法線の y の下限）。掘った穴の中は砂に爪を掛けて急な坂（約 66° まで）も登れる
+    // （斜め上へ掘った穴の床はかき出しの継ぎ目で段々になり、平均の傾きより急な所ができるので）。それ以外は約 57° まで
+    const floorNY = this.region === 'tank' && w.dig.count > 0 && w.dig.carve(px, py, pz) < 0.3 ? DUG_FLOOR_NY : 0.55;
     for (let it = 0; it < 4; it++) {
       const d = w.contactSolid(px, py, pz);
       if (d >= RADIUS) break;
@@ -339,7 +411,7 @@ export class CrabController {
         this.vy -= n[1] * vn;
         this.vz -= n[2] * vn;
       }
-      if (n[1] > 0.55) {
+      if (n[1] > floorNY) {
         this.grounded = true;
         this.groundN[0] = n[0];
         this.groundN[1] = n[1];
@@ -358,11 +430,27 @@ export class CrabController {
       // 吸着するのは床（上向きの面）だけ。壁（透明な管・アクリル・岩の側面）に触れているだけなら接地にしない
       // （壁に沿って歩くと、宙に浮いたまま接地扱いになって壁を伝い登るのを防ぐ）
       const nf = t <= 0.32 ? w.contactNormal(px, py - t, pz) : null;
-      if (nf && nf[1] > 0.55) {
+      if (nf && nf[1] > floorNY) {
         py -= t;
         this.grounded = true;
         const n = w.contactNormal(px, py - RADIUS * 0.5, pz);
-        if (n[1] > 0.55) this.groundN.splice(0, 3, ...n);
+        if (n[1] > floorNY) this.groundN.splice(0, 3, ...n);
+      }
+    }
+    // 掘った穴の中でよじ登る：床とみなせない急な所に触れていて、進もうとしている向きの斜め上に体が入る隙間があれば、
+    // 少し上へ押し上げる（斜め上へ掘った穴の床の継ぎ目・地表へ抜けた出口の縁は、かき出しの継ぎ目で距離関数の向きが
+    // 乱れやすく、平均の傾きは登れるのに引っかかって止まるので、面の向きではなく隙間で決める）
+    if (!this.grounded && hasInput && floorNY === DUG_FLOOR_NY && !this.swimming && !ride && this.vy < 1.2) {
+      if (w.contactSolid(px, py, pz) < RADIUS + 0.03) {
+        const ux = mx / mag, uz = mz / mag;
+        const room = w.contactSolid(px + ux * 0.12, py + 0.18, pz + uz * 0.12);
+        const ahead = w.contactSolid(px + ux * 0.12, py, pz + uz * 0.12);
+        if (room > RADIUS * 0.9 && ahead < RADIUS) {
+          // 接地にはしない（着地の出来事・歩行の位相を起こさない）。掘り続けられるよう、接地の猶予だけ延ばす
+          this.vy = 1.2 * mag;
+          this.coyote = 0.12;
+          this.climbs++;
+        }
       }
     }
     // 部屋の外へは出ない（ガラス・水槽台・濾過槽の壁は contactSolid の当たり判定で止まる）
@@ -408,9 +496,12 @@ export class CrabController {
       this.wasUnder = under;
     }
 
-    // 掘っている間：体の正面（鋏の側）を掘る向き（移動入力の向き。無ければいまの向き）へ回す
+    // 掘っている間：基準の向きは移動入力の向きへ回り（無ければ押したときの向きのまま）、掘る向き = 基準 + 照準の左右。
+    // 体の正面（鋏の側）を掘る向きへ回す（体の右 = 方位 −90°）
     if (digging) {
-      if (hasInput) this.heading = wrap(this.heading + wrap(Math.atan2(dx, dz) - this.heading) * (1 - Math.exp(-12 * dt)));
+      if (hasInput) this.digBaseYaw = wrap(this.digBaseYaw + wrap(Math.atan2(dx, dz) - this.digBaseYaw) * (1 - Math.exp(-12 * dt)));
+      this.digYaw = wrap(this.digBaseYaw - (inp.digAim?.x ?? 0) * DIG_YAW_MAX * this.digSign);
+      this.heading = wrap(this.heading + wrap(this.digYaw - this.heading) * (1 - Math.exp(-10 * dt)));
     } else if (hasInput && Math.hypot(this.vx, this.vz) > 0.2) {
       // 横歩き：移動方向の ±90° のうち、いまの向きに近い方へ体を回す
       const move = Math.atan2(this.vx, this.vz);

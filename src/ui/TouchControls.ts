@@ -4,7 +4,7 @@
 // 失われても、必ず元に戻る）。押している指の番号が終わらないまま同じ操作をもう一度押したら、新しい指に付け替える
 // （固まったスティックも、押し直せば直る）。
 
-import type { Input } from '../game/Input';
+import { DIG_AIM, digAimFromOffset, type Input } from '../game/Input';
 
 const STICK_RADIUS = 48; // ノブが動ける半径（CSS px）
 
@@ -16,7 +16,10 @@ export interface TouchControlsOptions {
   jump?: boolean;
   /** カメラ切り替えボタン（押したときに呼ぶ） */
   onCamera?: () => void;
-  /** 掘るボタン（押している間 Input.touchDig = true） */
+  /**
+   * 掘るボタン（押している間 Input.touchDig = true）。押したまま指をずらすと、押した位置からのずれが掘る向きの照準
+   * （Input.touchDigAim：上へずらす = 上を掘る、左右 = 左右、斜めも可。指がボタンの外へ出ても続く）
+   */
   dig?: boolean;
 }
 
@@ -30,7 +33,7 @@ export class TouchControls {
       <div class="stick"><div class="knob"></div></div>
       <button class="run" type="button">${opts.runLabel ?? '走る'}</button>${opts.jump ? `
       <button class="jump" type="button">ジャンプ</button>` : ''}${opts.dig ? `
-      <button class="dig" type="button">掘る</button>` : ''}${opts.onCamera ? `
+      <button class="dig" type="button"><i class="aim"></i><span>掘る</span></button>` : ''}${opts.onCamera ? `
       <button class="cam" type="button">カメラ</button>` : ''}`;
     document.body.appendChild(this.root);
     this.bindStick(this.root.querySelector<HTMLElement>('.stick')!);
@@ -38,7 +41,7 @@ export class TouchControls {
     const jump = this.root.querySelector<HTMLButtonElement>('.jump');
     if (jump) this.bindHold(jump, (on) => (this.input.touchJump = on));
     const dig = this.root.querySelector<HTMLButtonElement>('.dig');
-    if (dig) this.bindHold(dig, (on) => (this.input.touchDig = on));
+    if (dig) this.bindDig(dig);
     const cam = this.root.querySelector<HTMLButtonElement>('.cam');
     if (cam && opts.onCamera) {
       const fn = opts.onCamera;
@@ -76,6 +79,50 @@ export class TouchControls {
       ids.clear();
       apply();
     });
+  }
+
+  /**
+   * 掘るボタン：押している間は掘る。押した指の位置からのずれを照準にする（ボタンの中の印がずれの向きへ動く）。
+   * 1 本の指だけを使う（2 本目で押し直したら、新しい指に付け替える）。離した・見失ったら照準も 0 に戻る
+   */
+  private bindDig(btn: HTMLButtonElement) {
+    const mark = btn.querySelector<HTMLElement>('.aim');
+    let id = -1;
+    let ox = 0, oy = 0;
+    const show = () => {
+      const a = this.input.touchDigAim;
+      if (mark) mark.style.transform = id === -1 ? '' : `translate(${(a.x * 22).toFixed(1)}px, ${(-a.y * 22).toFixed(1)}px)`;
+      btn.classList.toggle('on', id !== -1);
+      btn.classList.toggle('aiming', id !== -1 && Math.hypot(a.x, a.y) > 0);
+    };
+    const clear = () => {
+      id = -1;
+      this.input.touchDig = false;
+      this.input.touchDigAim = { x: 0, y: 0 };
+      show();
+    };
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      if (id !== -1) this.input.release(id);
+      const mine = e.pointerId;
+      id = mine;
+      ox = e.clientX;
+      oy = e.clientY;
+      capture(btn, mine);
+      this.input.claim(e, {
+        move: (ev) => {
+          if (id !== mine) return;
+          this.input.touchDigAim = digAimFromOffset(ev.clientX - ox, ev.clientY - oy, DIG_AIM.touchRadius);
+          show();
+        },
+        end: () => id === mine && clear(),
+      });
+      this.input.touchDig = true;
+      this.input.touchDigAim = { x: 0, y: 0 };
+      show();
+    });
+    btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    this.input.onReset(clear);
   }
 
   private bindStick(base: HTMLElement) {

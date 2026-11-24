@@ -24,6 +24,16 @@
 //   区画が変わった直後はカメラの位置をなめらかにつなぐ。箱庭カメラは水槽・排水管・真下の濾過槽が一度に入る構図。
 // - 見晴らし：見晴らしの良い場所（setVista）でカニが立ち止まり、しばらく視点を触らないでいると、
 //   冒険カメラがその場所の眺めの向きへゆっくり回り込む（ドラッグ・ホイールですぐ手放す）。
+// - 地下（掘ったトンネルの中）：三人称の腕は砂の壁で縮み、カニが画面を塞いで向きが分からなくなる。そこで、
+//   カニの体の中心が掘った空洞の中にあり、元の地表より下で、頭の上に砂の天井があるほど（tunnel 0..1。なめらかに変える）、
+//   頭の上からの近い視点（tunnelCam = 'near'：一人称に近い構図）へ寄せる。
+//   - 視点の向き（yaw / pitch）は三人称と同じ値をそのまま使う（三人称で「カニを見る向き」＝近い視点で「前を見る向き」）。
+//     移動の基準（camera.yaw）も変わらないので、出入りで移動の向き・掘る向きが変わらない。
+//   - 三人称の姿勢と近い視点の姿勢を、毎フレームそれぞれ求めて tunnel で混ぜる（位置・見る向き・画角）。
+//     どちらも壁から離した位置なので、混ぜた位置が砂の中に入ったときだけ近い視点の位置を使う。
+//   - カメラがカニに近いほど、カニの体・脚をディザで透かす（crabFade。鋏は半分だけ。視界を塞がない）。
+//   比べた方式（tunnelCam）：'orbit' = 従来の三人称のまま、'shoulder' = 腕を 1.1 に縮めた肩越し、'near' = 頭の上の近い視点。
+//   既定は 'near'（docs/aquarium/free-dig-tunnel-cam/report.md の比較）。
 
 import { clamp, smoothstep } from '../core/math';
 import type { Input } from '../game/Input';
@@ -44,6 +54,14 @@ const CUT_RADIUS = 0.8;
 const LOOK_DOWN_MAX = 1.2;
 /** 透明な板からカメラを離しておく距離 */
 const PANEL_GAP = 0.18;
+/**
+ * 地下の近い視点：頭の上の高さ（体の中心から。天井が低ければ下げる）・見る向きの水平な後ろへ引く最大の距離・壁から離す距離・画角。
+ * 肩越し：腕の長さ（注視点はカニ）
+ */
+const NEAR = { lift: 0.44, back: 0.9, gap: 0.12, fov: 68, maxPitch: 1.1 };
+const SHOULDER = { back: 1.1, fov: 64 };
+
+export type TunnelCam = 'orbit' | 'shoulder' | 'near';
 import type { VistaView } from './AquariumSpots';
 import type { CrabController } from './CrabController';
 
@@ -72,6 +90,11 @@ type V3 = [number, number, number];
 function direction(o: { yaw: number; pitch: number }): V3 {
   const cp = Math.cos(o.pitch);
   return [cp * Math.sin(o.yaw), Math.sin(o.pitch), cp * Math.cos(o.yaw)];
+}
+
+function unit(v: V3): V3 {
+  const l = Math.hypot(v[0], v[1], v[2]);
+  return l > 1e-6 ? [v[0] / l, v[1] / l, v[2] / l] : [0, 0, -1];
 }
 
 /** 位置 p から aim を見る向きを、上へ a ラジアン起こした注視点（真上の少し手前で止める） */
@@ -118,8 +141,16 @@ export class AquaCamera {
   /** 見上げている量（床で止まった分）・見下ろしている量（天井で止まった分）。表示・検証用 */
   lookUp = 0;
   lookDown = 0;
-  /** トンネルの中にいる度合い（0..1。平滑化。表示・検証用） */
+  /** トンネルの中にいる度合い（0..1。平滑化。地下の近い視点へ寄せる割合） */
   tunnel = 0;
+  /** 地下の視点の方式（比較用に切り替えられる） */
+  tunnelCam: TunnelCam = 'near';
+  /** カニを透かす量（0..1。カメラがカニに近いほど大きい。描画側が読む） */
+  crabFade = 0;
+  /** 地下の近い視点の、頭の上から後ろへ引いた距離（肩越しは腕の長さ。平滑化） */
+  private nearDist = 0;
+  /** 混ぜた位置が砂の中で、近い視点の位置を使った回数（検証用） */
+  blendFallback = 0;
   /** 寄らされて近いときに広げる画角（度。平滑化） */
   private closeFov = 0;
   /**
@@ -182,10 +213,11 @@ export class AquaCamera {
     this.target.x += (c.x - this.target.x) * kf;
     this.target.y += (c.y + 0.3 - this.target.y) * kf;
     this.target.z += (c.z - this.target.z) * kf;
-    // 掘ったトンネルの中か（カニの体の中心が空洞の中で、元の地表より 0.25 以上下）
+    // 掘ったトンネルの中にいる度合い：体の中心が空洞の中で元の地表より下（深さ 0.05〜0.4 で 0→1）× 頭の上の砂の天井
+    // （上が開いた溝・地表へ抜けた出口では 0）。入るときは少し速く、出るときはゆっくり変える（境目で急に変わらない）
     const cy = c.y + c.radius;
-    const inTunnel = c.region === 'tank' && this.world.dig.tunnelDepth(c.x, cy, c.z, this.world.groundAt(c.x, c.z)) > 0.25 ? 1 : 0;
-    this.tunnel += (inTunnel - this.tunnel) * (1 - Math.exp(-dt * (inTunnel ? 5 : 2)));
+    const want = this.tunnelWant(c, cy);
+    this.tunnel += (want - this.tunnel) * (1 - Math.exp(-dt * (want > this.tunnel ? 3 : 2)));
     if (c.region !== this.region) {
       this.region = c.region;
       this.blendT = 0.8;
@@ -240,13 +272,85 @@ export class AquaCamera {
     // 見上げるほど画角を広げる（足もとのカニと上の景色が一緒に入る）。寄らされて近いときも少し広げる
     const fov = 55 + 20 * smoothstep(0.05, 0.9, this.lookUp) + this.closeFov;
     this.pose.fov = fov + (v?.fov ? (v.fov - fov) * Math.min(1, this.aimW / 0.62) : 0);
+    // 地下：三人称の姿勢を近い視点（または肩越し）へ寄せる
+    const e = this.tunnelCam === 'orbit' || this.region !== 'tank' ? 0 : smoothstep(0, 1, this.tunnel);
+    if (e > 1e-3) this.blendTunnel(o, c, e, dt);
+    else this.nearDist = 0;
+    // カメラがカニに近いほど、カニを透かす（体の中心から 1.0 で 0、0.35 で最大）
+    const P = this.pose.pos;
+    this.crabFade = 0.75 * smoothstep(1.0, 0.35, Math.hypot(P[0] - c.x, P[1] - cy, P[2] - c.z));
     this.sanitize(c);
+  }
+
+  /** 掘ったトンネルの中にいる度合いの目標（0..1）：空洞の中で元の地表より下にいる深さ × 頭の上の砂の天井 */
+  private tunnelWant(c: CrabController, cy: number): number {
+    if (c.region !== 'tank') return 0;
+    const w = this.world;
+    const depth = w.dig.tunnelDepth(c.x, cy, c.z, w.groundAt(c.x, c.z));
+    if (depth <= 0) return 0;
+    let roof = 0;
+    for (const h of [0.6, 0.9, 1.25]) if (w.sandSolid(c.x, cy + h, c.z) < 0) roof++;
+    return smoothstep(0.05, 0.4, depth) * Math.min(1, roof / 2);
+  }
+
+  /**
+   * 地下の視点へ寄せる（e = 寄せる割合 0..1）。近い視点：頭の上（天井が低ければ下げる）を中心に、視点の向きの後ろへ
+   * 見る向きの水平な後ろへ NEAR.back（壁の手前まで）引き、前（三人称でカニを見ていた向き）を見る。肩越し：三人称の注視点から腕 1.1 で、カニを見る
+   */
+  private blendTunnel(o: Orbit, c: CrabController, e: number, dt: number) {
+    const w = this.world, region = this.region, P = this.pose;
+    const cx = c.x, cy = c.y + c.radius, cz = c.z;
+    const shoulder = this.tunnelCam === 'shoulder';
+    let pivot: V3;
+    if (shoulder) pivot = [this.target.x, this.target.y, this.target.z];
+    else {
+      let h = NEAR.lift;
+      while (h > 0.02 && w.cameraSolid(cx, cy + h, cz, region) < NEAR.gap) h -= 0.03;
+      pivot = [cx, cy + Math.max(0, h), cz];
+    }
+    const d = direction({ yaw: o.yaw, pitch: clamp(o.pitch, -NEAR.maxPitch, NEAR.maxPitch) });
+    // 近い視点は、頭の上（天井の近く）から見る向きの水平な後ろへ、トンネルが許すだけ（最大 NEAR.back）引く：
+    // トンネルに沿って見ていれば、低い後ろからカニを小さく画面の下に入れて先を見通す。壁・天井を向いていて引けなければ、
+    // 頭の上からの一人称に近い構図になる（カニは視界の下の外）。肩越しは腕の向きへ引く。
+    // どちらも壁・天井の手前まで。近づくときはすぐ、離れるときはゆっくり（壁の凹凸で前後に揺れない）
+    const hl = Math.hypot(d[0], d[2]) || 1;
+    const m: V3 = shoulder ? d : [d[0] / hl, 0, d[2] / hl];
+    const reach = shoulder ? Math.min(SHOULDER.back, o.zoom) : NEAR.back;
+    let s = 0;
+    while (s < reach) {
+      const t = Math.min(reach, s + 0.04);
+      if (w.cameraSolid(pivot[0] + m[0] * t, pivot[1] + m[1] * t, pivot[2] + m[2] * t, region) < NEAR.gap) break;
+      s = t;
+    }
+    this.nearDist += (s - this.nearDist) * (1 - Math.exp(-dt * (s < this.nearDist ? 14 : 3)));
+    this.nearDist = Math.min(this.nearDist, s);
+    const pn: V3 = [pivot[0] + m[0] * this.nearDist, pivot[1] + m[1] * this.nearDist, pivot[2] + m[2] * this.nearDist];
+    // 見る向き：近い視点は前、肩越しはカニ
+    const fN = shoulder ? unit([this.target.x - pn[0], this.target.y - pn[1], this.target.z - pn[2]]) : [-d[0], -d[1], -d[2]];
+    const pO = P.pos, tO = P.target;
+    const fO = unit([tO[0] - pO[0], tO[1] - pO[1], tO[2] - pO[2]]);
+    const mix = (k: number): V3 => [pO[0] + (pn[0] - pO[0]) * k, pO[1] + (pn[1] - pO[1]) * k, pO[2] + (pn[2] - pO[2]) * k];
+    let pos = mix(e);
+    // 混ぜた位置が砂の中なら（曲がったトンネルで三人称の位置と近い視点の間に壁がある）、近い視点の側へ少しずつ寄せる。
+    // 三人称の位置そのものが壁に近いときは、それより近くなければよい（e が小さいときに近い視点へ飛ばない）
+    const need = Math.min(CAM_HARD * 0.5, w.cameraSolid(pO[0], pO[1], pO[2], region) - 0.01);
+    for (let k = e; k < 1 && w.cameraSolid(pos[0], pos[1], pos[2], region) < need; ) {
+      k = Math.min(1, k + 0.1);
+      pos = mix(k);
+      this.blendFallback++;
+    }
+    const f = unit([fO[0] + (fN[0] - fO[0]) * e, fO[1] + (fN[1] - fO[1]) * e, fO[2] + (fN[2] - fO[2]) * e]);
+    P.pos = pos;
+    P.target = [pos[0] + f[0] * 3, pos[1] + f[1] * 3, pos[2] + f[2] * 3];
+    P.fov += ((shoulder ? SHOULDER.fov : NEAR.fov) - P.fov) * e;
+    // 越えた薄い物を抜く処理は、地下では使わない（カメラとカニの間に物が無い）
+    this.cut.on = Math.min(this.cut.on, 1 - e);
   }
 
   /** 状態のどこかが数でなくなったら（NaN・無限大）、カニの後ろの既定の視点へ戻す */
   private sanitize(c: CrabController) {
     const o = this.adventure, d = this.diorama, t = this.target, P = this.pose;
-    const ok = [o.yaw, o.pitch, o.zoom, d.yaw, d.pitch, d.zoom, t.x, t.y, t.z, this.dist, this.floorPitch, this.ceilPitch, ...P.pos, ...P.target, P.fov].every(Number.isFinite);
+    const ok = [o.yaw, o.pitch, o.zoom, d.yaw, d.pitch, d.zoom, t.x, t.y, t.z, this.dist, this.floorPitch, this.ceilPitch, this.tunnel, this.nearDist, ...P.pos, ...P.target, P.fov].every(Number.isFinite);
     if (ok) return;
     this.recovered++;
     if (!Number.isFinite(d.yaw)) d.yaw = 0.42;
@@ -258,6 +362,8 @@ export class AquaCamera {
     this.floorPitch = -2;
     this.ceilPitch = 2;
     this.lookUp = this.lookDown = this.closeFov = this.aimW = 0;
+    this.tunnel = this.crabFade = 0;
+    this.nearDist = 0;
     this.cut.on = 0;
     this.placeBehind(c);
     const dir = direction(o);

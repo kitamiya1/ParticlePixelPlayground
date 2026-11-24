@@ -2,6 +2,8 @@
   "version": "0.0.1",
   "configurations": [
     { "name": "dev", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5173 },
+    { "name": "dev-5180", "runtimeExecutable": "npx", "runtimeArgs": ["vite", "--port", "5180", "--strictPort"], "port": 5180 },
+    { "name": "base-5174", "runtimeExecutable": "npx", "runtimeArgs": ["vite", "../PPP-base", "--port", "5174", "--strictPort"], "port": 5174 },
     { "name": "preview", "runtimeExecutable": "npm", "runtimeArgs": ["run", "preview", "--", "--port", "4173", "--strictPort"], "port": 4173 }
   ]
 }

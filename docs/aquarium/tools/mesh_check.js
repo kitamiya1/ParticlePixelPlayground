@@ -21,24 +21,31 @@ async (page) => {
     const path = [];
     const plans = O.plans ?? [{ at: [3.6, 0], heading: Math.PI / 2, seconds: 8 }];
     for (const pl of plans) {
-      c.teleport(pl.at[0], pl.at[1]);
-      c.heading = pl.heading;
-      run(20);
-      a.camera.adventure.yaw = pl.heading + Math.PI;
+      // continue = 直前の計画の続き（置き直さない）。aim = 照準 [x, y]（aimRamp なら 0 から少しずつ）。照準の無いビルドでは無視される
+      if (!pl.continue) {
+        c.teleport(pl.at[0], pl.at[1]);
+        c.heading = pl.heading;
+        run(20);
+        a.camera.adventure.yaw = pl.heading + Math.PI;
+      }
       a.dig = true;
-      run(Math.round(pl.seconds * 60), (i) => {
+      const n = Math.round(pl.seconds * 60);
+      run(n, (i) => {
+        const k = pl.aimRamp ? i / n : 1;
+        a.digAim = pl.aim ? { x: pl.aim[0] * k, y: pl.aim[1] * k } : null;
         // 掘る向き（世界の向き）をカメラ基準の入力に直す。turn で曲がる・up で上へ
-        const hd = pl.heading + (pl.turn ?? 0) * (i / 60);
+        const hd = (pl.continue ? a.camera.yaw - Math.PI : pl.heading) + (pl.turn ?? 0) * (i / 60);
         const yaw = a.camera.yaw, fxx = -Math.sin(yaw), fzz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
         const wx = Math.sin(hd), wz = Math.cos(hd);
         a.input.touchMove = { x: wx * rx + wz * rz, y: wx * fxx + wz * fzz };
         a.input.touchJump = !!pl.up && i > pl.seconds * 30;
-        if (i % 6 === 0) path.push([c.x, c.y + c.radius, c.z]);
+        if (i % 6 === 0) path.push([c.x, c.y + c.radius, c.z, plans.indexOf(pl)]);
       });
       a.dig = false;
+      a.digAim = null;
       a.input.touchMove = { x: 0, y: 0 };
       a.input.touchJump = false;
-      run(30);
+      if (!plans[plans.indexOf(pl) + 1]?.continue) run(30);
     }
     fx.flushAll();
     const terr = fx.d.terrain;
@@ -92,6 +99,8 @@ async (page) => {
     };
     let thin = 0, rays = 0, holes = 0, backFirst = 0, miss = 0, late = 0;
     const examples = [];
+    // 計画ごとの穴の数（path の 4 番目 = 計画の番号）
+    const perPlan = {};
     const N = O.rays ?? 120;
     // 空洞の中の点（カニが通った道）。砂の中・地表より上は除く
     const pts = path.filter((q) => w.sandSolid(q[0], q[1], q[2]) > 0.05 && q[1] < w.groundAt(q[0], q[2]) - 0.1);
@@ -120,11 +129,12 @@ async (page) => {
         else if (m.t > ts + 0.3) { late++; bad = 'late'; }
         if (bad) {
           holes++;
-          if (examples.length < 8) examples.push({ bad, o: o.map((v) => +v.toFixed(2)), d: d.map((v) => +v.toFixed(2)), tSdf: +ts.toFixed(2), tMesh: +m.t.toFixed(2) });
+          perPlan[o[3]] = (perPlan[o[3]] ?? 0) + 1;
+          if (examples.length < 8) examples.push({ bad, o: o.slice(0, 3).map((v) => +v.toFixed(2)), d: d.map((v) => +v.toFixed(2)), tSdf: +ts.toFixed(2), tMesh: +m.t.toFixed(2) });
         }
       }
     }
-    return { points: pts.length, thinSkipped: thin, rays, holes, miss, backFirst, late, prims: dig.count, chunks: fx.stats.chunks, examples };
+    return { points: pts.length, thinSkipped: thin, rays, holes, miss, backFirst, late, perPlan, prims: dig.count, chunks: fx.stats.chunks, examples };
   }, O);
   await ctx.close();
   return r;
