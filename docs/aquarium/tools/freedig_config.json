@@ -1,1 +1,1 @@
-﻿{ "host": "http://localhost:5180", "base": "http://localhost:5174", "dir": "D:/AI-Projects/ParticlePixelPlayground/docs/aquarium/free-dig-tunnel-cam/shots", "w": 960, "h": 600, "only": ["cam"] }
+{ "host": "http://localhost:5180", "base": "http://localhost:5174", "dir": "D:/AI-Projects/ParticlePixelPlayground/docs/aquarium/free-dig-tunnel-cam/shots", "w": 960, "h": 600, "only": ["exit", "curve", "cam"] }

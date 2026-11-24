@@ -37,12 +37,19 @@
     run(sec, dig, aim, move) {
       a.dig = dig;
       a.digAim = aim;
-      mv = move ?? { x: 0, y: 0 };
+      // move = 'dig'：スティックを掘っている向きへ倒す（移動と掘る向きが別々のビルドで、掘る向きへ進む）
+      const toDig = move === 'dig';
+      mv = toDig ? { x: 0, y: 0 } : move ?? { x: 0, y: 0 };
       a.freeze = false;
       const n = Math.round(sec * 60);
       let jump = 0, turn = 0;
       let prev = [...cam.pose.pos], pf = dirOf();
       for (let i = 0; i < n; i++) {
+        if (toDig) {
+          const hd = c.state === 'dig' ? (c.digYaw ?? c.heading) : c.heading, yaw = cam.yaw;
+          const wx = Math.sin(hd), wz = Math.cos(hd);
+          mv = { x: wx * Math.cos(yaw) - wz * Math.sin(yaw), y: -wx * Math.sin(yaw) - wz * Math.cos(yaw) };
+        }
         a.step(1);
         const p = cam.pose.pos, f = dirOf();
         jump = Math.max(jump, Math.hypot(p[0] - prev[0], p[1] - prev[1], p[2] - prev[2]));
@@ -128,17 +135,18 @@
     },
     /**
      * 曲がったトンネル：岸の斜面へ水平に 4 秒掘ってから、照準の左右を 0 → x1 へ secs 秒かけて少しずつずらしながら
-     * スティックを前に倒したまま掘り進める。通った道（0.5 秒ごと）と、向きの変わり方・進んだ距離を返す
+     * スティックを掘っている向きへ倒したまま掘り進める（移動と掘る向きは別々なので、掘る向きへ進むにはスティックも
+     * その向きへ倒す）。通った道（0.5 秒ごと）と、向きの変わり方・進んだ距離を返す
      */
     curveTest(x1 = 0.8, secs = 6) {
       fd.setup(-4.6, 8.3, Math.PI / 2);
-      fd.run(4, true, { x: 0, y: 0 }, { x: 0, y: 1 });
+      fd.run(4, true, { x: 0, y: 0 }, 'dig');
       const s0 = fd.snap('まっすぐ 4 秒');
       const path = [[+c.x.toFixed(2), +c.z.toFixed(2)]];
       let jump = 0, turn = 0, len = 0, px = c.x, pz = c.z;
       const n = Math.round(secs / 0.5);
       for (let i = 1; i <= n; i++) {
-        const r = fd.run(0.5, true, { x: (x1 * i) / n, y: 0 }, { x: 0, y: 1 });
+        const r = fd.run(0.5, true, { x: (x1 * i) / n, y: 0 }, 'dig');
         jump = Math.max(jump, r.jump);
         turn = Math.max(turn, r.turn);
         len += Math.hypot(c.x - px, c.z - pz);

@@ -1,4 +1,4 @@
-// 掘った穴の三角形の検査（Playwright。browser_run_code_unsafe で実行。設定は mesh_config.json { host, seconds, rays }）。
+// 掘った穴の三角形の検査（Playwright。browser_run_code_unsafe で実行。設定は mesh_config.json { host, rays, plans, budget }）。
 // ゲームのループと同じ処理（__aqua.step）でトンネルを掘ってから、すべての区画を作り直し、
 // カニが通った道（空洞の中）の点から全方向へ光線を飛ばして、見えている三角形（掘った区画 + 高さ場の網）と
 // 当たり判定の距離関数（solid）を比べる：
@@ -16,6 +16,8 @@ async (page) => {
   await p.waitForFunction(() => window.__aqua, null, { timeout: 180000 });
   const r = await p.evaluate((O) => {
     const a = window.__aqua, c = a.crab, w = a.world, dig = w.dig, fx = a.view.digFx;
+    // budget：区画の作り直しの 1 フレームの時間の上限（ms）。大きくすると実時間に左右されず毎回同じ結果になる（比較用）
+    if (O.budget) fx.budgetMs = O.budget;
     a.freeze = true;
     const run = (n, fn) => { a.freeze = false; for (let i = 0; i < n; i++) { fn?.(i); a.step(1, 1 / 60); } a.freeze = true; };
     const path = [];
@@ -32,9 +34,12 @@ async (page) => {
       const n = Math.round(pl.seconds * 60);
       run(n, (i) => {
         const k = pl.aimRamp ? i / n : 1;
-        a.digAim = pl.aim ? { x: pl.aim[0] * k, y: pl.aim[1] * k } : null;
-        // 掘る向き（世界の向き）をカメラ基準の入力に直す。turn で曲がる・up で上へ
-        const hd = (pl.continue ? a.camera.yaw - Math.PI : pl.heading) + (pl.turn ?? 0) * (i / 60);
+        // turn（rad/s）= 照準の左右で掘る向きを少しずつ曲げる（照準 x = −1 で基準から +90°。移動と掘る向きが別々なので、
+        // スティックでは曲がらない）。up = 後半はジャンプ（上へ掘る）
+        const tx = pl.turn ? Math.max(-1, Math.min(1, -(pl.turn * (i / 60)) / (Math.PI / 2))) : 0;
+        a.digAim = pl.aim || pl.turn ? { x: (pl.aim ? pl.aim[0] * k : 0) + tx, y: pl.aim ? pl.aim[1] * k : 0 } : null;
+        // スティックは掘っている向きへ倒す（掘る向きの世界の向きを、カメラ基準の入力に直す）
+        const hd = c.state === 'dig' ? c.digYaw : pl.continue ? a.camera.yaw - Math.PI : pl.heading;
         const yaw = a.camera.yaw, fxx = -Math.sin(yaw), fzz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
         const wx = Math.sin(hd), wz = Math.cos(hd);
         a.input.touchMove = { x: wx * rx + wz * rz, y: wx * fxx + wz * fzz };
@@ -113,6 +118,8 @@ async (page) => {
         const d = [s * Math.cos(ph), zc, s * Math.sin(ph)];
         const ts = castSdf(o, d, 8);
         if (!Number.isFinite(ts)) continue;
+        // 水槽の外（ガラスの向こう）の砂は描かない（高さ場を水槽の縁で延ばした値なので数えない）
+        if (!w.insideTank(o[0] + d[0] * ts, o[2] + d[2] * ts)) continue;
         // 岩・流木などが先にある向きは数えない（そちらは別のメッシュ）
         let other = false;
         for (let t = 0.05; t < ts; t += 0.1) if (w.solid(o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t) < 0) { other = true; break; }

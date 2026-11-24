@@ -13,13 +13,15 @@
 // - 穴掘り（dig）：掘るボタンを押している間、体の正面（鋏の側）を掘る向きへ回し、一定の間隔で前方の砂をかき出す
 //   （AquariumWorld.digProbe で当たった物を調べ、砂・土なら DigField.stroke で空洞を足す）。
 //   掘る向き = 基準の向き + 照準（CrabInput.digAim。押したまま指・マウスをずらした量）。カメラではなくカニが基準：
-//   - 基準の向き：押したときの体の向き。移動入力があればその向きへ回る（スティックで曲がりながら掘れる）。
+//   - 基準の向き：押したときの体の向き。押している間は変えない（移動・カメラの向きでは回らない）。
 //   - 左右：照準の x で基準から最大 ±90°（押したときにカメラがカニの正面側にいたら、画面の左右と合うよう反転。
 //     押している間は反転を変えない＝カメラが動いても掘る向きは変わらない）。
 //   - 上下：照準の y が 0 なら自動（地表では斜め下、十分深くなったら水平。ジャンプで上・走るで下も従来どおり）。
 //     y を上げる・下げるほど、DIG_PITCH_UP / DIG_PITCH_DOWN へ連続的に向く（ずらしている間は自動の切り替えを止める）。
-//   掘っている間は横歩きせず、体を掘る向きへ回す。移動入力があれば、その強さで掘る向きへゆっくり進む
-//   （掘れた分だけ前へ入っていける。照準を左右へずらしていくと、曲がったトンネルになる）。
+//   移動と掘る向きは別々に決まる：左のスティック（移動入力）はふだんと同じカメラ基準の向きへ、掘っている間はゆっくり
+//   （DIG_MOVE_SPEED）進める。掘る向きへは引き寄せない（上を掘りながら前へ・右を掘りながら左へ・止まったまま
+//   掘る向きだけ変える、ができる）。体は横歩きせず、正面（鋏の側）を掘る向きへ回す。
+//   掘る向きへ進めば掘れた分だけ前へ入っていける。照準を左右へずらしていくと、曲がったトンネルになる。
 //   掘った穴の中は、急な床（継ぎ目の段・地表へ抜けた出口の縁）でもよじ登れる（DUG_FLOOR_NY・よじ登り）。
 //   照準の先に何も無い（届かない）ときはかき出さずに空振りする（digWhiff。見た目は CrabRig が鋏を宙で振る）。
 
@@ -76,6 +78,8 @@ export const DIG_YAW_MAX = Math.PI / 2;
 const FACE_AHEAD = 0.8;
 /** 掘った穴の中で床とみなす面の法線の y の下限（約 66°。穴の外は 0.55 = 約 57°） */
 const DUG_FLOOR_NY = 0.4;
+/** 掘っている間の移動の速さの上限 */
+const DIG_MOVE_SPEED = 1.1;
 
 export class CrabController {
   /** 足元の位置（球の中心は y + RADIUS） */
@@ -342,12 +346,11 @@ export class CrabController {
       maxSpeed = 0.8;
       accel = 2;
     }
-    // 掘っている間：移動入力の強さで、掘る向き（照準を足した向き）へゆっくり進む。掘れた分だけ穴の中へ入っていける
-    // （移動入力の向きは基準の向きを回すのに使う。照準を左右へずらすと、その向きへ曲がりながら掘り進む）
-    const mx = digging ? Math.sin(this.digYaw) * mag : dx;
-    const mz = digging ? Math.cos(this.digYaw) * mag : dz;
+    // 掘っている間：移動入力の向き（カメラ基準、ふだんと同じ）へゆっくり進む。掘る向きとは別（照準で決める）
+    const mx = dx;
+    const mz = dz;
     if (digging) {
-      maxSpeed = 1.1;
+      maxSpeed = DIG_MOVE_SPEED;
       accel = 10;
     }
     const tvx = mx * maxSpeed, tvz = mz * maxSpeed;
@@ -439,8 +442,12 @@ export class CrabController {
     }
     // 掘った穴の中でよじ登る：床とみなせない急な所に触れていて、進もうとしている向きの斜め上に体が入る隙間があれば、
     // 少し上へ押し上げる（斜め上へ掘った穴の床の継ぎ目・地表へ抜けた出口の縁は、かき出しの継ぎ目で距離関数の向きが
-    // 乱れやすく、平均の傾きは登れるのに引っかかって止まるので、面の向きではなく隙間で決める）
-    if (!this.grounded && hasInput && floorNY === DUG_FLOOR_NY && !this.swimming && !ride && this.vy < 1.2) {
+    // 乱れやすく、平均の傾きは登れるのに引っかかって止まるので、面の向きではなく隙間で決める）。
+    // 接地していても、進もうとしている向きへほとんど進めていない（坂の上で出口の縁の段に押し返されている）ときは同じ：
+    // 斜め上へ掘って地表へ抜けた穴の縁には、残す砂の膜の厚さ（AquariumDig の FILM）ほどの段が残る
+    const ux0 = hasInput ? mx / mag : 0, uz0 = hasInput ? mz / mag : 0;
+    const stuck = this.grounded && hasInput && (px - this.x) * ux0 + (pz - this.z) * uz0 < 0.3 * maxSpeed * mag * dt;
+    if ((!this.grounded || stuck) && hasInput && floorNY === DUG_FLOOR_NY && !this.swimming && !ride && this.vy < 1.2) {
       if (w.contactSolid(px, py, pz) < RADIUS + 0.03) {
         const ux = mx / mag, uz = mz / mag;
         const room = w.contactSolid(px + ux * 0.12, py + 0.18, pz + uz * 0.12);
@@ -496,10 +503,9 @@ export class CrabController {
       this.wasUnder = under;
     }
 
-    // 掘っている間：基準の向きは移動入力の向きへ回り（無ければ押したときの向きのまま）、掘る向き = 基準 + 照準の左右。
+    // 掘っている間：掘る向き = 基準（押したときの体の向き。移動・カメラでは変えない）+ 照準の左右。
     // 体の正面（鋏の側）を掘る向きへ回す（体の右 = 方位 −90°）
     if (digging) {
-      if (hasInput) this.digBaseYaw = wrap(this.digBaseYaw + wrap(Math.atan2(dx, dz) - this.digBaseYaw) * (1 - Math.exp(-12 * dt)));
       this.digYaw = wrap(this.digBaseYaw - (inp.digAim?.x ?? 0) * DIG_YAW_MAX * this.digSign);
       this.heading = wrap(this.heading + wrap(this.digYaw - this.heading) * (1 - Math.exp(-10 * dt)));
     } else if (hasInput && Math.hypot(this.vx, this.vz) > 0.2) {
