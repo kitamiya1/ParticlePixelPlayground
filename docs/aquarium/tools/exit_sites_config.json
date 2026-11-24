@@ -1,0 +1,13 @@
+{"hosts":{"before":"http://localhost:5174","after":"http://localhost:5173"},"budget":1000000000,"aims":[1,0.5],"flat":5,"up":14,"walk":3,
+"sites":[
+ {"name":"岸の斜面 z8.3","at":[-4.6,8.3],"heading":1.5708},
+ {"name":"岸の斜面 z9.0","at":[-4.6,9.0],"heading":1.5708},
+ {"name":"岸の斜面 z6.6","at":[-4.6,6.6],"heading":1.5708},
+ {"name":"水面近くの砂","at":[3.6,0],"heading":1.5708},
+ {"name":"奥の砂地","at":[9.0,-3.5],"heading":0},
+ {"name":"手前の砂地（逆向き）","at":[-2.5,6.5],"heading":3.1416},
+ {"name":"右の砂地（-x 向き）","at":[12,4],"heading":-1.5708},
+ {"name":"奥の左（+z 向き）","at":[0.5,-7],"heading":0},
+ {"name":"左奥（+x 向き）","at":[-12,-5],"heading":1.5708},
+ {"name":"手前右（-z 向き）","at":[6,6],"heading":3.1416}
+]}

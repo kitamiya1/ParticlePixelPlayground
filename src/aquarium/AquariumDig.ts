@@ -135,7 +135,10 @@ function primDist(p: CarvePrim, x: number, y: number, z: number): number {
   // 両端の丸い部分では床を平らに伸ばさず、端から離れるほど上げる（約 42°）。平らなままだと、次に上・下へ向きを
   // 変えて掘った坂の床より下に「踊り場」が残り、カニがそこへ進んで坂の始まりの段差に引っかかる
   const over = (tr < 0 ? -tr : tr > 1 ? tr - 1 : 0) * Math.sqrt(L2);
-  const floor = ay + vy * t - p.r * DIG.floorK + over * 0.9;
+  // 床までの深さは軸に垂直な向きで r × floorK にする（鉛直に測ると、急な坂ほど床が軸へ近づき、60° では 0.13 しか
+  // 空かずにカニの体（半径 0.24）が軸に沿って通れなかった＝最大の上向きで掘るとカニが遅れて止まる）
+  const cosP = L2 > 1e-9 ? Math.max(0.5, Math.hypot(vx, vz) / Math.sqrt(L2)) : 1;
+  const floor = ay + vy * t - (p.r * DIG.floorK) / cosP + over * 0.9;
   return smax(d, floor - y, 0.06);
 }
 

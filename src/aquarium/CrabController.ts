@@ -22,6 +22,8 @@
 //   （DIG_MOVE_SPEED）進める。掘る向きへは引き寄せない（上を掘りながら前へ・右を掘りながら左へ・止まったまま
 //   掘る向きだけ変える、ができる）。体は横歩きせず、正面（鋏の側）を掘る向きへ回す。
 //   掘る向きへ進めば掘れた分だけ前へ入っていける。照準を左右へずらしていくと、曲がったトンネルになる。
+//   上へ掘っている間は、スティックの水平の向きが掘る方位に近ければ、掘っている穴に沿って掘る向きの傾きで上へも進む
+//   （照準をいっぱいに上げた 60° でも掘り線に遅れず、地表まで掘り抜いて出られる。元の地表より上では弱める）。
 //   掘った穴の中は、急な床（継ぎ目の段・地表へ抜けた出口の縁）でもよじ登れる（DUG_FLOOR_NY・よじ登り）。
 //   照準の先に何も無い（届かない）ときはかき出さずに空振りする（digWhiff。見た目は CrabRig が鋏を宙で振る）。
 
@@ -388,6 +390,24 @@ export class CrabController {
       this.vx += (fl.vx - this.vx) * kf;
       this.vz += (fl.vz - this.vz) * kf;
       if (ride || Math.abs(fl.vy) > 0.05) this.vy += (fl.vy - this.vy) * kf;
+    }
+
+    // 上へ掘っている穴を登る：掘っている間、スティックの水平の向きが掘る方位に近ければ（移動の向きは変えない）、
+    // 掘る向きの先に体が入る隙間がある間は、掘る向きの傾きに合わせて上へも進む（歩いて坂に押し上げられるだけでは
+    // 掘る向き（最大 60°）より緩い角度でしか登れず、掘り線から遅れて段に当たり、掘る面も届く距離の外へ離れて止まっていた）
+    if (digging && this.digPitch > 0.2 && hasInput && !this.swimming && !ride && w.dig.count > 0 && w.dig.carve(this.x, cy, this.z) < 0.1) {
+      const along = (dx * Math.sin(this.digYaw) + dz * Math.cos(this.digYaw));
+      if (along > 0.3) {
+        const cp = Math.cos(this.digPitch), sp = Math.sin(this.digPitch);
+        const ux = cp * Math.sin(this.digYaw), uz = cp * Math.cos(this.digYaw);
+        // 体の中心が元の地表より上へ出るにつれて弱め（地表の 0.3 上で 0）、登っている間は上向きの速さを坂に沿う速さに合わせる
+        // （地表で上へ掘ると、掘った浅い穴を登り切った勢いのまま水中へ飛び出していた）
+        const under = smoothstep(-0.3, 0.1, w.groundAt(this.x, this.z) - cy);
+        if (under > 0 && w.contactSolid(this.x + ux * 0.2, cy + sp * 0.2, this.z + uz * 0.2) > RADIUS * 0.9) {
+          this.vy = Math.min(1.8, along * maxSpeed * Math.tan(Math.min(this.digPitch, 1.15))) * under;
+          this.coyote = Math.max(this.coyote, 0.12);
+        }
+      }
     }
 
     // 移動と当たり判定

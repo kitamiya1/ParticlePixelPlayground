@@ -1,4 +1,6 @@
-// 掘った穴の三角形の検査（Playwright。browser_run_code_unsafe で実行。設定は mesh_config.json { host, rays, plans, budget }）。
+// 掘った穴の三角形の検査（Playwright。browser_run_code_unsafe で実行。設定は mesh_config.json { host, rays, plans, budget, shotDir }。
+// 実行する側で globalThis.__over に入れた値は設定を上書きする）。shotDir があれば、不一致の光線ごとに始点から光線の向きを見た画面を撮る
+// （mismatch-<番号>.jpg。画面の中心 = 距離関数の壁）。
 // ゲームのループと同じ処理（__aqua.step）でトンネルを掘ってから、すべての区画を作り直し、
 // カニが通った道（空洞の中）の点から全方向へ光線を飛ばして、見えている三角形（掘った区画 + 高さ場の網）と
 // 当たり判定の距離関数（solid）を比べる：
@@ -8,7 +10,7 @@
 async (page) => {
   const cfgPage = await page.context().newPage();
   await cfgPage.goto('http://localhost:5173/docs/aquarium/tools/mesh_config.json?' + Date.now());
-  const O = JSON.parse(await cfgPage.evaluate(() => document.body.innerText));
+  const O = Object.assign(JSON.parse(await cfgPage.evaluate(() => document.body.innerText)), globalThis.__over ?? {});
   await cfgPage.close();
   const ctx = await page.context().browser().newContext({ viewport: { width: 640, height: 400 } });
   const p = await ctx.newPage();
@@ -137,12 +139,35 @@ async (page) => {
         if (bad) {
           holes++;
           perPlan[o[3]] = (perPlan[o[3]] ?? 0) + 1;
-          if (examples.length < 8) examples.push({ bad, o: o.slice(0, 3).map((v) => +v.toFixed(2)), d: d.map((v) => +v.toFixed(2)), tSdf: +ts.toFixed(2), tMesh: +m.t.toFixed(2) });
+          if (examples.length < 16) examples.push({ plan: o[3], bad, o: o.slice(0, 3).map((v) => +v.toFixed(2)), d: d.map((v) => +v.toFixed(2)), tSdf: +ts.toFixed(2), tMesh: +m.t.toFixed(2) });
         }
       }
     }
     return { points: pts.length, thinSkipped: thin, rays, holes, miss, backFirst, late, perPlan, prims: dig.count, chunks: fx.stats.chunks, examples };
   }, O);
-  await ctx.close();
+  // 不一致の光線ごとに、光線の始点から光線の向きを見た画面（画角 60°、中心 = 距離関数の壁）と、カニの体がそこを通れるか
+  if (O.shotDir) {
+    r.visual = [];
+    await p.evaluate(() => { const a = window.__aqua; a.freeze = true; a.__camOrig = a.camera.update.bind(a.camera); a.camera.update = (...x) => { if (!a.__pose) return a.__camOrig(...x); const P = a.camera.pose; P.pos = a.__pose.pos; P.target = a.__pose.target; P.fov = 60; a.camera.crabFade = 1; }; const st = document.createElement('style'); st.textContent = 'body > div:not(#app) { visibility: hidden !important; } #help { display: none !important; }'; document.head.appendChild(st); });
+    for (let k = 0; k < r.examples.length; k++) {
+      const e = r.examples[k];
+      const info = await p.evaluate((e) => {
+        const a = window.__aqua, w = a.world, c = a.crab;
+        const hit = [e.o[0] + e.d[0] * e.tSdf, e.o[1] + e.d[1] * e.tSdf, e.o[2] + e.d[2] * e.tSdf];
+        a.__pose = { pos: [e.o[0] - e.d[0] * 0.3, e.o[1] - e.d[1] * 0.3, e.o[2] - e.d[2] * 0.3], target: hit };
+        c.teleport(-16, -8);
+        a.freeze = false; a.step(3); a.freeze = true;
+        const P = a.camera.pose; P.pos = a.__pose.pos; P.target = a.__pose.target; P.fov = 60;
+        // 当たった所の近くで、カニの体（半径 0.24）の中心を置ける点が、膜の反対側（光線の先）にあるか
+        const far = [hit[0] + e.d[0] * 0.3, hit[1] + e.d[1] * 0.3, hit[2] + e.d[2] * 0.3];
+        let depthMin = 0;
+        for (let t = e.tSdf - 0.05; t < e.tSdf + 0.4; t += 0.01) depthMin = Math.min(depthMin, w.sandSolid(e.o[0] + e.d[0] * t, e.o[1] + e.d[1] * t, e.o[2] + e.d[2] * t));
+        return { hit: hit.map((v) => +v.toFixed(2)), filmDepth: +depthMin.toFixed(3), farSide: +w.contactSolid(...far).toFixed(2), groundAtHit: +w.groundAt(hit[0], hit[2]).toFixed(2) };
+      }, e);
+      await p.waitForTimeout(150);
+      await p.screenshot({ path: `${O.shotDir}/mismatch-${k}.jpg`, type: 'jpeg', quality: 85 });
+      r.visual.push({ k, ...e, ...info });
+    }
+  }  await ctx.close();
   return r;
 }

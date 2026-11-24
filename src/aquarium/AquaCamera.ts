@@ -435,8 +435,17 @@ export class AquaCamera {
         let k = vmax / len;
         let q: V3 = [base[0] + dx * k, base[1] + dy * k, base[2] + dz * k];
         if (w.cameraSolid(q[0], q[1], q[2], this.region) < CAM_HARD) {
-          // 固体の手前まで：求めた位置の側へ、固体から離れる最初の所まで
-          while (k < 1 && w.cameraSolid(q[0], q[1], q[2], this.region) < CAM_HARD) {
+          // 固体に近い：まず面の外向きへ最小限だけ押し出す（急な坂を登り始めたときなど、天井・壁が少し近づいただけで
+          // 求めた位置の側へ大きく進めると 1 フレームに 0.5 近く飛んでいた）
+          for (let i = 0; i < 4; i++) {
+            const d = w.cameraSolid(q[0], q[1], q[2], this.region);
+            if (d >= CAM_HARD) break;
+            const n = w.cameraNormal(q[0], q[1], q[2], this.region);
+            q = [q[0] + n[0] * (CAM_HARD + 0.01 - d), q[1] + n[1] * (CAM_HARD + 0.01 - d), q[2] + n[2] * (CAM_HARD + 0.01 - d)];
+          }
+          // それでも中なら、求めた位置の側へ、固体から離れる最初の所まで
+          if (w.cameraSolid(q[0], q[1], q[2], this.region) < CAM_HARD * 0.8) q = [base[0] + dx * k, base[1] + dy * k, base[2] + dz * k];
+          while (k < 1 && w.cameraSolid(q[0], q[1], q[2], this.region) < CAM_HARD * 0.8) {
             k = Math.min(1, k + 0.08);
             q = [base[0] + dx * k, base[1] + dy * k, base[2] + dz * k];
           }
