@@ -4,6 +4,7 @@
 // - 岩（洞窟・水中の柱・陸地の足場・滝の崖）と流木の SDF
 // - 当たり判定用の距離関数 solid()（高さ場 + 岩 + 流木。見た目の三角形も同じ関数から作るので形が一致する）
 //   縦の管（排水管・給水管）が砂を貫く柱の中は空けてある
+// - カニが掘った空洞（AquariumDig の DigField）は、砂（高さ場）の距離だけを削る。岩・流木・設備は削れない
 // - 水槽の外（水槽台・濾過槽・配管・部屋）は AquariumStand（stand）。カニの当たり判定は contactSolid（水槽の中身 +
 //   ガラス・底板・天板・管・濾過槽・水槽台・部屋）、カメラの遮蔽は viewSolid、水面の高さは waterLevelAt、水流は flowAt
 // 見た目（メッシュ・サーフェル）は AquariumBuild が、この定義から作る。
@@ -12,6 +13,7 @@ import { clamp, fbm2, lerp, noise3, smoothstep } from '../core/math';
 import { sdCapsule, sdEllipsoid, smin, type Box3Like, type Sdf } from '../visual/sdf/sdf';
 import { LAMP_DIR, TANK } from './aquaConst';
 import { AquaStand, DECK, ROOM, type Flow, type Region } from './AquariumStand';
+import { DigField, type DigMaterial } from './AquariumDig';
 
 export { TANK, LAMP_DIR };
 
@@ -114,6 +116,8 @@ function makeWood(name: string, branches: Driftwood['branches'], seed: number, h
 export class AquariumWorld {
   /** 水槽の外側：水槽台・濾過槽・配管・部屋（AquariumStand） */
   readonly stand = new AquaStand();
+  /** カニが掘った空洞（砂だけを削る） */
+  readonly dig: DigField;
   readonly rocks: RockFormation[] = [];
   readonly woods: Driftwood[] = [];
   /** 高さ場（底床の上面）。格子の一辺 cell */
@@ -155,6 +159,7 @@ export class AquariumWorld {
     this.nx = Math.round((TANK.maxX - TANK.minX) / this.cell) + 1;
     this.nz = Math.round((TANK.maxZ - TANK.minZ) / this.cell) + 1;
     this.height = new Float32Array(this.nx * this.nz);
+    this.dig = new DigField(this.stand.columns);
     for (let j = 0; j < this.nz; j++) {
       for (let i = 0; i < this.nx; i++) {
         this.height[j * this.nx + i] = this.rawHeight(TANK.minX + i * this.cell, TANK.minZ + j * this.cell);
@@ -399,6 +404,51 @@ export class AquariumWorld {
     return this.groundAt(x, z);
   }
 
+  // ---------------- 穴掘り ----------------
+
+  /** 掘った後の砂（高さ場 − 空洞）の距離 */
+  sandSolid(x: number, y: number, z: number): number {
+    return this.dig.cut((y - this.groundAt(x, z)) * this.groundNormal(x, z)[1], x, y, z);
+  }
+
+  /**
+   * 掘る向きを探る：体の中心 (ox, oy, oz) から dir へ、カニの当たり判定（contactSolid）を reach まで進めて
+   * 最初に当たった物と、それが掘れるか（砂・土なら掘れる。岩・流木・ガラス・底・管・発見物のそばは掘れない）
+   */
+  digProbe(ox: number, oy: number, oz: number, dir: readonly number[], reach: number): { t: number | null; p: [number, number, number]; material: DigMaterial } {
+    let t = 0;
+    let hit = false;
+    for (let i = 0; i < 40; i++) {
+      const d = this.contactSolid(ox + dir[0] * t, oy + dir[1] * t, oz + dir[2] * t);
+      if (d < 0.02) {
+        hit = true;
+        break;
+      }
+      t += Math.max(d * 0.9, 0.02);
+      if (t > reach) break;
+    }
+    const p: [number, number, number] = [ox + dir[0] * Math.min(t, reach), oy + dir[1] * Math.min(t, reach), oz + dir[2] * Math.min(t, reach)];
+    if (!hit) return { t: null, p, material: 'none' };
+    const [x, y, z] = p;
+    if (!this.insideTank(x, z)) return { t, p, material: 'glass' };
+    // 当たった物のうち、いちばん近い面の物
+    const sand = this.sandSolid(x, y, z);
+    let rock = Infinity, wood = Infinity;
+    for (const r of this.rocks) if (boxDist(r.box, x, y, z) < 0.3) rock = Math.min(rock, r.sdf(x, y, z));
+    for (const w of this.woods) if (boxDist(w.box, x, y, z) < 0.3) wood = Math.min(wood, w.sdf(x, y, z));
+    const S = this.stand;
+    const fix = Math.min(S.deck(x, y, z), S.glassSolid(x, y, z), S.pipeWalls(x, y, z));
+    const m = Math.min(sand, rock, wood, fix);
+    if (m === rock) return { t, p, material: 'rock' };
+    if (m === wood) return { t, p, material: 'wood' };
+    if (m === fix) return { t, p, material: fix === S.pipeWalls(x, y, z) ? 'pipe' : 'glass' };
+    // 砂：少し奥（掘る空洞の中心のあたり）が打ち切りの範囲なら掘れない
+    const q = 0.2;
+    const cx = x + dir[0] * q, cy = y + dir[1] * q, cz = z + dir[2] * q;
+    if (this.dig.clip(cx, cy, cz) > -0.08) return { t, p, material: this.dig.clipReason(cx, cy, cz) };
+    return { t, p, material: y > TANK.waterY ? 'soil' : 'sand' };
+  }
+
   // ---------------- 高さ場 ----------------
 
   /** 底床の上面の高さ（双一次補間） */
@@ -427,7 +477,8 @@ export class AquariumWorld {
    */
   solid(x: number, y: number, z: number): number {
     const n = this.groundNormal(x, z);
-    let d = (y - this.groundAt(x, z)) * n[1];
+    // 砂（高さ場）。カニが掘った空洞はここだけを削る（岩・流木は下で min するので削れない）
+    let d = this.dig.cut((y - this.groundAt(x, z)) * n[1], x, y, z);
     // 縦の管が砂を貫く所は、管の中を空ける（管の中を落ちられる・登れる）
     const pi = this.stand.columnInterior(x, y, z);
     if (pi < 0.6) d = Math.max(d, -pi);

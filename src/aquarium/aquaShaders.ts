@@ -117,6 +117,9 @@ varying vec2 vUv;
 varying float vStrength;
 varying float vPhase;
 varying float vAlign;
+#ifdef GROUND_CLIP
+varying vec3 vWorld;
+#endif
 void main() {
   vec3 axis = normalize(uShaftDir);
   // 水面の揺らぎにつれて、光の筋の差し込む位置がゆっくり動く
@@ -131,6 +134,9 @@ void main() {
   vUv = position.xy;
   vStrength = iParam.w;
   vPhase = iParam.z;
+#ifdef GROUND_CLIP
+  vWorld = p;
+#endif
   gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
 }
 `;
@@ -145,7 +151,18 @@ varying vec2 vUv;
 varying float vStrength;
 varying float vPhase;
 varying float vAlign;
+#ifdef GROUND_CLIP
+// 元の底床の高さ（0..1 = 0..uGroundMax）。光の筋は砂の中には届かない（掘ったトンネルの中に光の板が見えないように）
+uniform sampler2D uGround;
+uniform vec4 uGroundRect; // minX, minZ, 幅, 奥行き
+uniform float uGroundMax;
+varying vec3 vWorld;
+#endif
 void main() {
+#ifdef GROUND_CLIP
+  vec2 gq = (vWorld.xz - uGroundRect.xy) / uGroundRect.zw;
+  if (gq.x > 0.0 && gq.x < 1.0 && gq.y > 0.0 && gq.y < 1.0 && vWorld.y < texture2D(uGround, gq).r * uGroundMax - 0.12) discard;
+#endif
   float u = vUv.x, v = vUv.y;
 #ifdef BEAM
   // 節穴（の少し上から倒木の中まで）・管の口から差す細い光：芯がはっきりした筋（加算で明るく、端は柔らかく）。
@@ -238,5 +255,32 @@ void main() {
   vec3 c = mix(vec3(0.55, 0.8, 0.86), vec3(0.95, 0.99, 1.0), step(0.55, s));
   c *= 0.85 + 0.15 * step(0.0, w);
   gl_FragColor = vec4(c, 1.0);
+}
+`;
+
+/** 穴掘りの砂粒・砂煙（不透明な 1〜5 画素の点。aSize = 直径（ワールド単位）、0 なら描かない。水中は水の色味を掛ける） */
+export const sandVertex = /* glsl */ `
+attribute vec3 aColor;
+attribute float aSize;
+uniform float uPxPerUnit;
+${LIGHTING_CHUNK}
+varying vec3 vColor;
+void main() {
+  vec4 mv = viewMatrix * vec4(position, 1.0);
+  vColor = pppWaterTint(aColor, position);
+  gl_PointSize = aSize <= 0.0 ? 0.0 : clamp(aSize * uPxPerUnit / max(-mv.z, 0.05), 1.0, 5.0);
+  gl_Position = aSize <= 0.0 ? vec4(2.0, 2.0, 2.0, 1.0) : projectionMatrix * mv;
+}
+`;
+
+/** 掘る向きの照準（掘る所の輪と、体から伸びる点線）。地形に隠れても見えるよう深度を見ずに描く。aSize = 画素の大きさ */
+export const cursorVertex = /* glsl */ `
+attribute vec3 aColor;
+attribute float aSize;
+varying vec3 vColor;
+void main() {
+  vColor = aColor;
+  gl_PointSize = aSize;
+  gl_Position = aSize <= 0.0 ? vec4(2.0, 2.0, 2.0, 1.0) : projectionMatrix * viewMatrix * vec4(position, 1.0);
 }
 `;

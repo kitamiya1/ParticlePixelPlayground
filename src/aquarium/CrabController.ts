@@ -10,25 +10,48 @@
 // - 水槽の外（排水管・濾過槽・水槽台・部屋）：当たり判定は AquariumWorld.contactSolid、水面の高さは waterLevelAt
 //   （濾過槽は部屋ごとに水位が違う）。水の流れ（flowAt）は速度を目標の流速へ寄せる。管の中（ride）は重力・ジャンプ・
 //   遊泳を止め、水といっしょに運ばれる（排水管は真下へ、給水管はポンプの流れで水槽へ）。
+// - 穴掘り（dig）：掘るボタンを押している間、体の正面（鋏の側）を掘る向きへ回し、一定の間隔で前方の砂をかき出す
+//   （AquariumWorld.digProbe で当たった物を調べ、砂・土なら DigField.stroke で空洞を足す）。掘る向きは
+//   移動入力の向き（無ければいまの向き）、上下は自動（地表では斜め下、十分深くなったら水平）+ ジャンプで上・走るで下。
+//   掘っている間は横歩きせず、正面へゆっくり進む（掘れた分だけ前へ入っていける）。
 
 import { clamp, lerp, smoothstep } from '../core/math';
 import { TANK, type AquariumWorld } from './AquariumWorld';
 import { ROOM, type Flow, type Region } from './AquariumStand';
+import { DIG, diggable, type DigMaterial } from './AquariumDig';
 
-export type CrabState = 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'swim' | 'sink' | 'ride';
+export type CrabState = 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'swim' | 'sink' | 'ride' | 'dig';
 
 export const CRAB_STATE_LABEL: Record<CrabState, string> = {
-  idle: '待機', walk: '歩行', run: '走行', jump: 'ジャンプ', fall: '落下', swim: '遊泳', sink: '沈降', ride: '水流に乗る',
+  idle: '待機', walk: '歩行', run: '走行', jump: 'ジャンプ', fall: '落下', swim: '遊泳', sink: '沈降', ride: '水流に乗る', dig: '穴掘り',
 };
 
 /** 見た目側（泡・水しぶき・波紋）に知らせる出来事 */
-export type CrabEvent = { kind: 'jump' | 'land' | 'enterWater' | 'exitWater' | 'swimStart' | 'stroke'; x: number; y: number; z: number; power: number };
+export type CrabEvent = {
+  kind: 'jump' | 'land' | 'enterWater' | 'exitWater' | 'swimStart' | 'stroke' | 'dig' | 'digBlocked';
+  x: number; y: number; z: number; power: number;
+  /** 穴掘り：かき出した向き（体から掘った所へ）と、当たった物 */
+  dir?: [number, number, number];
+  material?: DigMaterial;
+};
+
+/** 掘る向きの照準（見た目の照準・表示用。掘るボタンを押していないときは active = false） */
+export interface DigAim {
+  active: boolean;
+  /** 当たった所（届かなければ届く距離の先） */
+  p: [number, number, number];
+  dir: [number, number, number];
+  material: DigMaterial;
+  hit: boolean;
+}
 
 export interface CrabInput {
   move: { x: number; y: number };
   run: boolean;
   jumpHeld: boolean;
   cameraYaw: number;
+  /** 掘るボタン（F キー / 画面の「掘る」）を押しているか */
+  dig?: boolean;
 }
 
 const RADIUS = 0.24;
@@ -68,6 +91,17 @@ export class CrabController {
   readonly runSpeed = 4.4;
   readonly swimDuration = 2.6;
   readonly events: CrabEvent[] = [];
+  /** 穴掘り：照準・かき出しの位相（1 回で π 進む。左右の鋏が交互にかく）・掘る向きの仰角・かき出した回数 */
+  readonly digAim: DigAim = { active: false, p: [0, 0, 0], dir: [0, 0, 1], material: 'none', hit: false };
+  digPhase = 0;
+  digPitch = 0;
+  digStrokes = 0;
+  /** 経過時間（かき出しの続きの判定に使う） */
+  private clock = 0;
+  private digT = 0;
+  /** 十分深くまで掘った（水平に掘る）。地表近くへ戻ったら解除 */
+  private digDeep = false;
+  readonly digInterval = 0.17;
 
   private jumpPrev = false;
   /** ジャンプ（または遊泳の開始）からボタンを押し続けている時間 */
@@ -106,7 +140,63 @@ export class CrabController {
     // 大きな時間差は分割して当たり判定のすり抜けを防ぐ
     const steps = Math.max(1, Math.ceil(dt / (1 / 90)));
     const h = dt / steps;
+    this.clock += dt;
     for (let i = 0; i < steps; i++) this.step(h, inp, i === 0);
+    // 穴掘り（1 フレームに 1 回。照準を探ってから、間隔ごとにかき出す）
+    if (this.digging) this.updateDig(dt, inp);
+    else {
+      this.digAim.active = false;
+      this.digT = 0;
+      if (this.digPitch !== 0) this.digPitch *= Math.exp(-dt * 6);
+    }
+  }
+
+  /** 掘るボタンを押していて、掘れる状態か（step が決める） */
+  private digging = false;
+
+  private updateDig(dt: number, inp: CrabInput) {
+    const w = this.world;
+    // 上下の向き：地表では斜め下、足元が十分深くなったら（または水槽の底の近く）水平。ジャンプで上へ、走るで急に下へ
+    const depth = w.groundAt(this.x, this.z) - this.y;
+    const nearBottom = this.y < DIG.floorClip + 0.12;
+    if (depth > DIG.tunnelDepth - 0.05 || nearBottom) this.digDeep = true;
+    else if (depth < 0.25) this.digDeep = false;
+    let pitch = this.digDeep ? 0 : -0.48;
+    if (inp.jumpHeld) pitch = 0.75;
+    else if (inp.run && !nearBottom) pitch = -0.85;
+    this.digPitch += (pitch - this.digPitch) * (1 - Math.exp(-dt * 10));
+    const cp = Math.cos(this.digPitch);
+    const dir: [number, number, number] = [cp * Math.sin(this.heading), Math.sin(this.digPitch), cp * Math.cos(this.heading)];
+    const o: [number, number, number] = [this.x, this.y + RADIUS, this.z];
+    // 上へ掘るときは天井・掘り口までが遠くなるので、届く距離を延ばす
+    const reach = DIG.reach + 0.45 * Math.max(0, this.digPitch);
+    const pr = w.digProbe(o[0], o[1], o[2], dir, reach);
+    const A = this.digAim;
+    A.active = true;
+    A.p = pr.p;
+    A.dir = dir;
+    A.material = pr.material;
+    A.hit = pr.t !== null;
+    // かき出し：左右の鋏で交互に（位相は 1 回で π）
+    this.digPhase += (dt * Math.PI) / this.digInterval;
+    this.digT -= dt;
+    if (this.digT > 0) return;
+    this.digT = Math.max(this.digT + this.digInterval, 0.02);
+    this.digStrokes++;
+    if (pr.material === 'none' || diggable(pr.material)) {
+      // 斜め下へ掘るときは、元の地表から tunnelDepth より深くは掘らない（走る＝急に下へ、のときだけ深く掘れる）
+      // （十分深くなって水平に掘っている間は制限しない。岸の斜面の下では地表が上がっても床を水平に保つ）
+      const floorMin = inp.run || this.digDeep ? -Infinity : w.groundAt(pr.p[0], pr.p[2]) - DIG.tunnelDepth - 0.04;
+      // 届かないときも、直前に掘った空洞を太らせる（その場で掘り続けると穴が広がる）
+      const res = w.dig.stroke(o, dir, diggable(pr.material) ? pr.t : null, this.clock, floorMin, reach);
+      if (res.changed) {
+        const at = diggable(pr.material) ? pr.p : res.at;
+        this.events.push({ kind: 'dig', x: at[0], y: at[1], z: at[2], power: res.r / DIG.rMax, dir, material: pr.material === 'none' ? 'sand' : pr.material });
+      }
+    } else {
+      w.dig.stats.blocked++;
+      this.events.push({ kind: 'digBlocked', x: pr.p[0], y: pr.p[1], z: pr.p[2], power: 0.5, dir, material: pr.material });
+    }
   }
 
   private step(dt: number, inp: CrabInput, first: boolean) {
@@ -135,8 +225,13 @@ export class CrabController {
     const mag = Math.min(1, Math.hypot(dx, dz));
     const hasInput = mag > 0.05;
 
-    // ジャンプ・遊泳の入力
-    const pressed = first && inp.jumpHeld && !this.jumpPrev;
+    // 穴掘り：地面（または掘った穴の床・壁）に触れているときだけ。掘った穴へ少し沈み込む間も掘り続ける。水槽の中だけ掘れる
+    const touching = this.grounded || this.coyote > 0 || (s > 0.5 && w.contactSolid(this.x, cy, this.z) < RADIUS + 0.2);
+    const digging = !!inp.dig && !ride && !this.swimming && touching && this.region === 'tank';
+
+    if (first) this.digging = digging;
+    // ジャンプ・遊泳の入力（掘っている間のジャンプは「上へ掘る」に使うので跳ばない）
+    const pressed = first && inp.jumpHeld && !this.jumpPrev && !inp.dig;
     if (first) this.jumpPrev = inp.jumpHeld;
     if (!inp.jumpHeld) this.holdT = -1;
     else if (this.holdT >= 0) this.holdT += dt;
@@ -180,6 +275,11 @@ export class CrabController {
     if (ride) {
       maxSpeed = 0.8;
       accel = 2;
+    }
+    // 掘っている間：正面（掘る向き）へゆっくり進む。掘れた分だけ穴の中へ入っていける
+    if (digging) {
+      maxSpeed = 1.1;
+      accel = 10;
     }
     const tvx = dx * maxSpeed, tvz = dz * maxSpeed;
     // 入力が無いとき：地上ではすぐ止まり、水中・空中ではゆっくり減速する
@@ -308,8 +408,11 @@ export class CrabController {
       this.wasUnder = under;
     }
 
-    // 横歩き：移動方向の ±90° のうち、いまの向きに近い方へ体を回す
-    if (hasInput && Math.hypot(this.vx, this.vz) > 0.2) {
+    // 掘っている間：体の正面（鋏の側）を掘る向き（移動入力の向き。無ければいまの向き）へ回す
+    if (digging) {
+      if (hasInput) this.heading = wrap(this.heading + wrap(Math.atan2(dx, dz) - this.heading) * (1 - Math.exp(-12 * dt)));
+    } else if (hasInput && Math.hypot(this.vx, this.vz) > 0.2) {
+      // 横歩き：移動方向の ±90° のうち、いまの向きに近い方へ体を回す
       const move = Math.atan2(this.vx, this.vz);
       const a = wrap(move + Math.PI / 2 - this.heading), b = wrap(move - Math.PI / 2 - this.heading);
       const d = Math.abs(a) < Math.abs(b) ? a : b;
@@ -325,6 +428,7 @@ export class CrabController {
 
     // 状態
     if (ride) this.state = 'ride';
+    else if (digging) this.state = 'dig';
     else if (this.swimming) this.state = 'swim';
     else if (this.grounded) this.state = this.speed < 0.25 ? 'idle' : this.speed < (this.walkSpeed + this.runSpeed) * 0.5 * lerp(1, 0.72, s) ? 'walk' : 'run';
     else if (this.sinking || (s > 0.5 && this.vy < 0)) this.state = 'sink';

@@ -15,6 +15,8 @@
 //   排水管の中は真上から覗き込み（管の内側に留める）、給水管の中は流れの上流から追う。濾過槽・水槽台・部屋は
 //   不透明な物だけで遮蔽を判定し、透明な壁（ガラス・アクリル・管）はカニがその内側にいないときだけ遮る。
 //   区画が変わった直後はカメラの位置をなめらかにつなぐ。箱庭カメラは水槽・排水管・真下の濾過槽が一度に入る構図。
+// - 掘ったトンネルの中（元の地表より下の空洞）：仰角を水平近くへ寄せ、距離を縮める（天井に当たって真上から
+//   見下ろせないので、トンネルの奥行きに沿って後ろから見る）。プレイヤーの仰角そのものは変えないので、出れば元に戻る。
 // - 見晴らし：見晴らしの良い場所（setVista）でカニが立ち止まり、しばらく視点を触らないでいると、
 //   冒険カメラがその場所の眺めの向きへゆっくり回り込む（ドラッグ・ホイールですぐ手放す）。
 
@@ -110,6 +112,10 @@ export class AquaCamera {
   private swing = 0;
   /** 見上げている量（床で止まった分。表示・検証用） */
   lookUp = 0;
+  /** トンネルの中にいる度合い（0..1。平滑化） */
+  tunnel = 0;
+  /** トンネルの中：カニの後ろへ向かう床の傾き（仰角。平滑化。坂の下から見上げる・上から見下ろす） */
+  private slope = 0;
 
   constructor(private readonly world: AquariumWorld) {}
 
@@ -162,6 +168,10 @@ export class AquaCamera {
     this.target.x += (c.x - this.target.x) * kf;
     this.target.y += (c.y + 0.3 - this.target.y) * kf;
     this.target.z += (c.z - this.target.z) * kf;
+    // 掘ったトンネルの中か（カニの体の中心が空洞の中で、元の地表より 0.25 以上下）
+    const cy = c.y + c.radius;
+    const inTunnel = c.region === 'tank' && this.world.dig.tunnelDepth(c.x, cy, c.z, this.world.groundAt(c.x, c.z)) > 0.25 ? 1 : 0;
+    this.tunnel += (inTunnel - this.tunnel) * (1 - Math.exp(-dt * (inTunnel ? 5 : 2)));
     if (c.region !== this.region) {
       this.region = c.region;
       this.blendT = 0.8;
@@ -253,14 +263,22 @@ export class AquaCamera {
     const w = this.world;
     const region = this.region;
     const T: V3 = [this.target.x, this.target.y, this.target.z];
-    const Z = Math.min(o.zoom, ZOOM_MAX[region]);
+    // トンネルの中：距離を縮め、仰角を水平近く（少し上から）にする
+    const tu = this.tunnel;
+    const Z = Math.min(o.zoom, ZOOM_MAX[region]) * (1 - tu) + Math.min(o.zoom, 2.3) * tu;
+    // （天井の高さは床から約 0.85。後ろへ 2 離れても天井に当たらない程度のほぼ水平）
+    //  坂（上・下へ掘ったトンネル）では、後ろへ向かう床の傾きに合わせる（水平のままだと坂の天井に当たって寄りすぎる）
+    const n = c.groundN, dx0 = Math.sin(o.yaw), dz0 = Math.cos(o.yaw);
+    const slopeWant = c.grounded ? Math.atan(-(n[0] * dx0 + n[2] * dz0) / Math.max(n[1], 0.3)) : this.slope;
+    this.slope += (slopeWant - this.slope) * (1 - Math.exp(-dt * 4));
+    const op = o.pitch * (1 - tu) + (clamp(o.pitch, -0.08, 0.09) + this.slope) * tu;
 
     // 1. 床：いまの仰角で床に当たるなら、当たらない最小の仰角を二分探索で求める
     let fp = -2;
-    if (this.floorHit(T, o.yaw, o.pitch, Z)) {
-      let lo = o.pitch, hi = o.pitch;
+    if (this.floorHit(T, o.yaw, op, Z)) {
+      let lo = op, hi = op;
       for (const step of [0.12, 0.3, 0.6, 1.0, 1.6]) {
-        hi = Math.min(o.pitch + step, o.maxPitch);
+        hi = Math.min(op + step, o.maxPitch);
         if (!this.floorHit(T, o.yaw, hi, Z)) break;
         lo = hi;
       }
@@ -273,9 +291,9 @@ export class AquaCamera {
     }
     // 床が上がるときは速く、下がるときはゆっくり追う（砂の起伏で上下に揺れない）。追いつくまでの間のめり込みは 4 が床の上へ押し出す
     this.floorPitch += (fp - this.floorPitch) * (1 - Math.exp(-dt * (fp > this.floorPitch ? 14 : 4)));
-    const base = Math.max(o.pitch, this.floorPitch);
+    const base = Math.max(op, this.floorPitch);
     // 床より下へ回した分は、カメラを動かさずに見上げる角度にする
-    this.lookUp = base - o.pitch;
+    this.lookUp = base - op;
 
     // 2. 壁・岩・流木。狭い場所（トンネルの中・壁ぎわ）でカニのすぐ後ろまで寄らされるなら、
     //    空いている向きへ横に回り込む（判定はいつもプレイヤーの向きで行うので、行ったり来たりしない）
@@ -307,7 +325,8 @@ export class AquaCamera {
     const pitch = Math.min(base + this.raise, o.maxPitch);
     const [dx, dy, dz] = direction({ yaw, pitch });
     // 左右を少し（カメラの位置で約 1 の幅）先読みして、回している先の壁の縁へは手前から寄り始める（縁を横切った瞬間に飛び込まない）
-    const ahead = Math.min(0.25, 1 / Z);
+    // （トンネルの中は幅が狭く、先読みの向きが壁に当たって寄りすぎるので小さくする）
+    const ahead = Math.min(0.25, 1 / Z) * (1 - 0.8 * tu);
     const hit = Math.min(pitch === base && this.raise < 1e-3 ? free : this.castFree(T, yaw, pitch, Z), this.castFree(T, yaw + ahead, pitch, Z), this.castFree(T, yaw - ahead, pitch, Z));
     this.occluded = hit < Z - 0.05;
     // 寄るときは速く、離れるときはゆっくり（ちらつき防止）。めり込みは 4 の安全網が防ぐので、寄るのも一瞬ではなくてよい

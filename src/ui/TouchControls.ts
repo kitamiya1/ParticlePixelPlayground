@@ -13,6 +13,8 @@ export interface TouchControlsOptions {
   jump?: boolean;
   /** カメラ切り替えボタン（押したときに呼ぶ） */
   onCamera?: () => void;
+  /** 掘るボタン（押している間 Input.touchDig = true） */
+  dig?: boolean;
 }
 
 export class TouchControls {
@@ -24,13 +26,16 @@ export class TouchControls {
     this.root.innerHTML = `
       <div class="stick"><div class="knob"></div></div>
       <button class="run" type="button">${opts.runLabel ?? '走る'}</button>${opts.jump ? `
-      <button class="jump" type="button">ジャンプ</button>` : ''}${opts.onCamera ? `
+      <button class="jump" type="button">ジャンプ</button>` : ''}${opts.dig ? `
+      <button class="dig" type="button">掘る</button>` : ''}${opts.onCamera ? `
       <button class="cam" type="button">カメラ</button>` : ''}`;
     document.body.appendChild(this.root);
     this.bindStick(this.root.querySelector<HTMLElement>('.stick')!);
     this.bindRun(this.root.querySelector<HTMLButtonElement>('.run')!);
     const jump = this.root.querySelector<HTMLButtonElement>('.jump');
     if (jump) this.bindHold(jump, (on) => (this.input.touchJump = on));
+    const dig = this.root.querySelector<HTMLButtonElement>('.dig');
+    if (dig) this.bindHold(dig, (on) => (this.input.touchDig = on));
     const cam = this.root.querySelector<HTMLButtonElement>('.cam');
     if (cam && opts.onCamera) {
       const fn = opts.onCamera;

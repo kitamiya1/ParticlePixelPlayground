@@ -247,6 +247,23 @@ export class SurfelRenderer {
     });
   }
 
+  /**
+   * 世界の円盤を個別に隠す（直径を 0 にして描かない）。水槽ゲームの穴掘りで、根元の砂が無くなった植物を消すのに使う。
+   * 戻り値は新たに隠した数（すでに隠れていたものは数えない）
+   */
+  hideWorldPoints(indices: Iterable<number>): number {
+    const attr = this.worldGeo.getAttribute('iMisc') as THREE.InstancedBufferAttribute;
+    const a = attr.array as Float32Array;
+    let n = 0;
+    for (const i of indices) {
+      if (a[i * 3] === 0) continue;
+      a[i * 3] = 0;
+      n++;
+    }
+    if (n > 0) attr.needsUpdate = true;
+    return n;
+  }
+
   /** 設定・キャラクターの姿勢を反映する（countScale：密度にさらに掛ける割合。方式 F の草の層の密度） */
   update(s: RenderSettings, rig: CharacterRig, densityComp: number, lowW: number, lowH: number, countScale = 1) {
     const frac = Math.max(0, Math.min(1, s.density * countScale));

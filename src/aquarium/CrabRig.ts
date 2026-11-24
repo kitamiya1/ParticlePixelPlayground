@@ -3,6 +3,8 @@
 //   歩行は交互の 4 脚組（左 1・3 と右 2・4 / 左 2・4 と右 1・3）で、足先は体の進む向き（横歩きなら真横）に振る。
 // - 待機：呼吸の上下、ときどき鋏を開閉し、脚を 1 本ずつ踏み直す。
 // - ジャンプ：脚を下へ伸ばし、鋏を上げて開く。遊泳：後脚を大きく漕ぎ、他の脚も交互に掻く。沈降：脚を広げてゆっくり。
+// - 穴掘り：体を掘る向きへ傾け、左右の鋏で交互に砂をすくっては後ろへかき出す（位相は CrabController.digPhase）。
+//   前脚も交互に砂を後ろへ蹴り、進んでいるときは歩行と同じ足運びを重ねる。
 
 import * as THREE from 'three';
 import { clamp } from '../core/math';
@@ -16,6 +18,7 @@ interface Weights {
   air: number;
   swim: number;
   sink: number;
+  dig: number;
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -23,7 +26,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 export class CrabRig {
   readonly bones: THREE.Matrix4[] = Array.from({ length: CRAB_BONE_COUNT }, () => new THREE.Matrix4());
   readonly root = new THREE.Matrix4();
-  private readonly w: Weights = { idle: 1, walk: 0, run: 0, air: 0, swim: 0, sink: 0 };
+  private readonly w: Weights = { idle: 1, walk: 0, run: 0, air: 0, swim: 0, sink: 0, dig: 0 };
   private t = 0;
   private readonly tilt = new THREE.Quaternion();
   private readonly qTmp = new THREE.Quaternion();
@@ -45,17 +48,21 @@ export class CrabRig {
     this.t += dt;
     const t = this.t;
     // 状態の重み（なめらかに切り替える）
-    const target: Weights = { idle: 0, walk: 0, run: 0, air: 0, swim: 0, sink: 0 };
+    const target: Weights = { idle: 0, walk: 0, run: 0, air: 0, swim: 0, sink: 0, dig: 0 };
     if (c.state === 'idle') target.idle = 1;
     else if (c.state === 'walk') target.walk = 1;
     else if (c.state === 'run') target.run = 1;
     else if (c.state === 'swim') target.swim = 1;
     else if (c.state === 'sink') target.sink = 1;
+    else if (c.state === 'dig') target.dig = 1;
     else target.air = 1;
     const k = 1 - Math.exp(-dt * 9);
     for (const key of Object.keys(target) as (keyof Weights)[]) this.w[key] += (target[key] - this.w[key]) * k;
     const W = this.w;
     const move = W.walk + W.run;
+    // 穴掘り中に進んでいる分（歩行の足運びを重ねる）
+    const digMove = W.dig * clamp(c.speed / 1.0, 0, 1);
+    const dph = c.digPhase;
 
     // 根：位置 + 向き + 地面の傾き（なめらかに追従）
     this.qYaw.setFromAxisAngle(UP, c.heading);
@@ -66,10 +73,11 @@ export class CrabRig {
 
     // 体：歩行の上下・左右の揺れ、呼吸、着地の沈み込み、遊泳の前傾
     const ph = c.stridePhase;
-    const bob = Math.abs(Math.cos(ph)) * (0.008 * W.walk + 0.014 * W.run) + Math.sin(t * 2.1) * 0.004 * W.idle;
+    const bob = Math.abs(Math.cos(ph)) * (0.008 * W.walk + 0.014 * W.run + 0.008 * digMove) + Math.sin(t * 2.1) * 0.004 * W.idle + Math.abs(Math.sin(dph)) * 0.012 * W.dig;
     const squat = c.landImpact * 0.06 + 0.03 * W.sink;
-    const roll = Math.sin(ph) * (0.035 * W.walk + 0.05 * W.run) + Math.sin(c.swimPhase * 0.5) * 0.08 * W.swim;
-    const pitch = -0.12 * W.swim + clamp(c.vy * 0.03, -0.12, 0.12) * (W.air + W.swim);
+    const roll = Math.sin(ph) * (0.035 * W.walk + 0.05 * W.run) + Math.sin(c.swimPhase * 0.5) * 0.08 * W.swim + Math.sin(dph) * 0.045 * W.dig;
+    // 穴掘り：掘る向きへ頭を下げる（上へ掘るときは上げる）。かき出すたびに小さく前へのめる
+    const pitch = -0.12 * W.swim + clamp(c.vy * 0.03, -0.12, 0.12) * (W.air + W.swim) + W.dig * (0.14 - c.digPitch * 0.4 + Math.abs(Math.sin(dph)) * 0.06);
     this.body.makeTranslation(0, BODY_HEIGHT + bob - squat + 0.03 * W.air, 0).multiply(this.m1.makeRotationZ(roll)).multiply(this.m2.makeRotationX(pitch));
     this.bones[CRAB_BONE.body].copy(this.body);
 
@@ -93,8 +101,8 @@ export class CrabRig {
     }
 
     // 歩脚
-    const amp = 0.075 * W.walk + 0.1 * W.run;
-    const lift = 0.055 * W.walk + 0.08 * W.run;
+    const amp = 0.075 * W.walk + 0.1 * W.run + 0.06 * digMove;
+    const lift = 0.055 * W.walk + 0.08 * W.run + 0.045 * digMove;
     for (const sx of [1, -1] as const) {
       LEGS.forEach((L, i) => {
         const group = (i + (sx === 1 ? 0 : 1)) % 2;
@@ -110,6 +118,14 @@ export class CrabRig {
         fx = fx * (1 - W.air - W.swim - W.sink) + W.air * sx * L.rest.out * 0.9 + W.sink * sx * L.rest.out * 1.06;
         fz = fz * (1 - W.air - W.swim - W.sink) + W.air * L.rest.fwd * 0.85 + W.sink * L.rest.fwd * 1.05;
         fy = fy * (1 - W.air - W.swim - W.sink) + W.air * -0.07 + W.sink * (0.0 + 0.02 * Math.sin(t * 2.2 + i));
+        // 穴掘り：前脚で砂を後ろへ蹴る（左右交互）。他の脚は少し広げて踏ん張る
+        if (W.dig > 0.001) {
+          const kp = dph + (sx === 1 ? 0 : Math.PI);
+          if (i === 0) {
+            fz += W.dig * (0.02 - 0.07 * Math.sin(kp));
+            fy += W.dig * 0.035 * Math.max(0, Math.cos(kp));
+          } else fx += W.dig * sx * 0.03;
+        }
         // 遊泳：後脚は大きく漕ぎ、他の脚は交互に掻く
         if (W.swim > 0.001) {
           const sph = c.swimPhase + i * 0.9 + (sx === 1 ? 0 : Math.PI);
@@ -132,21 +148,27 @@ export class CrabRig {
     const openTarget = W.idle * pulse * 0.55 + W.air * 0.45 + W.sink * 0.3 + (move * Math.max(0, Math.sin(ph * 0.5)) * 0.1);
     this.clawOpen += (openTarget - this.clawOpen) * (1 - Math.exp(-dt * 14));
     const breathe = Math.sin(t * 2.1) * 0.03 * W.idle;
-    const yawA = 0.55 + 0.3 * W.air + 0.2 * W.sink - 0.1 * W.swim;
-    const pitchA = 0.28 + breathe - 0.65 * W.air - 0.2 * W.sink - 0.1 * W.run + Math.sin(ph) * 0.05 * move;
-    const fold = 1.75 - 0.6 * W.air - 0.35 * W.sink + 0.15 * W.swim;
+    const yawA0 = 0.55 + 0.3 * W.air + 0.2 * W.sink - 0.1 * W.swim - 0.25 * W.dig;
+    const pitchA0 = 0.28 + breathe - 0.65 * W.air - 0.2 * W.sink - 0.1 * W.run + Math.sin(ph) * 0.05 * move;
+    const fold0 = 1.75 - 0.6 * W.air - 0.35 * W.sink + 0.15 * W.swim;
     for (const [sx, k, arm, hand, finger] of [
       [1, CLAWS.scale.L, CRAB_BONE.armL, CRAB_BONE.handL, CRAB_BONE.fingerL],
       [-1, CLAWS.scale.R, CRAB_BONE.armR, CRAB_BONE.handR, CRAB_BONE.fingerR],
     ] as const) {
       const sh = CLAWS.shoulder;
+      // 穴掘り：左右交互に、鋏を前の下へ伸ばして開き（すくう）→ 閉じて手前へ引き上げる（かき出す）
+      const sp = dph + (sx === 1 ? 0 : Math.PI);
+      const scoop = Math.sin(sp);
+      const yawA = yawA0 + W.dig * 0.1 * scoop;
+      const pitchA = pitchA0 + W.dig * (0.2 - c.digPitch * 0.5 + 0.38 * scoop);
+      const fold = fold0 - W.dig * (0.55 + 0.4 * scoop);
       const a = this.bones[arm];
       a.copy(this.body).multiply(this.m1.makeTranslation(sx * sh[0], sh[1], sh[2])).multiply(this.m2.makeRotationY(sx * yawA)).multiply(this.m1.makeRotationX(pitchA));
       const h = this.bones[hand];
       h.copy(a).multiply(this.m1.makeTranslation(0, 0, CLAWS.armLen * k)).multiply(this.m2.makeRotationY(-sx * fold)).multiply(this.m1.makeRotationX(-0.12 - 0.3 * W.air));
       const f = this.bones[finger];
       // 大きい右の鋏は少しだけ遅れて開閉する
-      const open = this.clawOpen * (sx === 1 ? 1 : 0.85) + 0.04;
+      const open = this.clawOpen * (sx === 1 ? 1 : 0.85) * (1 - W.dig) + 0.04 + W.dig * 0.5 * Math.max(0, Math.sin(sp + 0.9));
       f.copy(h).multiply(this.m1.makeTranslation(0, 0.024 * k, 0.115 * k)).multiply(this.m2.makeRotationX(-open));
     }
   }

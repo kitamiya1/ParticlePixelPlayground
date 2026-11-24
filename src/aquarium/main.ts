@@ -15,6 +15,7 @@ import { buildSpots, DiscoveryTracker, type Spot } from './AquariumSpots';
 import { AquariumWorld } from './AquariumWorld';
 import { REGION_LABEL, SUMP } from './AquariumStand';
 import { CRAB_STATE_LABEL, CrabController } from './CrabController';
+import { DIG_MATERIAL_LABEL, diggable } from './AquariumDig';
 import { CrabRig } from './CrabRig';
 
 /** 方式 F v2 の既定値を土台に、水槽用のパレット・光の段階を選ぶ */
@@ -55,6 +56,8 @@ function boot() {
   const crabMesh = buildCrabMesh();
   // 探索：名前の付いた場所と発見物、小さな生き物
   const { spots, finds } = buildSpots(world);
+  // 発見物（貝殻・光る石・泡の湧く所）のまわりは掘らない（掘ると宙に浮くので）
+  for (const f of finds) world.dig.protectPoint(f.pos[0], f.pos[1], f.pos[2], 0.45 + 0.25 * f.scale);
   const tracker = new DiscoveryTracker(spots);
   const life = new AquaLife(world);
   const view = new AquariumRenderer(canvas, world, built.meshes, crabMesh, plants.set, rig, {
@@ -64,7 +67,7 @@ function boot() {
     fishMesh: buildFishMesh(),
     shrimpMesh: buildShrimpMesh(),
     life,
-  });
+  }, { light: built.light, plantAnchors: plants.anchors });
   const buildMs = performance.now() - t0;
 
   // ---------------- 画面の表示 ----------------
@@ -74,10 +77,11 @@ function boot() {
   hud.innerHTML = `
     <div class="card"><div class="title">水槽探検</div>
       <div class="row"><span class="place" id="h-place">—</span></div>
-      <div class="row"><span class="tag" id="h-zone">水中</span><span class="tag cam" id="h-cam"></span><span id="h-state"></span></div>
+      <div class="row"><span class="tag" id="h-zone">水中</span><span class="tag cam" id="h-cam"></span><span id="h-state"></span><span class="tag dig off" id="h-dig"></span></div>
       <div class="row"><span class="sub">発見</span><span id="h-found"></span></div>
       <div class="row"><span class="sub">遊泳</span><span class="bar"><i id="h-swim"></i></span></div>
       <div class="sub" id="h-perf"></div>
+      <div class="sub" id="h-digperf"></div>
       <div class="sub"><a href="./index.html">描画方式の比較へ</a></div>
     </div>`;
   document.body.appendChild(hud);
@@ -85,8 +89,8 @@ function boot() {
   const help = document.createElement('div');
   help.id = 'help';
   help.innerHTML = touch
-    ? `<b>操作</b><br>左スティック：移動　ダッシュ：押している間<br>ジャンプ：跳ぶ（水中で長押し＝遊泳）<br>画面ドラッグ：視点回転　2 本指：ズーム<br>カメラ：冒険 / 箱庭の切り替え<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている</span>`
-    : `<b>操作</b><br><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る<br><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳）<br>ドラッグ：視点回転　ホイール：ズーム<br><kbd>V</kbd> カメラ切替　<kbd>R</kbd> スタート地点へ　<kbd>H</kbd> 説明を隠す<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている</span>`;
+    ? `<b>操作</b><br>左スティック：移動　ダッシュ：押している間<br>ジャンプ：跳ぶ（水中で長押し＝遊泳）<br>掘る：押している間 前の砂を掘る（スティックで向き・ジャンプと同時で上へ）<br>画面ドラッグ：視点回転　2 本指：ズーム<br>カメラ：冒険 / 箱庭の切り替え<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</span>`
+    : `<b>操作</b><br><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る<br><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳）<br><kbd>F</kbd> 長押し：掘る（<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で向き・進む、<kbd>Space</kbd> で上へ、<kbd>Shift</kbd> で下へ）<br>ドラッグ：視点回転　ホイール：ズーム<br><kbd>V</kbd> カメラ切替　<kbd>R</kbd> スタート地点へ　<kbd>H</kbd> 説明を隠す<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</span>`;
   document.body.appendChild(help);
   if (touch) setTimeout(() => help.classList.add('fade'), 12000);
   const marker = document.createElement('div');
@@ -159,7 +163,7 @@ function boot() {
     return crab.region;
   };
   if (touch) {
-    new TouchControls(input, { runLabel: 'ダッシュ', jump: true, onCamera: toggleCamera });
+    new TouchControls(input, { runLabel: 'ダッシュ', jump: true, dig: true, onCamera: toggleCamera });
     document.body.classList.add('touch');
   }
 
@@ -174,7 +178,8 @@ function boot() {
   // ---------------- ループ ----------------
   // 自動検証用：freeze = true でゲームの更新を止める。step(n, dt) は通常のループと同じ処理を n 回まわす
   // （ブラウザのタブが裏にあって requestAnimationFrame が間引かれていても、実際の入力の状態で時間を進められる）
-  const debug: { freeze: boolean; fps: number; step: (n: number, dt?: number) => void } = { freeze: false, fps: 0, step: () => {} };
+  // dig = true で掘るボタンを押したことにする（自動検証用）
+  const debug: { freeze: boolean; fps: number; dig: boolean; step: (n: number, dt?: number) => void } = { freeze: false, fps: 0, dig: false, step: () => {} };
   let time = 0;
   let last = performance.now();
   let acc = 0, frames = 0, hudT = 0;
@@ -182,7 +187,7 @@ function boot() {
     const dt = debug.freeze ? 0 : Math.min(dtRaw, 0.05);
     time += dt;
     if (!debug.freeze) {
-      crab.update(dt, { move: input.moveAxis(), run: input.isRunning(), jumpHeld: input.isJumpHeld(), cameraYaw: camera.yaw });
+      crab.update(dt, { move: input.moveAxis(), run: input.isRunning(), jumpHeld: input.isJumpHeld(), cameraYaw: camera.yaw, dig: input.isDigHeld() || debug.dig });
       camera.update(dt, input, crab);
       rig.update(dt, crab);
       life.update(dt, { x: crab.x, y: crab.y + crab.radius, z: crab.z });
@@ -239,6 +244,15 @@ function boot() {
       $('h-state').textContent = CRAB_STATE_LABEL[crab.state];
       ($('h-swim') as HTMLElement).style.width = `${Math.round(crab.swimStamina * 100)}%`;
       $('h-perf').textContent = `${debug.fps.toFixed(0)} FPS ・ E ${(view.stats.tris / 1000).toFixed(0)}k 三角形 + C ${(view.stats.surfels / 1000).toFixed(0)}k 円盤`;
+      // 穴掘り：照準の先の物（掘れる / 掘れない）と、掘った量・作り直しの時間
+      const A = crab.digAim, dg = $('h-dig');
+      dg.classList.toggle('off', !A.active);
+      if (A.active) {
+        dg.textContent = A.hit ? (diggable(A.material) ? `掘れる：${DIG_MATERIAL_LABEL[A.material]}` : `掘れない：${DIG_MATERIAL_LABEL[A.material]}`) : '届かない';
+        dg.classList.toggle('ng', A.hit && !diggable(A.material));
+      }
+      const fs = view.digFx.stats;
+      $('h-digperf').textContent = world.dig.count ? `穴 ${world.dig.count} 個 ・ 区画 ${fs.chunks} ・ 作り直し ${fs.lastMs.toFixed(1)} ms（最大 ${fs.maxMs.toFixed(1)}）・ 待ち ${fs.pending}` : '';
     }
   };
   debug.step = (n: number, dt = 1 / 60) => {

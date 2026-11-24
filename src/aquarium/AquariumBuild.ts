@@ -5,6 +5,9 @@
 // - C 側（法線を向いた不透明な円盤。SurfelRenderer にそのまま渡せる SplatPointSet）：
 //   水草（テープ状の葉・有茎草・前景の絨毯草）・流木と岩の苔・陸地の苔・シダ・葉の広い草・汀線の細い草。
 // 色は頂点 / 円盤ごとに持ち、照明の当たり（日照）は AquariumWorld.sunVisibility を粗い格子に焼いて写す。
+// 穴掘り：底床の三角形は 1×1 の区画（DIG.chunk）ごとに並べて範囲を記録し（terrainChunks）、掘った区画は描画側で隠して
+// buildDigChunk（掘った後の砂の SDF を Surface Nets で三角形にしたもの）に差し替える。小石の範囲（pebbleList）と
+// 植物の円盤の根元（anchors）も記録し、根元の砂が無くなったものを描画側で消す。
 
 import { clamp, fbm2, hash2, hex, lerp, mixRGB, mulberry32, noise2, noise3, smoothstep, type RGB, type Rng } from '../core/math';
 import { MeshBuilder, surfaceNets, type TriMesh } from '../render/pixelmesh/MeshBuild';
@@ -13,6 +16,7 @@ import { sampleSdfSurface, sdCapsule, sdEllipsoid, smin, type Box3Like, type Sdf
 import type { Find } from './AquariumSpots';
 import { LAMP_DIR, TANK, type AquariumWorld } from './AquariumWorld';
 import { buildStandMeshes, SLEEVE_PAD } from './AquariumStandBuild';
+import { DIG } from './AquariumDig';
 import { crabParts } from './crabModel';
 
 const u8 = (v: number) => Math.max(0, Math.min(255, Math.round(v * 255)));
@@ -62,8 +66,29 @@ export class LightGrid {
 
 // ---------------- E 側：メッシュ ----------------
 
+/** 底床の三角形の、区画ごとの範囲（頂点番号の配列の開始位置と数。区画番号 = j × ncx + i） */
+export interface TerrainChunks {
+  ncx: number;
+  ncz: number;
+  start: Uint32Array;
+  count: Uint32Array;
+}
+
+/** 小石 1 個の頂点の範囲と大きさ（掘って下の砂が無くなったら消す） */
+export interface PebbleInfo {
+  x: number;
+  y: number;
+  z: number;
+  /** 底の高さ */
+  bottom: number;
+  v0: number;
+  vn: number;
+}
+
 export interface AquariumMeshes {
   terrain: TriMesh;
+  terrainChunks: TerrainChunks;
+  pebbleList: PebbleInfo[];
   pebbles: TriMesh;
   rocks: TriMesh;
   woods: TriMesh;
@@ -81,7 +106,7 @@ const SAND = { light: hex('#dccba0'), mid: hex('#c5b085'), dark: hex('#a48f6a'),
 const SOIL = { top: hex('#4a3a2a'), moss: hex('#3b5529'), deep: hex('#5b4431'), gravel: hex('#3a322b') };
 
 /** 地表の色（高さと場所から。水中の砂・汀線の濡れた砂・陸地の土） */
-function groundColor(world: AquariumWorld, x: number, z: number, h: number): RGB {
+export function groundColor(world: AquariumWorld, x: number, z: number, h: number): RGB {
   const wl = TANK.waterY;
   const n1 = noise2(x * 0.9, z * 0.9, 3) * 0.5 + 0.5;
   const n2 = noise2(x * 3.1, z * 3.1, 4) * 0.5 + 0.5;
@@ -101,7 +126,7 @@ function groundColor(world: AquariumWorld, x: number, z: number, h: number): RGB
 }
 
 /** ガラス際の断面の色（層状の底床：下の大粒の砂利 → 砂の層 → 陸地は土） */
-function strataColor(x: number, y: number, z: number, top: number): RGB {
+export function strataColor(x: number, y: number, z: number, top: number): RGB {
   const wl = TANK.waterY;
   if (y < 0.3 + noise2(x * 2, z * 2, 8) * 0.08) return SOIL.gravel;
   const band = Math.sin(y * 9 + noise2(x * 0.7, z * 0.7, 9) * 3) * 0.5 + 0.5;
@@ -113,7 +138,7 @@ function strataColor(x: number, y: number, z: number, top: number): RGB {
   return sand;
 }
 
-function buildTerrain(world: AquariumWorld, light: LightGrid): TriMesh {
+function buildTerrain(world: AquariumWorld, light: LightGrid): { mesh: TriMesh; chunks: TerrainChunks } {
   const mb = new MeshBuilder();
   const step = 0.2;
   const nx = Math.round((TANK.maxX - TANK.minX) / step) + 1;
@@ -157,13 +182,22 @@ function buildTerrain(world: AquariumWorld, light: LightGrid): TriMesh {
     // 格子のままの三角形の外積は +step²（上から見て同じ回り方）。押し出し後に同じ向きで 2% 以上残るものだけ張る
     return area > 0.02 * step * step;
   };
-  for (let j = 0; j < nz - 1; j++) {
-    for (let i = 0; i < nx - 1; i++) {
-      const ia = j * nx + i, ib = ia + 1, ic = ia + nx, id = ic + 1;
-      const a = ids[ia], b = ids[ib], c = ids[ic], d = ids[id];
-      if (holeTri(ia, ib, id)) mb.tri(a, b, d, 0, 1, 0);
-      if (holeTri(ia, id, ic)) mb.tri(a, d, c, 0, 1, 0);
+  // 区画（穴掘りの単位）ごとにまとめて並べ、範囲を記録する（掘った区画だけ隠せるように）
+  const CH = Math.round(DIG.chunk / step);
+  const ncx = Math.ceil((nx - 1) / CH), ncz = Math.ceil((nz - 1) / CH);
+  const chunks: TerrainChunks = { ncx, ncz, start: new Uint32Array(ncx * ncz), count: new Uint32Array(ncx * ncz) };
+  for (let cj = 0; cj < ncz; cj++) for (let ci = 0; ci < ncx; ci++) {
+    const s0 = mb.indexCount;
+    for (let j = cj * CH; j < Math.min((cj + 1) * CH, nz - 1); j++) {
+      for (let i = ci * CH; i < Math.min((ci + 1) * CH, nx - 1); i++) {
+        const ia = j * nx + i, ib = ia + 1, ic = ia + nx, id = ic + 1;
+        const a = ids[ia], b = ids[ib], c = ids[ic], d = ids[id];
+        if (holeTri(ia, ib, id)) mb.tri(a, b, d, 0, 1, 0);
+        if (holeTri(ia, id, ic)) mb.tri(a, d, c, 0, 1, 0);
+      }
     }
+    chunks.start[cj * ncx + ci] = s0;
+    chunks.count[cj * ncx + ci] = mb.indexCount - s0;
   }
   // ガラス際の断面（地表から水槽の底まで。ガラス越しに層が見える）
   const wall = (pts: [number, number][], nxo: number, nzo: number) => {
@@ -205,12 +239,87 @@ function buildTerrain(world: AquariumWorld, light: LightGrid): TriMesh {
   wall(xs2, 0, -1);
   wall(zs, 1, 0);
   wall(zs2, -1, 0);
+  return { mesh: mb.finish(), chunks };
+}
+
+/**
+ * 掘った区画（i, j）の砂を三角形にする：高さ場 − 空洞（AquariumWorld.sandSolid と同じ値）を Surface Nets（格子 DIG.cell）で。
+ * - 標本の範囲は区画 + 1 マス外側まで（隣の区画・高さ場の網と半マス重なり、継ぎ目に隙間ができない）。
+ *   標本の位置は水槽全体で共通の格子に揃える（隣の掘った区画と重なる所の頂点が同じ位置になる）。
+ * - 縦の範囲は、区画の地表のいちばん低い所・空洞のいちばん低い所の少し下から、地表のいちばん高い所の少し上まで。
+ *   下端の標本はすべて砂の中・上端はすべて水（空気）の中なので、箱の上下に余計な面はできない。
+ * - 色：掘っていない地表は高さ場の網と同じ色・法線・日照（継ぎ目で色が変わらない）。掘った面は断面と同じ地層の色にして、
+ *   元の地表より深いほど暗く・日が当たらなくする（トンネルの中は薄暗いが、環境光で見える）。
+ */
+export function buildDigChunk(world: AquariumWorld, light: LightGrid, i: number, j: number): TriMesh {
+  const mb = new MeshBuilder();
+  const dig = world.dig;
+  const h = DIG.cell;
+  const per = Math.round(DIG.chunk / h);
+  const I0 = i * per - 1, K0 = j * per - 1;
+  const n = per + 3;
+  const ox = TANK.minX + I0 * h, oz = TANK.minZ + K0 * h;
+  // 標本の列ごとの地表の高さと法線の y（solid と同じ式）
+  const H = new Float32Array(n * n), NY = new Float32Array(n * n);
+  let gMin = Infinity, gMax = -Infinity;
+  for (let k = 0; k < n; k++) for (let q = 0; q < n; q++) {
+    const x = TANK.minX + (I0 + q) * h, z = TANK.minZ + (K0 + k) * h;
+    const g = world.groundAt(x, z);
+    H[k * n + q] = g;
+    NY[k * n + q] = world.groundNormal(x, z)[1];
+    gMin = Math.min(gMin, g);
+    gMax = Math.max(gMax, g);
+  }
+  const lo = Math.max(TANK.floorY, Math.min(gMin, dig.chunkMinY(dig.chunkId(i, j))) - 0.3);
+  const y0 = TANK.floorY + Math.floor((lo - TANK.floorY) / h) * h;
+  const ny = Math.ceil((gMax + 0.3 - y0) / h) + 1;
+  const box: Box3Like = { min: [ox, y0, oz], max: [ox + (n - 1 - 1e-3) * h, y0 + (ny - 1 - 1e-3) * h, oz + (n - 1 - 1e-3) * h] };
+  const sdf: Sdf = (x, y, z) => {
+    const fq = (x - ox) / h, fk = (z - oz) / h;
+    const q = Math.round(fq), k = Math.round(fk);
+    let g: number, nyv: number;
+    if (q >= 0 && q < n && k >= 0 && k < n && Math.abs(fq - q) < 1e-6 && Math.abs(fk - k) < 1e-6) {
+      g = H[k * n + q];
+      nyv = NY[k * n + q];
+    } else {
+      // Surface Nets の間引きの判定（ブロックの中心）が箱の外に出たときだけ
+      g = world.groundAt(x, z);
+      nyv = world.groundNormal(x, z)[1];
+    }
+    return dig.cut((y - g) * nyv, x, y, z);
+  };
+  const wl = TANK.waterY;
+  surfaceNets(sdf, box, h, mb, (x, y, z, nx, nyy, nz) => {
+    const g = world.groundAt(x, z);
+    const depth = g - y;
+    const cv = dig.carve(x, y, z);
+    if (depth < 0.05 && cv > 0.2) {
+      // 掘っていない地表：高さ場の網と同じ
+      const [gx, gy, gz] = world.groundNormal(x, z);
+      const c = groundColor(world, x, z, g);
+      const ao = 0.72 + 0.28 * smoothstep(0.05, 0.5, world.solid(x, g + 0.4, z));
+      return mb.vertex(x, g, z, gx, gy, gz, u8(c[0] * ao), u8(c[1] * ao), u8(c[2] * ao), light.sample(x, g + 0.1, z), g < wl ? 0.75 : 0.5);
+    }
+    const l = Math.hypot(nx, nyy, nz) || 1;
+    const nn = [nx / l, nyy / l, nz / l];
+    // 掘った面：地層の色（縁の近くは地表の色へなじませる）。湿って少し暗い
+    const top = groundColor(world, x, z, g);
+    const st = strataColor(x, Math.min(y, g - 0.13), z, g);
+    let c = mixRGB(top, st, smoothstep(0.02, 0.25, depth));
+    c = mixRGB(c, SAND.wetDark, 0.12);
+    const cover = smoothstep(0.08, 0.75, depth);
+    const ao = 0.6 + 0.4 * smoothstep(0.0, 0.35, world.solid(x + nn[0] * 0.35, y + nn[1] * 0.35, z + nn[2] * 0.35));
+    const k = ao * (1 - 0.34 * cover);
+    const sun = light.sample(x + nn[0] * 0.15, y + nn[1] * 0.15, z + nn[2] * 0.15) * (1 - 0.88 * cover);
+    return mb.vertex(x, y, z, nx, nyy, nz, u8(c[0] * k), u8(c[1] * k), u8(c[2] * k), sun, 0.7);
+  });
   return mb.finish();
 }
 
 /** 小石：低ポリゴンの楕円体（正二十面体を 1 回分割）を砂の上に散らす */
-function buildPebbles(world: AquariumWorld, light: LightGrid, rng: Rng): TriMesh {
+function buildPebbles(world: AquariumWorld, light: LightGrid, rng: Rng): { mesh: TriMesh; list: PebbleInfo[] } {
   const mb = new MeshBuilder();
+  const list: PebbleInfo[] = [];
   const ico = icosphere();
   const colors = ['#a29d94', '#e2ddd3', '#a2805e', '#77716a', '#c9b08a', '#bdb7ad', '#8a7058'].map(hex);
   let placed = 0;
@@ -232,6 +341,7 @@ function buildPebbles(world: AquariumWorld, light: LightGrid, rng: Rng): TriMesh
     const cy = h + ry * 0.35;
     const sun = light.sample(x, cy + 0.1, z);
     const vid: number[] = [];
+    list.push({ x, y: cy, z, bottom: cy - ry, v0: mb.vertexCount, vn: ico.pos.length });
     for (const [px, py, pz] of ico.pos) {
       const bump = 1 + noise3(px * 2 + x, py * 2, pz * 2 + z, 77) * 0.12;
       const lx = px * rx * bump, ly = py * ry * bump, lz = pz * rz * bump;
@@ -243,7 +353,7 @@ function buildPebbles(world: AquariumWorld, light: LightGrid, rng: Rng): TriMesh
     for (const [a, b, c] of ico.tris) mb.triByNormals(vid[a], vid[b], vid[c]);
     placed++;
   }
-  return mb.finish();
+  return { mesh: mb.finish(), list };
 }
 
 function icosphere(): { pos: [number, number, number][]; tris: [number, number, number][] } {
@@ -398,9 +508,9 @@ export function buildAquariumMeshes(world: AquariumWorld): { meshes: AquariumMes
   const light = new LightGrid(world);
   lap('light');
   const rng = mulberry32(42);
-  const terrain = buildTerrain(world, light);
+  const { mesh: terrain, chunks: terrainChunks } = buildTerrain(world, light);
   lap('terrain');
-  const pebbles = buildPebbles(world, light, rng);
+  const { mesh: pebbles, list: pebbleList } = buildPebbles(world, light, rng);
   lap('pebbles');
   const rocks = buildRocks(world, light);
   lap('rocks');
@@ -410,7 +520,7 @@ export function buildAquariumMeshes(world: AquariumWorld): { meshes: AquariumMes
   const room = buildRoom();
   const st = buildStandMeshes(world);
   lap('frame');
-  return { meshes: { terrain, pebbles, rocks, woods, frame, room, stand: st.stand, cabinetOuter: st.cabinetOuter, emissive: st.emissive }, light, ms };
+  return { meshes: { terrain, terrainChunks, pebbleList, pebbles, rocks, woods, frame, room, stand: st.stand, cabinetOuter: st.cabinetOuter, emissive: st.emissive }, light, ms };
 }
 
 /** カニ：部位の SDF をボーンごとに三角形にする（頂点はボーンのローカル座標） */
@@ -435,9 +545,24 @@ class PointsOut {
   size: number[] = [];
   wind: number[] = [];
   sun: number[] = [];
+  /** 根元（砂に植わっている所）。掘って根元の砂が無くなった円盤を消すのに使う。NaN = 岩・流木の上（消さない） */
+  anc: number[] = [];
+  private ax = NaN;
+  private ay = NaN;
+  private az = NaN;
   constructor(private readonly light: LightGrid) {}
+  /** これから足す円盤の根元（植物 1 本・1 株ごとに決める） */
+  anchor(x: number, y: number, z: number) {
+    this.ax = x;
+    this.ay = y;
+    this.az = z;
+  }
+  noAnchor() {
+    this.ax = this.ay = this.az = NaN;
+  }
   push(x: number, y: number, z: number, c: RGB, nx: number, ny: number, nz: number, size: number, wind: number, sunBias = 0) {
     const l = Math.hypot(nx, ny, nz) || 1;
+    this.anc.push(this.ax, this.ay, this.az);
     this.pos.push(x, y, z);
     this.col.push(u8(c[0]), u8(c[1]), u8(c[2]));
     this.nrm.push(nx / l, ny / l, nz / l);
@@ -448,7 +573,7 @@ class PointsOut {
   get count() {
     return this.size.length;
   }
-  toSet(rng: Rng): SplatPointSet {
+  toSet(rng: Rng): { set: SplatPointSet; anchors: Float32Array } {
     // シャッフル（先頭から N 個描けば全体から均一に間引ける。SurfelRenderer の密度と同じ前提）
     const n = this.count;
     const order = Array.from({ length: n }, (_, i) => i);
@@ -457,8 +582,10 @@ class PointsOut {
       [order[i], order[j]] = [order[j], order[i]];
     }
     const out: SplatPointSet = { count: n, pos: new Float32Array(n * 3), col: new Uint8Array(n * 3), nrm: new Float32Array(n * 3), size: new Float32Array(n), wind: new Float32Array(n), sun: new Float32Array(n) };
+    const anchors = new Float32Array(n * 3);
     order.forEach((i, o) => {
       for (let k = 0; k < 3; k++) {
+        anchors[o * 3 + k] = this.anc[i * 3 + k];
         out.pos[o * 3 + k] = this.pos[i * 3 + k];
         out.col[o * 3 + k] = this.col[i * 3 + k];
         out.nrm[o * 3 + k] = this.nrm[i * 3 + k];
@@ -467,7 +594,7 @@ class PointsOut {
       out.wind[o] = this.wind[i];
       out.sun[o] = this.sun[i];
     });
-    return out;
+    return { set: out, anchors };
   }
 }
 
@@ -486,6 +613,7 @@ function tapeGrass(P: PointsOut, world: AquariumWorld, rng: Rng, cx: number, cz:
     if (world.solid(x, g + 0.1, z) < 0.05) continue;
     const depth = TANK.waterY - g;
     if (depth < 0.8) continue;
+    P.anchor(x, g, z);
     const H = Math.min(depth - 0.15, depth * (0.55 + rng() * 0.5));
     const lean = rng() * Math.PI * 2, leanAmt = 0.2 + rng() * 0.35;
     const twist0 = rng() * Math.PI, twistRate = (rng() - 0.5) * 2.2;
@@ -521,6 +649,7 @@ function stemPlants(P: PointsOut, world: AquariumWorld, rng: Rng, cx: number, cz
     if (world.solid(x, g + 0.1, z) < 0.05) continue;
     const H = Math.min(TANK.waterY - g - 0.25, (0.55 + rng() * 0.45) * (TANK.waterY - g) * 0.85);
     if (H < 0.4) continue;
+    P.anchor(x, g, z);
     const bend = (rng() - 0.5) * 0.4, bend2 = (rng() - 0.5) * 0.4;
     const nodes = Math.ceil(H / 0.11);
     let rot = rng() * Math.PI;
@@ -559,6 +688,7 @@ function carpet(P: PointsOut, world: AquariumWorld, rng: Rng, cx: number, cz: nu
     if (world.solid(x, g + 0.08, z) < 0.04) continue;
     const hgt = 0.02 + rng() * rng() * 0.12;
     const c = cols[Math.floor(rng() * cols.length)];
+    P.anchor(x, g, z);
     P.push(x, g + hgt, z, c, (rng() - 0.5) * 0.8, 1, (rng() - 0.5) * 0.8, 0.065, 0.12 + hgt);
   }
 }
@@ -568,6 +698,7 @@ function mossOnSurface(P: PointsOut, sdf: Sdf, box: Box3Like, rng: Rng, step: nu
   // 外接箱が丸ごと水中（または水上）で、条件に合う点が 1 つも無いものは表面を探さない（生成時間の節約）
   if (opts.under === false && box.max[1] < TANK.waterY + 0.05) return;
   if (opts.under === true && box.min[1] > TANK.waterY - 0.05) return;
+  P.noAnchor();
   sampleSdfSurface(sdf, box, step, rng, (x, y, z, nx, ny, nz) => {
     if (ny < opts.minNy) return;
     if (opts.under === true && y > TANK.waterY - 0.05) return;
@@ -596,6 +727,7 @@ function landMoss(P: PointsOut, world: AquariumWorld, rng: Rng) {
       const wet = 1 - smoothstep(TANK.waterY + 0.08, TANK.waterY + 0.7, g);
       const c = mixRGB(cols[Math.floor(hash2(Math.floor(px * 7), Math.floor(pz * 7), 5) * cols.length)], wetC, wet * 0.7);
       const hgt = 0.02 + rng() * 0.05;
+      P.anchor(px, g, pz);
       P.push(px, g + hgt, pz, c, nx + (rng() - 0.5) * 0.5, ny, nz + (rng() - 0.5) * 0.5, 0.11, 0.1);
     }
   }
@@ -604,6 +736,7 @@ function landMoss(P: PointsOut, world: AquariumWorld, rng: Rng) {
 /** シダ（中心から放射状に葉が弧を描き、羽片が対に並ぶ） */
 function fern(P: PointsOut, world: AquariumWorld, rng: Rng, cx: number, cz: number, scale: number) {
   const g = world.groundAt(cx, cz);
+  P.anchor(cx, g, cz);
   const fronds = 7 + Math.floor(rng() * 4);
   const dark = hex('#3f7a34'), light = hex('#7cb350'), rach = hex('#5d6e34');
   for (let f = 0; f < fronds; f++) {
@@ -636,6 +769,7 @@ function fern(P: PointsOut, world: AquariumWorld, rng: Rng, cx: number, cz: numb
 /** 葉の広い草（白い葉脈の入った楕円の葉が数枚） */
 function broadleaf(P: PointsOut, world: AquariumWorld, rng: Rng, cx: number, cz: number) {
   const g = world.groundAt(cx, cz);
+  P.anchor(cx, g, cz);
   const leaves = 6 + Math.floor(rng() * 5);
   const leafC = hex('#2f6a35'), vein = hex('#d8e8d0'), edge = hex('#245a2c');
   for (let i = 0; i < leaves; i++) {
@@ -672,6 +806,7 @@ function hairGrass(P: PointsOut, world: AquariumWorld, rng: Rng) {
     for (let b = 0; b < blades; b++) {
       const bx = x + (rng() - 0.5) * 0.25, bz = z + (rng() - 0.5) * 0.25;
       const bg = world.groundAt(bx, bz);
+      P.anchor(bx, bg, bz);
       const H = 0.25 + rng() * 0.45;
       const la = rng() * Math.PI * 2, lean = rng() * 0.35;
       const c = cols[Math.floor(rng() * cols.length)];
@@ -684,7 +819,7 @@ function hairGrass(P: PointsOut, world: AquariumWorld, rng: Rng) {
   }
 }
 
-export function buildAquariumSurfels(world: AquariumWorld, light: LightGrid): { set: SplatPointSet; ms: number; counts: Record<string, number>; times: Record<string, number> } {
+export function buildAquariumSurfels(world: AquariumWorld, light: LightGrid): { set: SplatPointSet; anchors: Float32Array; ms: number; counts: Record<string, number>; times: Record<string, number> } {
   const t0 = performance.now();
   const rng = mulberry32(9);
   const P = new PointsOut(light);
@@ -758,9 +893,9 @@ export function buildAquariumSurfels(world: AquariumWorld, light: LightGrid): { 
   const tin = world.landmarks.tunnelIn;
   for (const [x, z, s] of [[tin[0] - 0.4, tin[2] + 1.6, 0.85], [tin[0] + 1.3, tin[2] + 1.9, 0.7], [tin[0] - 1.6, tin[2] + 1.0, 0.6]] as const) fern(P, world, frng, x, z, s);
   mark('抜け道のシダ');
-  const set = P.toSet(rng);
+  const { set, anchors } = P.toSet(rng);
   times['並べ替え'] = Math.round(performance.now() - lastT);
-  return { set, ms: performance.now() - t0, counts, times };
+  return { set, anchors, ms: performance.now() - t0, counts, times };
 }
 
 /** 照明の向き（描画側の太陽の向きと同じ） */

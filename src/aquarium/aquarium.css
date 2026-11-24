@@ -31,7 +31,7 @@ body.aqua #touch-ui .run { right: calc(128px + env(safe-area-inset-right)); bott
 body.aqua #touch-ui .cam { position: fixed; right: calc(20px + env(safe-area-inset-right)); bottom: calc(140px + env(safe-area-inset-bottom));
   width: 72px; height: 44px; border-radius: 22px; font-size: 13px; background: rgba(74, 90, 122, 0.8); border: 2px solid rgba(255, 255, 255, 0.35);
   touch-action: none; user-select: none; -webkit-user-select: none; z-index: 3; }
-body.aqua.touch #help { top: auto; bottom: calc(160px + env(safe-area-inset-bottom)); left: calc(12px + env(safe-area-inset-left)); max-width: 62%; }
+body.aqua.touch #help { top: auto; bottom: calc(196px + env(safe-area-inset-bottom)); left: calc(12px + env(safe-area-inset-left)); max-width: 62%; }
 @media (max-width: 760px) {
   body.aqua #touch-ui { display: block; }
   body.aqua #help { display: block; }
@@ -79,3 +79,12 @@ body.aqua.touch #help { top: auto; bottom: calc(160px + env(safe-area-inset-bott
   #vista-tag { right: auto; left: 50%; transform: translateX(-50%); bottom: auto; top: calc(300px + env(safe-area-inset-top)); white-space: normal; text-align: center; max-width: 80vw; }
   .spot-label { font-size: 10px; }
 }
+
+/* 穴掘り：タッチの「掘る」ボタン（ジャンプの左上。ジャンプと同時に押すと上へ掘る）と、掘れる / 掘れない の表示 */
+body.aqua #touch-ui .dig { position: fixed; right: calc(122px + env(safe-area-inset-right)); bottom: calc(106px + env(safe-area-inset-bottom));
+  width: 80px; height: 80px; border-radius: 50%; font-size: 15px; font-weight: 700; background: rgba(150, 112, 60, 0.78);
+  border: 2px solid rgba(255, 236, 190, 0.5); color: #fff6e0; touch-action: none; user-select: none; -webkit-user-select: none; z-index: 3; }
+body.aqua #touch-ui .dig.on { background: rgba(255, 214, 140, 0.92); color: #2a1d10; }
+#hud .tag.dig { background: #8a6a3a; }
+#hud .tag.dig.ng { background: #8a4a3a; }
+#hud .tag.dig.off { display: none; }

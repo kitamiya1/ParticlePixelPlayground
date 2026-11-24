@@ -9,6 +9,7 @@
 // 水槽の外（水槽台・濾過槽・配管・部屋）：不透明な物は E 側のメッシュ（AquariumStandBuild）、透明な管・アクリル・
 // 濾過槽の水面・管の中の水は AquariumPlumbingFx。濾過槽の水は uSumpMin / uSumpMax の水の箱として霞の計算に入る。
 // 箱庭カメラでは水槽台の外側の面のうちカメラを向く面をディザで透かし（CUTAWAY）、中の濾過槽と配管を見せる。
+// 穴掘り（AquariumDigFx）：掘った区画は底床と同じマテリアルの別メッシュに差し替え、砂粒・照準を fxScene に描く。
 
 import * as THREE from 'three';
 import { clamp } from '../core/math';
@@ -22,7 +23,8 @@ import { SurfelRenderer } from '../render/surfel/SurfelRenderer';
 import type { RenderSettings } from '../settings';
 import type { AquaCamera } from './AquaCamera';
 import type { AquaLife } from './AquaLife';
-import type { AquariumMeshes } from './AquariumBuild';
+import type { AquariumMeshes, LightGrid } from './AquariumBuild';
+import { AquariumDigFx } from './AquariumDigFx';
 import type { Find } from './AquariumSpots';
 import { LAMP_DIR, TANK, type AquariumWorld } from './AquariumWorld';
 import type { CrabController, CrabEvent } from './CrabController';
@@ -355,6 +357,9 @@ export class AquariumRenderer {
   private rippleSlot = 0;
   private readonly zero = new THREE.Vector2();
   readonly stats = { tris: 0, surfels: 0, bubbles: 0 };
+  /** 起動時の三角形の数（穴掘りで増減する分は digFx.stats から足す） */
+  private baseTris = 0;
+  readonly digFx: AquariumDigFx;
   /** 描画中の円盤の割合（0..1。間引きで軽くする） */
   surfelDensity = 1;
   /** SurfelRenderer に渡す人型のリグ（キャラクターを持たないので使われない） */
@@ -368,6 +373,7 @@ export class AquariumRenderer {
     plants: SplatPointSet,
     private readonly rig: CrabRig,
     explore: { finds: Find[]; findsMesh: TriMesh; glowMesh: TriMesh; fishMesh: TriMesh; shrimpMesh: TriMesh; life: AquaLife },
+    dig: { light: LightGrid; plantAnchors: Float32Array },
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', alpha: false });
     this.renderer.autoClear = false;
@@ -384,12 +390,18 @@ export class AquariumRenderer {
 
     // E 側
     const worldMat = this.meshMaterial(false);
+    const geos = new Map<TriMesh, THREE.BufferGeometry>();
     for (const m of [meshes.terrain, meshes.pebbles, meshes.rocks, meshes.woods, meshes.frame, meshes.room, meshes.stand, explore.findsMesh]) {
-      const mesh = new THREE.Mesh(triGeometry(m), worldMat);
+      const geo = triGeometry(m);
+      geos.set(m, geo);
+      const mesh = new THREE.Mesh(geo, worldMat);
       mesh.frustumCulled = false;
       this.meshScene.add(mesh);
       this.stats.tris += m.triCount;
     }
+    // 穴掘りで底床の区画を隠す・小石を消すので、底床と小石は頂点番号・位置を書き換えられるようにする
+    geos.get(meshes.terrain)!.getIndex()!.setUsage(THREE.DynamicDrawUsage);
+    (geos.get(meshes.pebbles)!.getAttribute('position') as THREE.BufferAttribute).setUsage(THREE.DynamicDrawUsage);
     // 水槽台の外側の面（箱庭カメラで手前を透かす）と台の中の照明
     const outerMesh = new THREE.Mesh(triGeometry(meshes.cabinetOuter), this.meshMaterial(false, { CUTAWAY: '' }));
     const ledMesh = new THREE.Mesh(triGeometry(meshes.emissive), new THREE.ShaderMaterial({ vertexShader: meshVertex, fragmentShader: emissiveFragment }));
@@ -413,12 +425,21 @@ export class AquariumRenderer {
     this.shrimpMesh = this.creatureMesh(explore.shrimpMesh, explore.life.shrimp.length, false);
     this.stats.tris += explore.glowMesh.triCount + explore.fishMesh.triCount * explore.life.fish.length + explore.shrimpMesh.triCount * explore.life.shrimp.length;
     for (const f of explore.finds) if (f.kind === 'spring') this.springs.push({ pos: f.pos, scale: f.scale, t: Math.random() });
+    this.baseTris = this.stats.tris;
 
     // C 側：既存の SurfelRenderer（キャラクターは持たない = 方式 F と同じ）。水中表現だけ定義で足す
     this.surfel = new SurfelRenderer(u, this.noRig, plants, null);
     this.surfel.scene.traverse((o) => {
       const m = (o as THREE.Mesh).material as THREE.ShaderMaterial | undefined;
       if (m?.defines) m.defines.PPP_WATER = '';
+    });
+
+    // 穴掘り：掘った区画のメッシュ（底床と同じマテリアル）・砂粒・照準
+    this.digFx = new AquariumDigFx({
+      world, light: dig.light, meshScene: this.meshScene, fxScene: this.fxScene, material: worldMat, toGeometry: triGeometry,
+      terrain: { geo: geos.get(meshes.terrain)!, chunks: meshes.terrainChunks },
+      pebbles: { geo: geos.get(meshes.pebbles)!, list: meshes.pebbleList },
+      surfel: this.surfel, anchors: dig.plantAnchors, uniforms: u,
     });
 
     // 不透明の効果：滝・浮遊粒子・泡
@@ -437,7 +458,8 @@ export class AquariumRenderer {
     this.shaftMat = new THREE.ShaderMaterial({
       vertexShader: shaftVertex,
       fragmentShader: shaftFragment,
-      uniforms: { uTime: u.uTime, uShaftDir: { value: new THREE.Vector3(-LAMP_DIR[0], -LAMP_DIR[1], -LAMP_DIR[2]) } },
+      defines: { GROUND_CLIP: '' },
+      uniforms: { uTime: u.uTime, uShaftDir: { value: new THREE.Vector3(-LAMP_DIR[0], -LAMP_DIR[1], -LAMP_DIR[2]) }, ...this.groundTexture() },
       transparent: true,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
@@ -488,6 +510,19 @@ export class AquariumRenderer {
       this.beamU.uBeamP.value[i].set(b.start[0], b.start[1], b.start[2], b.r);
       this.beamU.uBeamD.value[i].set(b.dir[0], b.dir[1], b.dir[2], b.len);
     });
+  }
+
+  /** 元の底床の高さの小さなテクスチャ（光の筋を砂の中で消す。0.2 間隔 = 高さ場と同じ） */
+  private groundTexture(): Record<string, THREE.IUniform> {
+    const nx = Math.round((TANK.maxX - TANK.minX) / 0.2) + 1, nz = Math.round((TANK.maxZ - TANK.minZ) / 0.2) + 1;
+    const MAX = 10;
+    const data = new Uint8Array(nx * nz);
+    for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) data[j * nx + i] = Math.round(clamp(this.world.groundAt(TANK.minX + i * 0.2, TANK.minZ + j * 0.2) / MAX, 0, 1) * 255);
+    const tex = new THREE.DataTexture(data, nx, nz, THREE.RedFormat, THREE.UnsignedByteType);
+    tex.magFilter = tex.minFilter = THREE.LinearFilter;
+    tex.unpackAlignment = 1; // 1 行が 4 の倍数のバイト数でない
+    tex.needsUpdate = true;
+    return { uGround: { value: tex }, uGroundRect: { value: new THREE.Vector4(TANK.minX, TANK.minZ, TANK.maxX - TANK.minX, TANK.maxZ - TANK.minZ) }, uGroundMax: { value: MAX } };
   }
 
   private meshMaterial(bones: boolean, extra: Record<string, string> = {}): THREE.ShaderMaterial {
@@ -729,6 +764,10 @@ export class AquariumRenderer {
         this.spawn(0, e.x, e.y + 0.15, e.z, 2, 0.2, 0.03, 1.0);
       } else if (e.kind === 'jump' && crab.submerged > 0.5) {
         this.spawn(0, e.x, e.y + 0.05, e.z, 3, 0.25, 0.03, 0.8);
+      } else if (e.kind === 'dig' || e.kind === 'digBlocked') {
+        this.digFx.burst(e);
+        // 水中で砂をかき出すと、砂の中の空気が小さな泡になって上る
+        if (e.kind === 'dig' && e.y < TANK.waterY - 0.2 && Math.random() < 0.6) this.spawn(0, e.x, e.y + 0.05, e.z, 1 + Math.floor(Math.random() * 2), 0.12, 0.022, 0.7);
       }
     }
   }
@@ -839,6 +878,8 @@ export class AquariumRenderer {
     this.handleEvents(crab.drainEvents(), crab, time);
     this.updateBubbles(dt, crab);
     this.updateCreatures();
+    this.digFx.update(dt, crab);
+    this.stats.tris = this.baseTris + this.digFx.stats.tris - this.digFx.stats.hiddenTris;
     this.plumbing.update(dt, time);
     this.cutU.uCutaway.value = cam.mode === 'diorama' ? 1 : 0;
     this.plumbing.boost.value = cam.mode === 'diorama' ? 1 : 0;

@@ -48,6 +48,11 @@ export class MeshBuilder {
     return this.pos.length / 3;
   }
 
+  /** これまでに足した三角形の頂点番号の数（三角形の数 × 3。範囲ごとに隠す・差し替えるときの目印） */
+  get indexCount() {
+    return this.idx.length;
+  }
+
   vertex(x: number, y: number, z: number, nx: number, ny: number, nz: number, r: number, g: number, b: number, sun: number, wind: number, bone = 0): number {
     const l = Math.hypot(nx, ny, nz) || 1;
     this.pos.push(x, y, z);
@@ -152,7 +157,9 @@ export function surfaceNets(sdf: Sdf, box: Box3Like, h: number, mb: MeshBuilder,
     const gz = cv[4] - cv[0] + cv[5] - cv[1] + cv[6] - cv[2] + cv[7] - cv[3];
     cellVert[cid(i, j, k)] = vertex(x, y, z, gx, gy, gz);
   }
-  // 符号が変わる格子の辺ごとに、その辺を囲む 4 つのセルの頂点で四角形を張る
+  // 符号が変わる格子の辺ごとに、その辺を囲む 4 つのセルの頂点で四角形を張る。
+  // 4 つのセルがすべて箱の中にある辺だけ（箱の面を表面が横切るとき＝穴掘りの区画のように箱で切った形でも、
+  // 箱の外のセルの番号が隣の列へ回り込まない。箱の中に収まる形では結果は変わらない）
   const quad = (a: number, b: number, c: number, d: number, ex: number, ey: number, ez: number) => {
     if (a < 0 || b < 0 || c < 0 || d < 0) return;
     mb.tri(a, b, c, ex, ey, ez);
@@ -162,15 +169,15 @@ export function surfaceNets(sdf: Sdf, box: Box3Like, h: number, mb: MeshBuilder,
     const v0 = v[id(i, j, k)];
     const in0 = v0 <= 0;
     // 内側 → 外側へ向かう辺なら、表は +軸を向く
-    if (i < cx && j > 0 && k > 0 && in0 !== (v[id(i + 1, j, k)] <= 0)) {
+    if (i < cx && j > 0 && k > 0 && j < cy && k < cz && in0 !== (v[id(i + 1, j, k)] <= 0)) {
       const s = in0 ? 1 : -1;
       quad(cellVert[cid(i, j - 1, k - 1)], cellVert[cid(i, j, k - 1)], cellVert[cid(i, j, k)], cellVert[cid(i, j - 1, k)], s, 0, 0);
     }
-    if (j < cy && i > 0 && k > 0 && in0 !== (v[id(i, j + 1, k)] <= 0)) {
+    if (j < cy && i > 0 && k > 0 && i < cx && k < cz && in0 !== (v[id(i, j + 1, k)] <= 0)) {
       const s = in0 ? 1 : -1;
       quad(cellVert[cid(i - 1, j, k - 1)], cellVert[cid(i, j, k - 1)], cellVert[cid(i, j, k)], cellVert[cid(i - 1, j, k)], 0, s, 0);
     }
-    if (k < cz && i > 0 && j > 0 && in0 !== (v[id(i, j, k + 1)] <= 0)) {
+    if (k < cz && i > 0 && j > 0 && i < cx && j < cy && in0 !== (v[id(i, j, k + 1)] <= 0)) {
       const s = in0 ? 1 : -1;
       quad(cellVert[cid(i - 1, j - 1, k)], cellVert[cid(i, j - 1, k)], cellVert[cid(i, j, k)], cellVert[cid(i - 1, j, k)], 0, 0, s);
     }
