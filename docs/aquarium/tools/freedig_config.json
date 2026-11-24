@@ -1,0 +1,1 @@
+{ "host": "http://localhost:5173", "base": null, "dir": null, "w": 960, "h": 600, "only": ["exit", "curve", "cam"] }

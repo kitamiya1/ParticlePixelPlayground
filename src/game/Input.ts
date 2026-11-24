@@ -9,6 +9,25 @@
 // - ページが隠れる・フォーカスを失う（visibilitychange / pagehide / blur）と、押している物をすべて終わらせる。
 // - 同じ番号の指が終わらないまま押された・順番が入れ替わった通知は、古い持ち主を終わらせてから新しく持たせる。
 // 終わらせるときは持ち主の end を必ず呼ぶので、仮想スティック・ボタン・視点のドラッグ・ピンチは必ず元に戻る。
+//
+// 掘る向きの照準（水槽ゲーム用。digAim()：x = 右, y = 上、長さ 0〜1）：押した位置からの指・マウスのずれ。
+// - 画面の「掘る」ボタン：押したまま指をずらす（TouchControls が touchDigAim に書く。指がボタンの外へ出ても続く）
+// - マウスの右ボタン（mouseDig = true のときだけ。比較ページの右ドラッグ = 平行移動は変えない）：押したままずらす
+// - F キー：押したときのマウスの位置からのずれ（ボタンを押さずに動かした分。左ドラッグは視点の回転のまま）
+// 離したとき・すべて終わらせたときは 0 に戻る。
+
+/** 照準のずれ（CSS px）→ 0〜1：これより小さいずれは無視し、これで最大 */
+export const DIG_AIM = { touchRadius: 60, mouseRadius: 150, dead: 0.1 } as const;
+
+/** 押した位置からのずれ (dx, dy)（CSS px、画面の下が +y）を照準（x = 右, y = 上、長さ ≤ 1）にする */
+export function digAimFromOffset(dx: number, dy: number, radius: number): { x: number; y: number } {
+  const x = dx / radius, y = -dy / radius;
+  const len = Math.hypot(x, y);
+  if (!Number.isFinite(len) || len < DIG_AIM.dead) return { x: 0, y: 0 };
+  // 遊びの分を引いて 0 から始まるようにし、長さ 1 で止める（それ以上ずらしても角度は増えない）
+  const k = Math.min(1, (len - DIG_AIM.dead) / (1 - DIG_AIM.dead)) / len;
+  return { x: x * k, y: y * k };
+}
 
 /** ポインター 1 本の持ち主（仮想スティック・ボタン・視点のドラッグ） */
 export interface PointerClaim {
@@ -44,6 +63,16 @@ export class Input {
   touchJump = false;
   /** 画面上の掘るボタン（水槽ゲーム用。押している間 true） */
   touchDig = false;
+  /** 画面の掘るボタンを押したままずらした照準（x = 右, y = 上、長さ 0〜1） */
+  touchDigAim = { x: 0, y: 0 };
+  /** マウスの右ボタンで掘る（水槽ゲームだけ true。false なら右ドラッグは従来どおり平行移動） */
+  mouseDig = false;
+  /** マウスの右ボタンで掘っている間・その照準 */
+  private mouseDigOn = false;
+  private mouseDigAim = { x: 0, y: 0 };
+  /** マウスの最後の位置と、F キーを押したときの位置（F の照準の基準） */
+  private mouse = { x: 0, y: 0 };
+  private fOrigin: { x: number; y: number } | null = null;
   // 画面に触れている指（2 本でピンチ・平行移動）
   private touches = new Map<number, { x: number; y: number }>();
   private pinchDist = 0;
@@ -62,9 +91,20 @@ export class Input {
       if (isTyping(e.target)) return;
       this.keys.add(e.code);
       if (!e.repeat) this.actions.get(e.code)?.();
+      // F を押したときのマウスの位置を、照準の基準にする
+      if (e.code === 'KeyF' && !this.fOrigin) this.fOrigin = { ...this.mouse };
       if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
     });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('keyup', (e) => {
+      this.keys.delete(e.code);
+      if (e.code === 'KeyF') this.fOrigin = null;
+    });
+    // マウスの位置（ボタンを押していなくても追う。F の照準に使う）
+    window.addEventListener('pointermove', (e) => {
+      if (e.pointerType !== 'mouse') return;
+      this.mouse.x = e.clientX;
+      this.mouse.y = e.clientY;
+    }, true);
 
     // ポインターの動き・終わり：window の捕捉段階で受ける（要素が通知を受け損ねても、ここには届く）
     window.addEventListener('pointermove', (e) => this.onPointerMove(e), true);
@@ -102,6 +142,22 @@ export class Input {
         });
         this.touches.set(id, { x: e.clientX, y: e.clientY });
         if (this.touches.size >= 2) this.resetPinch();
+        return;
+      }
+      // 右ボタンで掘る（押したままずらすと照準。指で掘るボタンを押したときと同じ）
+      if (this.mouseDig && e.button === 2) {
+        const ox = e.clientX, oy = e.clientY;
+        this.claim(e, {
+          move: (ev) => {
+            this.mouseDigAim = digAimFromOffset(ev.clientX - ox, ev.clientY - oy, DIG_AIM.mouseRadius);
+          },
+          end: () => {
+            this.mouseDigOn = false;
+            this.mouseDigAim = { x: 0, y: 0 };
+          },
+        });
+        this.mouseDigOn = true;
+        this.mouseDigAim = { x: 0, y: 0 };
         return;
       }
       const mode: 1 | 2 = e.button === 0 && !e.ctrlKey ? 1 : 2;
@@ -161,6 +217,10 @@ export class Input {
     this.touches.clear();
     this.touchMove = { x: 0, y: 0 };
     this.touchRun = this.touchJump = this.touchDig = false;
+    this.touchDigAim = { x: 0, y: 0 };
+    this.mouseDigOn = false;
+    this.mouseDigAim = { x: 0, y: 0 };
+    this.fOrigin = null;
     this.pinchDist = 0;
     for (const f of this.resetHooks) f();
   }
@@ -267,7 +327,18 @@ export class Input {
 
   /** 掘る入力を押し続けているか（F または画面の掘るボタン。水槽ゲーム用） */
   isDigHeld(): boolean {
-    return this.touchDig || this.isDown('KeyF');
+    return this.touchDig || this.mouseDigOn || this.isDown('KeyF');
+  }
+
+  /**
+   * 掘る向きの照準（x = 右, y = 上、長さ 0〜1。0 = カニの正面）。画面のボタン → マウスの右ボタン → F キーの順に、
+   * いま押している物のずれを使う（どれも押していなければ 0）
+   */
+  digAim(): { x: number; y: number } {
+    if (this.touchDig) return { ...this.touchDigAim };
+    if (this.mouseDigOn) return { ...this.mouseDigAim };
+    if (this.fOrigin && this.isDown('KeyF')) return digAimFromOffset(this.mouse.x - this.fOrigin.x, this.mouse.y - this.fOrigin.y, DIG_AIM.mouseRadius);
+    return { x: 0, y: 0 };
   }
 
   /** 移動入力（x: 右, y: 前）。キーが押されていなければ仮想スティックの値 */

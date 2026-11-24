@@ -85,6 +85,13 @@ body.aqua #touch-ui .dig { position: fixed; right: calc(122px + env(safe-area-in
   width: 80px; height: 80px; border-radius: 50%; font-size: 15px; font-weight: 700; background: rgba(150, 112, 60, 0.78);
   border: 2px solid rgba(255, 236, 190, 0.5); color: #fff6e0; touch-action: none; user-select: none; -webkit-user-select: none; z-index: 3; }
 body.aqua #touch-ui .dig.on { background: rgba(255, 214, 140, 0.92); color: #2a1d10; }
+/* 掘るボタンの照準の印：押している間、指をずらした向きへ動く（上 = 上を掘る） */
+body.aqua #touch-ui .dig span { position: relative; pointer-events: none; }
+body.aqua #touch-ui .dig .aim { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%;
+  border: 3px solid rgba(42, 29, 16, 0.85); background: rgba(255, 246, 224, 0.55); pointer-events: none; opacity: 0; }
+body.aqua #touch-ui .dig.on .aim { opacity: 0.55; }
+body.aqua #touch-ui .dig.aiming .aim { opacity: 1; }
+body.aqua #touch-ui .dig.aiming span { opacity: 0.35; }
 #hud .tag.dig { background: #8a6a3a; }
 #hud .tag.dig.ng { background: #8a4a3a; }
 #hud .tag.dig.off { display: none; }

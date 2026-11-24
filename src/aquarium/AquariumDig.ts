@@ -41,9 +41,14 @@ export const DIG = {
   /** 水槽の底（ガラス）の上に残す砂の厚み・ガラス際に残す幅 */
   floorClip: TANK.floorY + 0.3,
   glassClip: 0.7,
-  /** 地表と空洞のつなぎの丸み・空洞どうしのつなぎの丸み */
+  /**
+   * 地表と空洞のつなぎの丸み・空洞どうしのつなぎの丸み。空洞どうしの継ぎ目（砂が空洞の側へ尖った稜線）は、
+   * Surface Nets（格子 0.1）では頂点が平均されて丸まるので、距離関数の側も格子に見合うだけ丸める
+   * （0.08 では稜線が三角形より 0.01〜0.03 内側へ尖り、かすめる向きで見た目と当たり判定が食い違った）。
+   * carve は外接箱から 0.3 より離れた空洞を箱までの距離で済ませるので、unionK は 0.3 より小さくしておく
+   */
   rimK: 0.12,
-  unionK: 0.08,
+  unionK: 0.2,
   /** 何回まで空洞を足せるか（超えたら古い区画をまとめ直さず、それ以上は太らせるだけ） */
   maxPrims: 6000,
 } as const;
@@ -52,6 +57,31 @@ export const DIG = {
 const PAD = 0.45;
 /** 打ち切り（clip）を調べるのは空洞の値がこれより小さい所だけ */
 const CLIP_NEAR = 0.4;
+/**
+ * 空洞と元の地表の間に残る砂の膜の厚さの下限。これより薄い膜（斜め上へ掘ってトンネルの天井が地表へ近づいた所）は
+ * 当たり判定でも見た目でも開ける。Surface Nets の格子（DIG.cell = 0.1）より薄い膜は格子点に負の値が現れず三角形に
+ * ならない（見た目は穴が開いている）のに、距離関数には −0.01〜−0.03 ほどの膜が残り、カニ・カメラが見えない膜で
+ * 止まっていた（docs/aquarium/free-dig-tunnel-cam/report.md の光線検査）
+ */
+const FILM = 0.2;
+/**
+ * 空洞の近く（空洞の値 c が SHAVE_FAR より小さい所）だけ砂の値を最大 SHAVE 正へずらす（砂をわずかに削る）。
+ * 掘った縁・継ぎ目の丸みが重なる所には、値がほぼ 0（深さ 0.001〜0.03）の膜が広く残り、格子では三角形にならないのに
+ * 当たり判定には残る。見た目（meshValue）と当たり判定（cut）の両方で同じ値を使うので、消えた膜はどちらからも消える。
+ * c ≥ SHAVE_FAR では 0（作り直しの印は空洞の外接箱 + 0.25 なので、作り直さない区画の高さ場の網とずれない）
+ */
+const SHAVE = 0.03;
+const SHAVE_FAR = 0.25;
+
+/**
+ * 砂の距離 d と空洞の値 c（内側が負）から、掘った後の砂の値。smax(d, −c) に「膜の厚さ（c − d）が FILM より薄ければ開ける」
+ * と、空洞の近くの SHAVE を加える。膜でない所（空洞の中 c < 0・地表より上 d > 0・厚い砂）では符号は smax と同じ。
+ * 加えた項の傾き（(FILM + d − c) / 2 は 1 以下、SHAVE は 0.15）は小さいので、距離の下限として使える
+ * （球の追跡・Surface Nets の間引きが安全。ずらす分 SHAVE だけ表面が空洞側から離れる）
+ */
+function carveSand(d: number, c: number): number {
+  return Math.max(smax(d, -c, DIG.rimK), (FILM + d - c) * 0.5) + SHAVE * clamp((SHAVE_FAR - c) / 0.2, 0, 1);
+}
 
 export interface CarvePrim {
   a: V3;
@@ -67,7 +97,7 @@ export type DigView = 'live' | 'snap';
 export type DigMaterial = 'sand' | 'soil' | 'rock' | 'wood' | 'glass' | 'bottom' | 'pipe' | 'treasure' | 'none';
 
 export const DIG_MATERIAL_LABEL: Record<DigMaterial, string> = {
-  sand: '砂', soil: '土', rock: '岩', wood: '流木', glass: 'ガラス', bottom: '水槽の底', pipe: '配管', treasure: '宝物のそば', none: '届かない',
+  sand: '砂', soil: '土', rock: '岩', wood: '流木', glass: 'ガラス', bottom: '水槽の底', pipe: '配管', treasure: '宝物のそば', none: 'なし',
 };
 
 export function diggable(m: DigMaterial): boolean {
@@ -105,7 +135,10 @@ function primDist(p: CarvePrim, x: number, y: number, z: number): number {
   // 両端の丸い部分では床を平らに伸ばさず、端から離れるほど上げる（約 42°）。平らなままだと、次に上・下へ向きを
   // 変えて掘った坂の床より下に「踊り場」が残り、カニがそこへ進んで坂の始まりの段差に引っかかる
   const over = (tr < 0 ? -tr : tr > 1 ? tr - 1 : 0) * Math.sqrt(L2);
-  const floor = ay + vy * t - p.r * DIG.floorK + over * 0.9;
+  // 床までの深さは軸に垂直な向きで r × floorK にする（鉛直に測ると、急な坂ほど床が軸へ近づき、60° では 0.13 しか
+  // 空かずにカニの体（半径 0.24）が軸に沿って通れなかった＝最大の上向きで掘るとカニが遅れて止まる）
+  const cosP = L2 > 1e-9 ? Math.max(0.5, Math.hypot(vx, vz) / Math.sqrt(L2)) : 1;
+  const floor = ay + vy * t - (p.r * DIG.floorK) / cosP + over * 0.9;
   return smax(d, floor - y, 0.06);
 }
 
@@ -259,7 +292,7 @@ export class DigField {
     if (this.prims.length === 0) return d;
     const list = this.cells[this.cj(z) * this.ncx + this.ci(x)];
     if (list.length === 0) return d;
-    return smax(d, -this.carve(x, y, z, view), DIG.rimK);
+    return carveSand(d, this.carve(x, y, z, view));
   }
 
   /**
@@ -276,7 +309,7 @@ export class DigField {
     if (list.length === 0) return d;
     const c = this.carve(x, y, z, view);
     if (c >= PAD && d < -0.6) return d;
-    return smax(d, -c, DIG.rimK);
+    return carveSand(d, c);
   }
 
   /** 掘った空洞の中で、元の地表より下（トンネルの中）か。カメラの寄せ方に使う */
@@ -385,6 +418,8 @@ export class DigField {
     for (const id of S.recent) {
       if (this.prims[id].r < r - 1e-3) {
         this.modify(id, null, r);
+        // 届かずに太らせただけのときは、太らせた空洞の先を「掘った所」にする（砂粒を出す位置）
+        if (tHit === null) at = [...this.prims[id].b];
         changed = true;
       }
     }

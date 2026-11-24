@@ -31,7 +31,7 @@ import { AquariumDigFx } from './AquariumDigFx';
 import type { Find } from './AquariumSpots';
 import { LAMP_DIR, TANK, type AquariumWorld } from './AquariumWorld';
 import type { CrabController, CrabEvent } from './CrabController';
-import { CRAB_BONE_COUNT } from './crabModel';
+import { CRAB_BONE, CRAB_BONE_COUNT } from './crabModel';
 import type { CrabRig } from './CrabRig';
 import { AquariumPlumbingFx } from './AquariumPlumbingFx';
 import { SUMP, SUMP_IN } from './AquariumStand';
@@ -55,6 +55,7 @@ attribute vec2 aMisc;
 #ifdef USE_BONES
 attribute float aBone;
 uniform mat4 uBones[${CRAB_BONE_COUNT}];
+varying float vBone;
 #endif
 varying vec3 vColor;
 varying vec3 vWorld;
@@ -63,6 +64,7 @@ varying vec2 vMisc;
 void main() {
   vec3 p = position, n = normal;
 #ifdef USE_BONES
+  vBone = aBone;
   mat4 bm = uBones[int(aBone + 0.5)];
   p = (bm * vec4(p, 1.0)).xyz;
   n = mat3(bm) * n;
@@ -100,14 +102,25 @@ float pppBeamLight(vec3 p) {
   return k;
 }
 #endif
-#if defined(CUTAWAY) || defined(OCCLUDER_CUT)
+#if defined(CUTAWAY) || defined(OCCLUDER_CUT) || defined(USE_BONES)
 ${BAYER}
 #endif
 #ifdef CUTAWAY
 uniform float uCutaway;
 #endif
+#ifdef USE_BONES
+// カメラがカニのすぐ近く（地下の近い視点・狭い所）にあるとき、体と脚をディザで透かす（x = 体・脚, y = 鋏。視界を塞がない）
+uniform vec2 uCrabFade;
+varying float vBone;
+#endif
 ${OCCLUDER_CUT_CHUNK}
 void main() {
+#ifdef USE_BONES
+  if (uCrabFade.x > 0.01) {
+    float f = vBone > 0.5 && vBone < ${CRAB_BONE.fingerR + 0.5} ? uCrabFade.y : uCrabFade.x;
+    if (f > bayer4(gl_FragCoord.xy) * 0.96 + 0.02) discard;
+  }
+#endif
 #ifdef OCCLUDER_CUT
   // 冒険カメラが越えた薄い物のうち、カメラとカニの間に入った部分を抜く
   if (pppOccluderCut(vWorld)) discard;
@@ -345,6 +358,8 @@ export class AquariumRenderer {
   readonly surfel: SurfelRenderer;
   private readonly crabMesh: THREE.Mesh;
   private readonly lift = { uCharLift: { value: 0.22 } };
+  /** カニを透かす量（AquaCamera.crabFade。x = 体・脚, y = 鋏） */
+  private readonly crabFadeU = { value: new THREE.Vector2() };
   private readonly waterMat: THREE.ShaderMaterial;
   private readonly fallMat: THREE.ShaderMaterial;
   private readonly shaftMat: THREE.ShaderMaterial;
@@ -550,6 +565,7 @@ export class AquariumRenderer {
     const defines: Record<string, string> = { PPP_WATER: '', USE_BEAMS: '', ...extra };
     if (bones) {
       uniforms.uBones = { value: this.rig.bones };
+      uniforms.uCrabFade = this.crabFadeU;
       defines.USE_BONES = '';
     }
     return new THREE.ShaderMaterial({ uniforms, defines, vertexShader: meshVertex, fragmentShader: meshFragment, side: THREE.FrontSide });
@@ -905,6 +921,8 @@ export class AquariumRenderer {
     this.cutU.uCutTo.value.set(cut.to[0], cut.to[1], cut.to[2]);
     this.cutU.uCutRange.value.set(cut.near, cut.far, cut.radius, cam.mode === 'adventure' ? cut.on : 0);
     this.plumbing.boost.value = cam.mode === 'diorama' ? 1 : 0;
+    const fade = cam.mode === 'adventure' ? cam.crabFade : 0;
+    this.crabFadeU.value.set(fade, fade * 0.45);
 
     // カメラ（低解像度ターゲットの大きさ = キャンバス + 余白。透視投影なので画素スナップのずれは 0）
     const c = this.camera;
