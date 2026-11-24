@@ -6,7 +6,7 @@
 // 4. 照準をずらしたまま指を離した通知が失われた（WebKit の取りこぼしの模擬）→ 照合で戻るか
 async (page) => {
   const cfgPage = await page.context().newPage();
-  await cfgPage.goto('http://localhost:5180/docs/aquarium/tools/freedig_config.json?' + Date.now());
+  await cfgPage.goto('http://localhost:5173/docs/aquarium/tools/freedig_config.json?' + Date.now());
   const O = JSON.parse(await cfgPage.evaluate(() => document.body.innerText));
   await cfgPage.close();
   const ctx = await page.context().browser().newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 1 });
@@ -20,7 +20,7 @@ async (page) => {
   const errors = [];
   p.on('pageerror', (e) => errors.push(String(e)));
   p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  await p.goto((O.host ?? 'http://localhost:5180') + '/aquarium.html?' + Date.now());
+  await p.goto((O.host ?? 'http://localhost:5173') + '/aquarium.html?' + Date.now());
   await p.waitForFunction(() => window.__aqua, null, { timeout: 180000 });
   const cdp = await ctx.newCDPSession(p);
   const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map((q) => ({ x: q[0], y: q[1], id: q[2], radiusX: 4, radiusY: 4, force: 1 })) });

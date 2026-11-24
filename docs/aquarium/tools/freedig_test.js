@@ -7,7 +7,7 @@
 //   歩いて出る。カメラの跳ね・壁までの距離・見通し・カニが画面に占める割合と、中の 3 方向の画面を撮る
 async (page) => {
   const cfgPage = await page.context().newPage();
-  await cfgPage.goto('http://localhost:5180/docs/aquarium/tools/freedig_config.json?' + Date.now());
+  await cfgPage.goto('http://localhost:5173/docs/aquarium/tools/freedig_config.json?' + Date.now());
   const O = JSON.parse(await cfgPage.evaluate(() => document.body.innerText));
   await cfgPage.close();
   const errors = [];
@@ -20,7 +20,7 @@ async (page) => {
     await p.waitForFunction(() => window.__aqua, null, { timeout: 180000 });
     await p.evaluate(() => document.getElementById('help')?.classList.add('fade'));
     // 補助は変更後のサーバーから読む（変更前のビルドでも同じ手順で測る）
-    await p.evaluate(async (src) => { const t = await fetch(src).then((r) => r.text()); (0, eval)(t); }, 'http://localhost:5180/docs/aquarium/tools/freedig_helpers.js?' + Date.now());
+    await p.evaluate(async (src) => { const t = await fetch(src).then((r) => r.text()); (0, eval)(t); }, 'http://localhost:5173/docs/aquarium/tools/freedig_helpers.js?' + Date.now());
     return { ctx, p };
   };
   const out = { exit: {}, curve: null, cam: {} };

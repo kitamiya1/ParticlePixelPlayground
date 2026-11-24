@@ -14,7 +14,7 @@
 | `sheet-up-exit.jpg` | 照準を最大の上向きにして掘る 1 / 2 / 3 / 4.5 秒（岸の斜面 z = 8.3）。上段 `eb0f6a5`・下段 2 回目の調整後 |
 | `sheet-mismatch.jpg` | 2 回目の調整後に残った光線の不一致 3 本：光線の始点から光線の向きを見た画面（赤い円 = 当たり判定の壁） |
 | `sheet-tunnel-cam.jpg` | 地下カメラの方式比較（`5e85b1b` のときのもの） |
-| `shots/` | 個々の画面（`entry-*`、`touch-indep-*`、`exit-*`、`curve-inside`、`cam-{orbit,shoulder,near,base}-*`）。`cam-base-*` は今回 `5e85b1b` で撮り直した |
+| `shots/` | 比較シートの元の画面（`entry-*` → `sheet-entry`、`touch-indep-*` → `sheet-touch-independence`、`upexit-*` → `sheet-up-exit`、`mismatch-*` → `sheet-mismatch`）と、曲がったトンネルの中（`curve-inside`）。`make_sheet.py` でシートを作り直せる |
 
 ---
 
@@ -230,7 +230,8 @@
   区切るため、カニの通る道が毎回変わる。比べるときは `budget` を大きくした決定的な条件を併用した。
 - `mesh_check.js` の先頭の説明は設定を `{ host, seconds, rays }` としていたが、実際は `plans`（掘り方の一覧）を使う（説明を直した）。
 - `freedig_config.json` などの `base`（5174 = `../PPP-base`）は `main`（`15e7369`、自由方向の穴掘りより前）だった。
-  今回の「変更前」は `5e85b1b` の写しを別ポート（5181）で立てて測った。`shots/cam-base-*` は `5e85b1b` で撮り直したもの。
+  今回の「変更前」は `5e85b1b` の写しを別ポート（5181）で立てて測った。
+  （`sheet-tunnel-cam.jpg` の元の画面 `shots/cam-*` は、この検証で撮り直して上書きされ、シートと合わなくなったので公開前に消した。9 章）
 - 曲がったトンネルの検査（`freedig_helpers.js` の `curveTest`、`mesh_check.js` の `turn`）は「スティックで掘る向きが回る」前提だった。
   スティックを掘る向きへ倒し、照準で曲げる操作に書き換えた。
 - 作業環境に Git が無かった（`C:\Program Files\Git\cmd` が PATH にあるが中身が無い）。リポジトリの状態は `.git` を直接読んで確認した。
@@ -242,7 +243,7 @@
 - `../PPP-base`（`main` = `15e7369` の切り離した worktree）：全 456 ファイルがチェックアウトの時刻のまま（変更なし）、
   使っているプロセスなしを確かめてから、`node_modules`（本体の `node_modules` へのジャンクション）のリンクだけを外し、
   フォルダと `.git/worktrees/PPP-base` を削除した（`git worktree remove` + `prune` に相当）。本体の `node_modules` は無事。
-  基準のビルドで比べるときは、`git worktree add ../PPP-base <commit>` で作り直せば `.claude/launch.json` の `base-5174` がそのまま使える。
+  基準のビルドで比べるときは 9 章の手順で立てる。
 - 検証のために立てた開発サーバー（5173・5180・5181）と、変更前の写し（作業用の一時フォルダ）はすべて止めて消した。
 
 ---
@@ -337,5 +338,38 @@
 | 探索（`route_test.js`） | 両方とも 30 か所中 26 か所、落下 0、排水管 → 濾過槽 OK（同じ） |
 | 描画比較ページ（方式 A〜F） | 6 方式すべて画素が完全一致 |
 
-比較の基準（`eb0f6a5`）は `git worktree add ../PPP-base eb0f6a5` で作り、`.claude/launch.json` の `base-5174` で立てた。
+比較の基準（`eb0f6a5`）は `git worktree add ../PPP-base eb0f6a5` で作り、`npx vite ../PPP-base --port 5174` で立てた。
 検証のあと、`node_modules` のジャンクションを外してから `git worktree remove` で消した（本体の `node_modules` は無事）。
+---
+
+## 9. 公開前の整理と検証スクリプトの動かし方
+
+**整理したもの**（PR #2 のマージ前）
+
+- `shots/` の画面 72 枚のうち、どの比較シートの元にもならず報告書からも参照されない 24 枚（2.5 MB）を消した：
+  `after-dig-x4-dig-*`（5 枚。別の報告書用の検査が既定の保存先へ書き出したもの）、`cam-*`（16 枚。`sheet-tunnel-cam.jpg` の元だったが
+  検証で上書きされてシートと合わない）、`exit-*`（3 枚。最大の上向きの修正前の状態で、`sheet-up-exit.jpg` に置き換わった）。
+  比較シート 5 枚は残した（`sheet-tunnel-cam.jpg` は `5e85b1b` のときの方式比較として、そのまま有効）。
+- `.claude/launch.json` に足していた `dev-5180`・`base-5174`（`../PPP-base` を参照）を消し、`main` と同じ内容に戻した。
+- この PR で足した検査スクリプトは、通常の開発サーバー（`npm run dev` = 5173）だけで動くようにした
+  （設定を 5180 から読んでいたのを 5173 へ）。比べる基準のビルド（`base` / `before`）と画面の保存先（`dir`）は既定では無し（`null`）。
+  このPC固有の絶対パスも既定から外した。
+
+**動かし方**
+
+1. `npm run dev`（5173）を立てる。
+2. Playwright の `browser_run_code_unsafe` で `docs/aquarium/tools/<スクリプト>.js` を実行する（設定は同じ名前の `*_config.json`）。
+
+| スクリプト | 内容 | 設定 |
+| --- | --- | --- |
+| `mesh_check.js` | 見た目と当たり判定の光線検査（`budget` で決定的、`shotDir` で不一致の画面） | `mesh_config.json` |
+| `exit_sites_test.js` | 10 地点 × 照準の、地下から地表への脱出 | `exit_sites_config.json` |
+| `cam_entry_test.js` | 地上 ↔ トンネルの出入り・再進入のカメラ | `cam_entry_config.json` |
+| `freedig_test.js`（+ `freedig_helpers.js`） | 脱出・曲がったトンネル・地下カメラの方式 | `freedig_config.json` |
+| `dig_independence_test.js` / `touch_independence_test.js` | 移動と掘る向きの独立（ゲームの処理 / 実際のタッチ） | `freedig_config.json` |
+| `touch_dig_test.js` / `touch_test.js` | 掘るボタンの 8 方向 / スマホ入力 14 項目 | `freedig_config.json` / `touch_config.json` |
+| `make_sheet.py` | `shots/` の画面から比較シートを作る | 引数 |
+
+基準のビルドと比べるとき：`git worktree add ../PPP-base <commit>` で取り出し、`../PPP-base/node_modules` に本体の `node_modules` への
+ジャンクション（`mklink /J`）を作って `npx vite ../PPP-base --port 5174` で立て、設定の `base` / `before` に `http://localhost:5174` を入れる。
+片付けるときは、先にジャンクションを `rmdir` で外してから `git worktree remove ../PPP-base`（外さずに消すと本体の `node_modules` まで消えるおそれがある）。

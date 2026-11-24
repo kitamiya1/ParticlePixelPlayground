@@ -1,4 +1,4 @@
-{"hosts":{"before":"http://localhost:5174","after":"http://localhost:5173"},"budget":1000000000,"aims":[1,0.5],"flat":5,"up":14,"walk":3,
+{"hosts":{"after":"http://localhost:5173"},"budget":1000000000,"aims":[1,0.5],"flat":5,"up":14,"walk":3,
 "sites":[
  {"name":"岸の斜面 z8.3","at":[-4.6,8.3],"heading":1.5708},
  {"name":"岸の斜面 z9.0","at":[-4.6,9.0],"heading":1.5708},

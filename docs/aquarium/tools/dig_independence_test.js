@@ -9,7 +9,7 @@
 // それぞれ、動いた向き（カメラ基準：前 = 0、右 = +π/2）・動いた距離・掘る向き（押したときからの方位の変化・仰角）・体の向きの変化を返す。
 async (page) => {
   const cfgPage = await page.context().newPage();
-  await cfgPage.goto('http://localhost:5180/docs/aquarium/tools/freedig_config.json?' + Date.now());
+  await cfgPage.goto('http://localhost:5173/docs/aquarium/tools/freedig_config.json?' + Date.now());
   const O = JSON.parse(await cfgPage.evaluate(() => document.body.innerText));
   await cfgPage.close();
   const out = {};

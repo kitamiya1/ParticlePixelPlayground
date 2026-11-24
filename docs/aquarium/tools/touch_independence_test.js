@@ -8,7 +8,7 @@
 // dir があれば、各項目の終わりの画面を `${dir}/touch-indep-${build}-${n}.jpg` に撮る。
 async (page) => {
   const cfgPage = await page.context().newPage();
-  await cfgPage.goto('http://localhost:5180/docs/aquarium/tools/freedig_config.json?' + Date.now());
+  await cfgPage.goto('http://localhost:5173/docs/aquarium/tools/freedig_config.json?' + Date.now());
   const O = JSON.parse(await cfgPage.evaluate(() => document.body.innerText));
   await cfgPage.close();
   const out = {};
