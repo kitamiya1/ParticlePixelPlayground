@@ -77,6 +77,16 @@ export class MeshBuilder {
     else this.idx.push(a, b, c);
   }
 
+  /** 三角形 a → b → c（この順の表）の単位法線と向き (ex, ey, ez) の内積。つぶれた三角形は 0 */
+  facing(a: number, b: number, c: number, ex: number, ey: number, ez: number): number {
+    const p = this.pos;
+    const ux = p[b * 3] - p[a * 3], uy = p[b * 3 + 1] - p[a * 3 + 1], uz = p[b * 3 + 2] - p[a * 3 + 2];
+    const vx = p[c * 3] - p[a * 3], vy = p[c * 3 + 1] - p[a * 3 + 1], vz = p[c * 3 + 2] - p[a * 3 + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const l = Math.hypot(nx, ny, nz);
+    return l < 1e-7 ? 0 : (nx * ex + ny * ey + nz * ez) / l;
+  }
+
   /** 頂点の法線の和を目安にして三角形を足す */
   triByNormals(a: number, b: number, c: number) {
     const n = this.nrm;
@@ -110,8 +120,11 @@ const CUBE_EDGES: [number, number][] = (() => {
  * SDF の表面を Surface Nets で三角形にする（d ≤ 0 が内側）。格子の一辺 h。
  * 4×4×4 のブロック単位で、表面から遠いブロックは 1 回の評価で値を埋めて評価回数を減らす（方式 D と同じ考え方）。
  * vertex(x, y, z, nx, ny, nz) で頂点を登録し、その番号を返させる（色付けは呼び出し側）。
+ * foldSafe = true：四角形を 2 つの三角形に分ける対角線を、折れ返らない方から選ぶ（ねじれた四角形を決まった対角線で
+ * 分けると、片方の三角形が裏返って内側を向き、裏面を描かないので小さな穴になる。穴掘りの空洞の内側のように
+ * 内から見る面で使う。既定は従来どおり a–c で分ける＝既存のメッシュは変わらない）。
  */
-export function surfaceNets(sdf: Sdf, box: Box3Like, h: number, mb: MeshBuilder, vertex: (x: number, y: number, z: number, nx: number, ny: number, nz: number) => number) {
+export function surfaceNets(sdf: Sdf, box: Box3Like, h: number, mb: MeshBuilder, vertex: (x: number, y: number, z: number, nx: number, ny: number, nz: number) => number, foldSafe = false) {
   const [ox, oy, oz] = box.min;
   const nx = Math.max(2, Math.ceil((box.max[0] - ox) / h) + 1);
   const ny = Math.max(2, Math.ceil((box.max[1] - oy) / h) + 1);
@@ -162,6 +175,17 @@ export function surfaceNets(sdf: Sdf, box: Box3Like, h: number, mb: MeshBuilder,
   // 箱の外のセルの番号が隣の列へ回り込まない。箱の中に収まる形では結果は変わらない）
   const quad = (a: number, b: number, c: number, d: number, ex: number, ey: number, ez: number) => {
     if (a < 0 || b < 0 || c < 0 || d < 0) return;
+    if (foldSafe) {
+      // 2 通りの分け方の、三角形の向きの揃い方（四角形の回り方の向きに直してから、悪い方の値）を比べる
+      const f1 = mb.facing(a, b, c, ex, ey, ez), f2 = mb.facing(a, c, d, ex, ey, ez);
+      const f3 = mb.facing(a, b, d, ex, ey, ez), f4 = mb.facing(b, c, d, ex, ey, ez);
+      const sg = f1 + f2 + f3 + f4 < 0 ? -1 : 1;
+      if (Math.min(sg * f3, sg * f4) > Math.min(sg * f1, sg * f2)) {
+        mb.tri(a, b, d, ex, ey, ez);
+        mb.tri(b, c, d, ex, ey, ez);
+        return;
+      }
+    }
     mb.tri(a, b, c, ex, ey, ez);
     mb.tri(a, c, d, ex, ey, ez);
   };

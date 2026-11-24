@@ -1,6 +1,10 @@
 // 穴掘りの見た目（Three.js 側）。ゲームロジック（DigField・CrabController）が決めた形を描く。
-// - 掘った区画の作り直し：DigField.dirty の区画を、カニに近い順に 1 フレームあたりの時間の上限（budgetMs）まで
-//   buildDigChunk（Surface Nets）で三角形にし直す。初めて掘った区画は、同じフレームで高さ場の網の三角形を隠す
+// - 掘った区画の作り直し（ひとまとまりずつ）：DigField.dirty の区画をまとめて取り出し、そのときの空洞の形を写して
+//   （DigField.snapshot）、カニに近い順に 1 フレームあたりの時間の上限（budgetMs）まで buildDigChunk（Surface Nets）で
+//   三角形にする。できた三角形はすぐには出さず、まとまりの全区画ができたフレームで一斉に差し替え、同時に当たり判定へ
+//   入れる（DigField.commit）。区画ごとにばらばらに差し替えると、作り直した区画と待っている区画の境で空洞の壁が
+//   片側だけになり、また当たり判定だけ先に変わるとカニ・カメラが「見た目では固体の中」へ入って裏面しか描かれず、
+//   向こう側が透けて見える。初めて掘った区画は、差し替えるフレームで高さ場の網の三角形を隠す
 //   （頂点番号を 0 にして潰す。網の作り直しはしない）。岩・流木・水草・魚・濾過槽などは作り直さない。
 // - 周りの物：作り直した区画の中で、根元の砂が無くなった植物の円盤（SurfelRenderer.hideWorldPoints）と小石を消す。
 // - 演出：かき出すたびに砂粒（重力で落ちる・水中はゆっくり）と、水中では砂煙（ふくらんで消える）を舞わせる。
@@ -55,8 +59,10 @@ export class AquariumDigFx {
   readonly stats = {
     /** 作り直した区画の数（のべ）・掘った区画の数・作り直しの時間 */
     rebuilds: 0, chunks: 0, lastMs: 0, maxMs: 0, totalMs: 0,
-    /** まだ作り直していない区画 */
+    /** まだ作り直していない区画（作り直し中のまとまりの残り + 次のまとまりを待つ区画） */
     pending: 0,
+    /** 作り直し中のまとまりの区画数・できた数・差し替えたまとまりの数・最後のまとまりにかかった時間（ms、実時間） */
+    batch: 0, built: 0, batches: 0, lastBatchMs: 0, maxBatchMs: 0,
     /** 掘った区画の三角形の数・隠した高さ場の三角形の数 */
     tris: 0, hiddenTris: 0,
     hiddenPlants: 0, hiddenPebbles: 0,
@@ -76,6 +82,8 @@ export class AquariumDigFx {
   private readonly cursorGeo: THREE.BufferGeometry;
   private readonly cursor: THREE.Points;
   private cursorT = 0;
+  /** 作り直し中のまとまり（区画の番号・次に作る位置・できた三角形・始めた時刻） */
+  private work: { ids: number[]; next: number; built: Map<number, { geo: THREE.BufferGeometry; tris: number }>; t0: number } | null = null;
 
   constructor(private readonly d: DigFxDeps) {
     const dig = d.world.dig;
@@ -130,33 +138,62 @@ export class AquariumDigFx {
 
   // ---------------- 区画の作り直し ----------------
 
-  private rebuild(id: number) {
+  /** 区画（'snap' の版の空洞）を三角形にする。差し替えは swap でまとめて行う */
+  private build(id: number) {
     const d = this.d;
     const dig = d.world.dig;
     const i = id % dig.ncx, j = Math.floor(id / dig.ncx);
     const t0 = performance.now();
-    const tm = buildDigChunk(d.world, d.light, i, j);
-    const geo = d.toGeometry(tm);
-    let mesh = this.meshes.get(id);
-    if (mesh) {
-      mesh.geometry.dispose();
-      mesh.geometry = geo;
-    } else {
-      mesh = new THREE.Mesh(geo, d.material);
-      mesh.frustumCulled = false;
-      d.meshScene.add(mesh);
-      this.meshes.set(id, mesh);
-      this.hideTerrainChunk(id);
-      this.stats.chunks++;
-    }
-    this.stats.tris += tm.triCount - (this.tris.get(id) ?? 0);
-    this.tris.set(id, tm.triCount);
-    this.hideAround(id);
+    const tm = buildDigChunk(d.world, d.light, i, j, 'snap');
+    this.work!.built.set(id, { geo: d.toGeometry(tm), tris: tm.triCount });
     const ms = performance.now() - t0;
     this.stats.rebuilds++;
     this.stats.lastMs = ms;
     this.stats.maxMs = Math.max(this.stats.maxMs, ms);
     this.stats.totalMs += ms;
+  }
+
+  /** できた区画を一斉に差し替え、同じ瞬間に当たり判定へ入れる */
+  private swap() {
+    const d = this.d;
+    const dig = d.world.dig;
+    const w = this.work!;
+    for (const [id, b] of w.built) {
+      let mesh = this.meshes.get(id);
+      if (mesh) {
+        mesh.geometry.dispose();
+        mesh.geometry = b.geo;
+      } else {
+        mesh = new THREE.Mesh(b.geo, d.material);
+        mesh.frustumCulled = false;
+        d.meshScene.add(mesh);
+        this.meshes.set(id, mesh);
+        this.hideTerrainChunk(id);
+        this.stats.chunks++;
+      }
+      this.stats.tris += b.tris - (this.tris.get(id) ?? 0);
+      this.tris.set(id, b.tris);
+    }
+    dig.commit();
+    // 根元の砂が無くなった植物・小石（当たり判定を入れたあとの形で調べる）
+    for (const id of w.built.keys()) this.hideAround(id);
+    const ms = performance.now() - w.t0;
+    this.stats.batches++;
+    this.stats.lastBatchMs = ms;
+    this.stats.maxBatchMs = Math.max(this.stats.maxBatchMs, ms);
+    this.work = null;
+  }
+
+  /** 汚れた区画をまとめて取り出し、そのときの空洞の形を写して作り直しを始める */
+  private begin(crab: { x: number; z: number }) {
+    const dig = this.d.world.dig;
+    const ids = [...dig.dirty];
+    dig.dirty.clear();
+    const cx = dig.ci(crab.x), cz = dig.cj(crab.z);
+    const dist = (a: number) => Math.hypot((a % dig.ncx) - cx, Math.floor(a / dig.ncx) - cz);
+    ids.sort((a, b) => dist(a) - dist(b));
+    dig.snapshot();
+    this.work = { ids, next: 0, built: new Map(), t0: performance.now() };
   }
 
   /** 高さ場の網のうち、この区画の三角形を潰す（頂点番号をすべて 0 に） */
@@ -202,32 +239,46 @@ export class AquariumDigFx {
     }
   }
 
-  /** 汚れた区画を、カニに近い順に時間の上限まで作り直す */
+  /**
+   * 作り直し：まとまりが無ければ汚れた区画で始め、時間の上限まで（少なくとも 1 区画）作る。
+   * まとまりの全区画ができたら一斉に差し替える（次のまとまりは次のフレームから）
+   */
   private flush(crab: CrabController) {
     const dig = this.d.world.dig;
     const t0 = performance.now();
-    if (dig.dirty.size > 0) {
-      const ids = [...dig.dirty];
-      const cx = dig.ci(crab.x), cz = dig.cj(crab.z);
-      ids.sort((a, b) => Math.hypot((a % dig.ncx) - cx, Math.floor(a / dig.ncx) - cz) - Math.hypot((b % dig.ncx) - cx, Math.floor(b / dig.ncx) - cz));
-      for (const id of ids) {
-        this.rebuild(id);
-        dig.dirty.delete(id);
+    if (!this.work && dig.dirty.size > 0) this.begin(crab);
+    // 区画に触れない形の変化（作り直さない区画の中だけ）は、そのまま当たり判定へ
+    else if (!this.work && dig.uncommitted > 0) {
+      dig.snapshot();
+      dig.commit();
+    }
+    const w = this.work;
+    if (w) {
+      while (w.next < w.ids.length) {
+        this.build(w.ids[w.next++]);
         if (performance.now() - t0 > this.budgetMs) break;
       }
+      if (w.next >= w.ids.length) this.swap();
     }
-    this.stats.pending = dig.dirty.size;
+    const cur = this.work;
+    this.stats.batch = cur ? cur.ids.length : 0;
+    this.stats.built = cur ? cur.next : 0;
+    this.stats.pending = dig.dirty.size + (cur ? cur.ids.length - cur.next : 0);
     this.stats.frameMs = performance.now() - t0;
   }
 
-  /** 汚れた区画をすべて作り直す（自動検証用） */
+  /** 汚れた区画をすべて作り直して差し替える（自動検証用） */
   flushAll() {
     const dig = this.d.world.dig;
-    for (const id of [...dig.dirty]) {
-      this.rebuild(id);
-      dig.dirty.delete(id);
+    for (let k = 0; k < 2; k++) {
+      if (!this.work && dig.dirty.size > 0) this.begin({ x: 0, z: 0 });
+      const w = this.work;
+      if (!w) break;
+      while (w.next < w.ids.length) this.build(w.ids[w.next++]);
+      this.swap();
     }
     this.stats.pending = 0;
+    this.stats.batch = this.stats.built = 0;
   }
 
   // ---------------- 砂粒・照準 ----------------

@@ -9,6 +9,9 @@
 // 水槽の外（水槽台・濾過槽・配管・部屋）：不透明な物は E 側のメッシュ（AquariumStandBuild）、透明な管・アクリル・
 // 濾過槽の水面・管の中の水は AquariumPlumbingFx。濾過槽の水は uSumpMin / uSumpMax の水の箱として霞の計算に入る。
 // 箱庭カメラでは水槽台の外側の面のうちカメラを向く面をディザで透かし（CUTAWAY）、中の濾過槽と配管を見せる。
+// 冒険カメラが薄い物（流木の殻・枝・岩の縁・台の板・家具）を越えたときは、カメラとカニの間に入った部分だけを
+// ディザで抜く（OCCLUDER_CUT。範囲は AquaCamera.cut）。砂（底床・掘った区画）には使わない（中身の無い断面が見えるので、
+// 砂ではカメラが手前で止まる）。
 // 穴掘り（AquariumDigFx）：掘った区画は底床と同じマテリアルの別メッシュに差し替え、砂粒・照準を fxScene に描く。
 
 import * as THREE from 'three';
@@ -17,7 +20,7 @@ import type { TriMesh } from '../render/pixelmesh/MeshBuild';
 import { CharacterRig } from '../render/CharacterRig';
 import { createSharedUniforms } from '../render/ParticleMaterial';
 import { PixelPipeline } from '../render/PixelPipeline';
-import { BAYER, LIGHTING_CHUNK } from '../render/shaders';
+import { BAYER, LIGHTING_CHUNK, OCCLUDER_CUT_CHUNK } from '../render/shaders';
 import type { SplatPointSet } from '../render/shared/PointSet';
 import { SurfelRenderer } from '../render/surfel/SurfelRenderer';
 import type { RenderSettings } from '../settings';
@@ -97,11 +100,18 @@ float pppBeamLight(vec3 p) {
   return k;
 }
 #endif
-#ifdef CUTAWAY
-uniform float uCutaway;
+#if defined(CUTAWAY) || defined(OCCLUDER_CUT)
 ${BAYER}
 #endif
+#ifdef CUTAWAY
+uniform float uCutaway;
+#endif
+${OCCLUDER_CUT_CHUNK}
 void main() {
+#ifdef OCCLUDER_CUT
+  // 冒険カメラが越えた薄い物のうち、カメラとカニの間に入った部分を抜く
+  if (pppOccluderCut(vWorld)) discard;
+#endif
 #ifdef CUTAWAY
   // 箱庭カメラ：カメラを向く外側の面を大きく抜いて、中が見えるようにする（縁の気配は残す）
   if (uCutaway > 0.5 && dot(normalize(vNormal), cameraPosition - vWorld) > 0.0 && bayer4(gl_FragCoord.xy) < 0.82) discard;
@@ -327,7 +337,7 @@ export class AquariumRenderer {
     uBeamP: { value: [new THREE.Vector4(0, -99, 0, 0), new THREE.Vector4(0, -99, 0, 0), new THREE.Vector4(0, -99, 0, 0)] },
     uBeamD: { value: [new THREE.Vector4(0, -1, 0, 0), new THREE.Vector4(0, -1, 0, 0), new THREE.Vector4(0, -1, 0, 0)] },
   };
-  private readonly cutU = { uCutaway: { value: 0 } };
+  private readonly cutU = { uCutaway: { value: 0 }, uCutTo: { value: new THREE.Vector3() }, uCutRange: { value: new THREE.Vector4() } };
   readonly plumbing: AquariumPlumbingFx;
   private readonly meshScene = new THREE.Scene();
   private readonly fxScene = new THREE.Scene();
@@ -390,11 +400,14 @@ export class AquariumRenderer {
 
     // E 側
     const worldMat = this.meshMaterial(false);
+    // 薄い物を越えたカメラが手前を抜く物（岩・流木・枠・部屋の家具・台と濾過槽の中身）。砂・小石・発見物は抜かない
+    const cutMat = this.meshMaterial(false, { OCCLUDER_CUT: '' });
+    const cuttable = new Set([meshes.rocks, meshes.woods, meshes.frame, meshes.room, meshes.stand]);
     const geos = new Map<TriMesh, THREE.BufferGeometry>();
     for (const m of [meshes.terrain, meshes.pebbles, meshes.rocks, meshes.woods, meshes.frame, meshes.room, meshes.stand, explore.findsMesh]) {
       const geo = triGeometry(m);
       geos.set(m, geo);
-      const mesh = new THREE.Mesh(geo, worldMat);
+      const mesh = new THREE.Mesh(geo, cuttable.has(m) ? cutMat : worldMat);
       mesh.frustumCulled = false;
       this.meshScene.add(mesh);
       this.stats.tris += m.triCount;
@@ -403,7 +416,7 @@ export class AquariumRenderer {
     geos.get(meshes.terrain)!.getIndex()!.setUsage(THREE.DynamicDrawUsage);
     (geos.get(meshes.pebbles)!.getAttribute('position') as THREE.BufferAttribute).setUsage(THREE.DynamicDrawUsage);
     // 水槽台の外側の面（箱庭カメラで手前を透かす）と台の中の照明
-    const outerMesh = new THREE.Mesh(triGeometry(meshes.cabinetOuter), this.meshMaterial(false, { CUTAWAY: '' }));
+    const outerMesh = new THREE.Mesh(triGeometry(meshes.cabinetOuter), this.meshMaterial(false, { CUTAWAY: '', OCCLUDER_CUT: '' }));
     const ledMesh = new THREE.Mesh(triGeometry(meshes.emissive), new THREE.ShaderMaterial({ vertexShader: meshVertex, fragmentShader: emissiveFragment }));
     for (const m of [outerMesh, ledMesh]) {
       m.frustumCulled = false;
@@ -431,7 +444,13 @@ export class AquariumRenderer {
     this.surfel = new SurfelRenderer(u, this.noRig, plants, null);
     this.surfel.scene.traverse((o) => {
       const m = (o as THREE.Mesh).material as THREE.ShaderMaterial | undefined;
-      if (m?.defines) m.defines.PPP_WATER = '';
+      if (m?.defines) {
+        m.defines.PPP_WATER = '';
+        // 流木・岩に付いた苔も、メッシュと同じ範囲で抜く（抜かないと、抜いた流木の跡に苔だけが残ってカニを隠す）
+        m.defines.OCCLUDER_CUT = '';
+        m.uniforms.uCutTo = this.cutU.uCutTo;
+        m.uniforms.uCutRange = this.cutU.uCutRange;
+      }
     });
 
     // 穴掘り：掘った区画のメッシュ（底床と同じマテリアル）・砂粒・照準
@@ -882,6 +901,9 @@ export class AquariumRenderer {
     this.stats.tris = this.baseTris + this.digFx.stats.tris - this.digFx.stats.hiddenTris;
     this.plumbing.update(dt, time);
     this.cutU.uCutaway.value = cam.mode === 'diorama' ? 1 : 0;
+    const cut = cam.cut;
+    this.cutU.uCutTo.value.set(cut.to[0], cut.to[1], cut.to[2]);
+    this.cutU.uCutRange.value.set(cut.near, cut.far, cut.radius, cam.mode === 'adventure' ? cut.on : 0);
     this.plumbing.boost.value = cam.mode === 'diorama' ? 1 : 0;
 
     // カメラ（低解像度ターゲットの大きさ = キャンバス + 余白。透視投影なので画素スナップのずれは 0）

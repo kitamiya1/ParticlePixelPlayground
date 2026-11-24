@@ -258,10 +258,13 @@ function boot() {
   debug.step = (n: number, dt = 1 / 60) => {
     for (let i = 0; i < n; i++) tick(dt);
   };
+  // 前のフレームからの時間。requestAnimationFrame の時刻は「フレームの始まり」なので、重い初期化の直後や
+  // 裏から戻った直後には直前の performance.now() より過去になることがある（負の時間差）。負の時間で進めると
+  // カメラの追従（1 − exp(−dt × k)）が発散して視点が戻らなくなるので、負は 0、大きすぎる値は 0.25 秒で止める
   const loop = (now: number) => {
     requestAnimationFrame(loop);
-    const dtRaw = (now - last) / 1000;
-    last = now;
+    const dtRaw = Math.min(Math.max((now - last) / 1000, 0), 0.25);
+    last = Math.max(last, now);
     tick(dtRaw);
   };
   loading.remove();
