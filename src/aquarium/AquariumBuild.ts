@@ -16,7 +16,7 @@ import { sampleSdfSurface, sdCapsule, sdEllipsoid, smin, type Box3Like, type Sdf
 import type { Find } from './AquariumSpots';
 import { LAMP_DIR, TANK, type AquariumWorld } from './AquariumWorld';
 import { buildStandMeshes, SLEEVE_PAD } from './AquariumStandBuild';
-import { DIG } from './AquariumDig';
+import { DIG, type DigView } from './AquariumDig';
 import { crabParts } from './crabModel';
 
 const u8 = (v: number) => Math.max(0, Math.min(255, Math.round(v * 255)));
@@ -250,8 +250,9 @@ function buildTerrain(world: AquariumWorld, light: LightGrid): { mesh: TriMesh; 
  *   下端の標本はすべて砂の中・上端はすべて水（空気）の中なので、箱の上下に余計な面はできない。
  * - 色：掘っていない地表は高さ場の網と同じ色・法線・日照（継ぎ目で色が変わらない）。掘った面は断面と同じ地層の色にして、
  *   元の地表より深いほど暗く・日が当たらなくする（トンネルの中は薄暗いが、環境光で見える）。
+ * - 空洞の形は view の版（作り直し中は 'snap'。AquariumDigFx が全区画を同時に差し替えてから当たり判定へ commit する）。
  */
-export function buildDigChunk(world: AquariumWorld, light: LightGrid, i: number, j: number): TriMesh {
+export function buildDigChunk(world: AquariumWorld, light: LightGrid, i: number, j: number, view: DigView = 'live'): TriMesh {
   const mb = new MeshBuilder();
   const dig = world.dig;
   const h = DIG.cell;
@@ -270,7 +271,7 @@ export function buildDigChunk(world: AquariumWorld, light: LightGrid, i: number,
     gMin = Math.min(gMin, g);
     gMax = Math.max(gMax, g);
   }
-  const lo = Math.max(TANK.floorY, Math.min(gMin, dig.chunkMinY(dig.chunkId(i, j))) - 0.3);
+  const lo = Math.max(TANK.floorY, Math.min(gMin, dig.chunkMinY(dig.chunkId(i, j), view)) - 0.3);
   const y0 = TANK.floorY + Math.floor((lo - TANK.floorY) / h) * h;
   const ny = Math.ceil((gMax + 0.3 - y0) / h) + 1;
   const box: Box3Like = { min: [ox, y0, oz], max: [ox + (n - 1 - 1e-3) * h, y0 + (ny - 1 - 1e-3) * h, oz + (n - 1 - 1e-3) * h] };
@@ -286,13 +287,13 @@ export function buildDigChunk(world: AquariumWorld, light: LightGrid, i: number,
       g = world.groundAt(x, z);
       nyv = world.groundNormal(x, z)[1];
     }
-    return dig.cut((y - g) * nyv, x, y, z);
+    return dig.meshValue((y - g) * nyv, x, y, z, view);
   };
   const wl = TANK.waterY;
   surfaceNets(sdf, box, h, mb, (x, y, z, nx, nyy, nz) => {
     const g = world.groundAt(x, z);
     const depth = g - y;
-    const cv = dig.carve(x, y, z);
+    const cv = dig.carve(x, y, z, view);
     if (depth < 0.05 && cv > 0.2) {
       // 掘っていない地表：高さ場の網と同じ
       const [gx, gy, gz] = world.groundNormal(x, z);
@@ -312,7 +313,7 @@ export function buildDigChunk(world: AquariumWorld, light: LightGrid, i: number,
     const k = ao * (1 - 0.34 * cover);
     const sun = light.sample(x + nn[0] * 0.15, y + nn[1] * 0.15, z + nn[2] * 0.15) * (1 - 0.88 * cover);
     return mb.vertex(x, y, z, nx, nyy, nz, u8(c[0] * k), u8(c[1] * k), u8(c[2] * k), sun, 0.7);
-  });
+  }, true);
   return mb.finish();
 }
 

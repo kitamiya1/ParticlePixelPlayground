@@ -163,3 +163,10 @@ const a = f.contentWindow.__aqua; console.log(a.buildMs, a.buildPhases, a.plantM
   （描画 1 回の CPU 側 約 0.7 ms、カニの更新 約 0.04 ms は確認）。
 - スマホは画面サイズの真似（375×812）での表示とタッチ用ボタンの表示だけ確認。
 - 比較ページは「表示されてエラーが無い」ことだけ確認（`shaders.ts` の変更は `#ifdef PPP_WATER` の中のみ）。
+
+---
+
+# 追記：スマホ操作・カメラ・地形表示の安定化（`fix/aquarium-mobile-camera-terrain`）
+
+原因・修正・測定は `fix-mobile-camera-terrain/report.md`。残りは同じ文書の「残っている問題」にまとめた
+（iPhone 実機は未確認、掘ったトンネルの中で横・前を向くとカメラが壁の近くまで寄る、遅い端末では掘り進みが遅れる、など）。

@@ -8,6 +8,11 @@
 //   さらに空洞自体を、水槽の底の少し上・ガラス際・縦の管のまわりの区画・発見物のまわりで打ち切る（clip）。
 // - 見た目：水槽を 1×1 の区画（高さ場 5 マス分）に分け、空洞が触れた区画だけを「汚れた」印にする。
 //   描画側（AquariumDigFx）がその区画の高さ場の三角形を隠し、同じ関数を Surface Nets（MeshBuild）で三角形にし直す。
+// - 見た目と当たり判定を同じ瞬間に変える（2 つの版）：かき出し（stroke）が書き換えるのは「最新の形」だけ。
+//   描画側は作り直しを始めるときに最新の形を写し（snapshot = 'snap' の版）、その版で区画を何フレームかかけて
+//   三角形にし、全部できたら同時に差し替えて commit する（'snap' → 'live'）。当たり判定（solid・カメラ・照準）は
+//   'live' の版だけを見るので、見た目のメッシュがまだ無い空洞にカニ・カメラが入らない
+//   （入ると、見た目では固体の中＝裏面しか描かれず、向こう側が透けて見える）。
 //
 // 空洞の値は、近くに空洞が無い所では PAD（下限）を返す。区画ごとの登録は空洞の外接箱 + PAD で行うので、
 // PAD より近い空洞は必ず登録されていて、どの場所でも値は「真の距離以下」になる（球の追跡・Surface Nets の間引きが安全）。
@@ -56,6 +61,9 @@ export interface CarvePrim {
   max: V3;
 }
 
+/** 空洞の形のどの版を使うか（live = 当たり判定・いま見えている形、snap = 作り直し中の区画の形） */
+export type DigView = 'live' | 'snap';
+
 export type DigMaterial = 'sand' | 'soil' | 'rock' | 'wood' | 'glass' | 'bottom' | 'pipe' | 'treasure' | 'none';
 
 export const DIG_MATERIAL_LABEL: Record<DigMaterial, string> = {
@@ -102,7 +110,14 @@ function primDist(p: CarvePrim, x: number, y: number, z: number): number {
 }
 
 export class DigField {
+  /** 最新の形（かき出しが書き換える） */
   readonly prims: CarvePrim[] = [];
+  /** 版ごとの形（まだその版に無い空洞は null）。snapshot / commit で最新の形から写す */
+  private readonly live: (CarvePrim | null)[] = [];
+  private readonly snap: (CarvePrim | null)[] = [];
+  /** 最後の snapshot から形が変わった空洞・snapshot で写したがまだ commit していない空洞 */
+  private readonly changed = new Set<number>();
+  private readonly staged = new Set<number>();
   /** 区画の数（x, z） */
   readonly ncx: number;
   readonly ncz: number;
@@ -161,10 +176,36 @@ export class DigField {
   }
 
   /** 区画の中の空洞のいちばん低い所（区画を三角形にする縦の範囲を決める） */
-  chunkMinY(id: number): number {
+  chunkMinY(id: number, view: DigView = 'live'): number {
+    const V = view === 'live' ? this.live : this.snap;
     let y = Infinity;
-    for (const k of this.cells[id]) y = Math.min(y, this.prims[k].min[1]);
+    for (const k of this.cells[id]) {
+      const p = V[k];
+      if (p) y = Math.min(y, p.min[1]);
+    }
     return y;
+  }
+
+  // ---------------- 版（見た目と当たり判定を同時に変える） ----------------
+
+  /** 最新の形を 'snap' の版へ写す（区画の作り直しを始めるとき） */
+  snapshot() {
+    for (const id of this.changed) {
+      this.snap[id] = copyPrim(this.prims[id]);
+      this.staged.add(id);
+    }
+    this.changed.clear();
+  }
+
+  /** 'snap' の版を 'live'（当たり判定）にする（作り直した区画をすべて差し替えたとき） */
+  commit() {
+    for (const id of this.staged) this.live[id] = this.snap[id];
+    this.staged.clear();
+  }
+
+  /** まだ当たり判定に入っていない形の変化があるか（自動検証・表示用） */
+  get uncommitted(): number {
+    return this.changed.size + this.staged.size;
   }
 
   // ---------------- 距離関数 ----------------
@@ -197,12 +238,14 @@ export class DigField {
   }
 
   /** 空洞までの距離（内側が負）。近くに空洞が無ければ PAD */
-  carve(x: number, y: number, z: number): number {
+  carve(x: number, y: number, z: number, view: DigView = 'live'): number {
     const list = this.cells[this.cj(z) * this.ncx + this.ci(x)];
     if (list.length === 0) return PAD;
+    const V = view === 'live' ? this.live : this.snap;
     let c = PAD;
     for (let i = 0; i < list.length; i++) {
-      const p = this.prims[list[i]];
+      const p = V[list[i]];
+      if (!p) continue;
       const bd = boxDist(p.min, p.max, x, y, z);
       // 外接箱から離れていれば箱までの距離（下限）で十分（つなぎの丸みが届かない）
       c = bd > 0.3 ? Math.min(c, bd) : smin(c, primDist(p, x, y, z), DIG.unionK);
@@ -212,11 +255,28 @@ export class DigField {
   }
 
   /** 砂（底床）の距離 d を空洞で削る。近くに空洞が無ければ d のまま */
-  cut(d: number, x: number, y: number, z: number): number {
+  cut(d: number, x: number, y: number, z: number, view: DigView = 'live'): number {
     if (this.prims.length === 0) return d;
     const list = this.cells[this.cj(z) * this.ncx + this.ci(x)];
     if (list.length === 0) return d;
-    return smax(d, -this.carve(x, y, z), DIG.rimK);
+    return smax(d, -this.carve(x, y, z, view), DIG.rimK);
+  }
+
+  /**
+   * 区画を三角形にするときの値（buildDigChunk の Surface Nets 用）。符号と、表面のすぐ近く（|値| < 0.25）の値は cut と同じ。
+   * 表面から離れた所は cut の代わりに砂の距離 d をそのまま返し、4×4×4 のブロックをまとめて飛ばせるようにする：
+   * - 地表より 0.25 以上上：cut ≥ d（smax は max 以上）なので符号は同じ
+   * - 近くに空洞が無い（carve が PAD = 空洞まで PAD 以上）深い砂：cut は −PAD 付近に張り付き（|値| < 飛ばす閾値）、
+   *   ブロックを飛ばせずに全点を評価していた。ブロックの中心から隅まで（0.35）より空洞が遠いので、d を返しても安全
+   */
+  meshValue(d: number, x: number, y: number, z: number, view: DigView): number {
+    if (d > 0.25) return d;
+    if (this.prims.length === 0) return d;
+    const list = this.cells[this.cj(z) * this.ncx + this.ci(x)];
+    if (list.length === 0) return d;
+    const c = this.carve(x, y, z, view);
+    if (c >= PAD && d < -0.6) return d;
+    return smax(d, -c, DIG.rimK);
   }
 
   /** 掘った空洞の中で、元の地表より下（トンネルの中）か。カメラの寄せ方に使う */
@@ -258,6 +318,9 @@ export class DigField {
     const p: CarvePrim = { a: [...a], b: [...b], r, min: [0, 0, 0], max: [0, 0, 0] };
     this.bounds(p);
     const id = this.prims.push(p) - 1;
+    this.live.push(null);
+    this.snap.push(null);
+    this.changed.add(id);
     this.register(id);
     this.markDirty(p.min, p.max);
     return id;
@@ -270,6 +333,7 @@ export class DigField {
     if (b) p.b = [...b];
     p.r = Math.max(p.r, r);
     this.bounds(p);
+    this.changed.add(id);
     this.register(id);
     this.markDirty([Math.min(oldMin[0], p.min[0]), Math.min(oldMin[1], p.min[1]), Math.min(oldMin[2], p.min[2])], [Math.max(oldMax[0], p.max[0]), Math.max(oldMax[1], p.max[1]), Math.max(oldMax[2], p.max[2])]);
   }
@@ -333,4 +397,8 @@ export class DigField {
     }
     return { changed, at, r, ms };
   }
+}
+
+function copyPrim(p: CarvePrim): CarvePrim {
+  return { a: [...p.a], b: [...p.b], r: p.r, min: [...p.min], max: [...p.max] };
 }

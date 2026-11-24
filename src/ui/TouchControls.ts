@@ -1,5 +1,8 @@
 // スマホ・タブレット用の画面上の操作（仮想スティックと走るボタン）。
 // 入力値を Input に書き込むだけで、ゲームロジックには関与しない。
+// 押した指の管理（動き・離した・取り消し・見失った）は Input.claim に任せる（要素の上で離さなくても・離した通知が
+// 失われても、必ず元に戻る）。押している指の番号が終わらないまま同じ操作をもう一度押したら、新しい指に付け替える
+// （固まったスティックも、押し直せば直る）。
 
 import type { Input } from '../game/Input';
 
@@ -31,7 +34,7 @@ export class TouchControls {
       <button class="cam" type="button">カメラ</button>` : ''}`;
     document.body.appendChild(this.root);
     this.bindStick(this.root.querySelector<HTMLElement>('.stick')!);
-    this.bindRun(this.root.querySelector<HTMLButtonElement>('.run')!);
+    this.bindHold(this.root.querySelector<HTMLButtonElement>('.run')!, (on) => (this.input.touchRun = on));
     const jump = this.root.querySelector<HTMLButtonElement>('.jump');
     if (jump) this.bindHold(jump, (on) => (this.input.touchJump = on));
     const dig = this.root.querySelector<HTMLButtonElement>('.dig');
@@ -47,19 +50,32 @@ export class TouchControls {
     }
   }
 
-  /** 押している間だけ on になるボタン */
+  /** 押している間だけ on になるボタン（複数の指で押していれば、全部離れるまで on） */
   private bindHold(btn: HTMLButtonElement, set: (on: boolean) => void) {
-    const apply = (on: boolean) => {
+    const ids = new Set<number>();
+    const apply = () => {
+      const on = ids.size > 0;
       set(on);
       btn.classList.toggle('on', on);
     };
     btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
       capture(btn, e.pointerId);
-      apply(true);
+      const id = e.pointerId;
+      this.input.claim(e, {
+        end: () => {
+          ids.delete(id);
+          apply();
+        },
+      });
+      ids.add(id);
+      apply();
     });
-    btn.addEventListener('pointerup', () => apply(false));
-    btn.addEventListener('pointercancel', () => apply(false));
     btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    this.input.onReset(() => {
+      ids.clear();
+      apply();
+    });
   }
 
   private bindStick(base: HTMLElement) {
@@ -70,6 +86,7 @@ export class TouchControls {
       let dx = e.clientX - (r.left + r.width / 2);
       let dy = e.clientY - (r.top + r.height / 2);
       const len = Math.hypot(dx, dy);
+      if (!Number.isFinite(len)) return;
       if (len > STICK_RADIUS) {
         dx *= STICK_RADIUS / len;
         dy *= STICK_RADIUS / len;
@@ -79,36 +96,28 @@ export class TouchControls {
       const dead = len / STICK_RADIUS < 0.12;
       this.input.touchMove = dead ? { x: 0, y: 0 } : { x: dx / STICK_RADIUS, y: -dy / STICK_RADIUS };
     };
-    const release = () => {
+    const clear = () => {
       id = -1;
       knob.style.transform = '';
       base.classList.remove('active');
       this.input.touchMove = { x: 0, y: 0 };
     };
     base.addEventListener('pointerdown', (e) => {
-      if (id !== -1) return;
-      id = e.pointerId;
-      capture(base, id);
+      e.preventDefault();
+      // 前の指がまだ終わっていない（離した通知が失われた）なら、終わらせて新しい指に付け替える
+      if (id !== -1) this.input.release(id);
+      const mine = e.pointerId;
+      id = mine;
+      capture(base, mine);
+      this.input.claim(e, {
+        move: (ev) => id === mine && update(ev),
+        end: () => id === mine && clear(),
+      });
       base.classList.add('active');
       update(e);
     });
-    base.addEventListener('pointermove', (e) => e.pointerId === id && update(e));
-    base.addEventListener('pointerup', (e) => e.pointerId === id && release());
-    base.addEventListener('pointercancel', (e) => e.pointerId === id && release());
-  }
-
-  private bindRun(btn: HTMLButtonElement) {
-    const set = (on: boolean) => {
-      this.input.touchRun = on;
-      btn.classList.toggle('on', on);
-    };
-    btn.addEventListener('pointerdown', (e) => {
-      capture(btn, e.pointerId);
-      set(true);
-    });
-    btn.addEventListener('pointerup', () => set(false));
-    btn.addEventListener('pointercancel', () => set(false));
-    btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    base.addEventListener('contextmenu', (e) => e.preventDefault());
+    this.input.onReset(clear);
   }
 }
 

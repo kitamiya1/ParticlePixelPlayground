@@ -88,3 +88,9 @@ body.aqua #touch-ui .dig.on { background: rgba(255, 214, 140, 0.92); color: #2a1
 #hud .tag.dig { background: #8a6a3a; }
 #hud .tag.dig.ng { background: #8a4a3a; }
 #hud .tag.dig.off { display: none; }
+
+/* スマホ：ページ自体の拡大・スクロール・長押しのメニュー・文字選択を止める（HUD や説明の上から始めた指で
+   ページが拡大されたり、長押しで選択が始まって指の操作がゲームから奪われたりしない） */
+html:has(body.aqua), body.aqua { touch-action: none; overscroll-behavior: none; }
+body.aqua #view, body.aqua #touch-ui, body.aqua #touch-ui *, body.aqua #hud, body.aqua #help {
+  -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }

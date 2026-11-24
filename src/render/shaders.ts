@@ -7,6 +7,31 @@ float bayer8(vec2 a) { return bayer4(0.5 * a) * 0.25 + bayer2(a); }
 `;
 
 /**
+ * 水槽ゲーム（aquarium.html）用：冒険カメラが薄い物を越えたとき、カメラとキャラクターの間に入った部分を抜く。
+ * OCCLUDER_CUT を定義したマテリアルだけで有効（定義しない既存の方式 A〜F のシェーダーは変わらない）。bayer4 が先に要る。
+ * 円すい（頂点 = カメラ、uCutTo の位置で半径 uCutRange.z）の中で、カメラからの距離が uCutRange.x〜y の部分を抜く
+ * （w = 強さ）。縁はディザでぼかす
+ */
+export const OCCLUDER_CUT_CHUNK = /* glsl */ `
+#ifdef OCCLUDER_CUT
+uniform vec3 uCutTo;
+uniform vec4 uCutRange;
+bool pppOccluderCut(vec3 wp) {
+  if (uCutRange.w < 0.01) return false;
+  vec3 ax = uCutTo - cameraPosition;
+  float L = max(length(ax), 1e-3);
+  vec3 dn = ax / L;
+  vec3 rel = wp - cameraPosition;
+  float al = dot(rel, dn);
+  if (al <= uCutRange.x || al >= uCutRange.y) return false;
+  float R = uCutRange.z * al / L;
+  float k = (1.0 - smoothstep(R * 0.55, R, length(rel - dn * al))) * uCutRange.w;
+  return k > bayer4(gl_FragCoord.xy) * 0.96 + 0.02;
+}
+#endif
+`;
+
+/**
  * 水槽ゲーム（aquarium.html）用の水中表現。PPP_WATER を定義したマテリアルだけで有効になり、
  * 定義しない既存の方式 A〜F のシェーダーは変わらない（#ifdef の外には何も足さない）。
  * - pppCaustic：水中の面への直射光を、水面の揺らぎ（コースティクス）と水深による減衰で変える

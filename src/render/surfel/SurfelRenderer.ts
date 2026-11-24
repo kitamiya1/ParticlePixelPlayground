@@ -10,7 +10,7 @@ import type { CharacterSplatSource } from '../../visual/sdf/sdfObjects';
 import type { CharacterRig } from '../CharacterRig';
 import type { SharedUniforms } from '../ParticleMaterial';
 import { PixelPipeline } from '../PixelPipeline';
-import { LIGHTING_CHUNK } from '../shaders';
+import { BAYER, LIGHTING_CHUNK, OCCLUDER_CUT_CHUNK } from '../shaders';
 import type { SplatPointSet } from '../shared/PointSet';
 
 const surfelVertex = /* glsl */ `
@@ -43,6 +43,9 @@ ${LIGHTING_CHUNK}
 
 varying vec3 vColor;
 varying vec2 vQ;
+#ifdef OCCLUDER_CUT
+varying vec3 vCutW;
+#endif
 
 void main() {
   vec3 p = iPos;
@@ -71,6 +74,9 @@ void main() {
   wp.y -= tr * hW * 0.22;
 #endif
   vColor = pppWorldLit(iPos, wp, wn, baseColor, iMisc.y, iMisc.z);
+#ifdef OCCLUDER_CUT
+  vCutW = wp.xyz;
+#endif
 
   // 円盤の面内の 2 軸：法線に垂直（世界の上方向を面に投影した向きを縦に）。比較用に画面正対も選べる
   vec3 T, B;
@@ -107,8 +113,17 @@ void main() {
 const surfelFragment = /* glsl */ `
 varying vec3 vColor;
 varying vec2 vQ;
+#ifdef OCCLUDER_CUT
+// 水槽ゲーム用（OCCLUDER_CUT を定義したときだけ）：冒険カメラが越えた薄い物に付いた円盤を、メッシュと同じ範囲で抜く
+varying vec3 vCutW;
+${BAYER}
+${OCCLUDER_CUT_CHUNK}
+#endif
 void main() {
   bool inside = dot(vQ, vQ) <= 1.0;
+#ifdef OCCLUDER_CUT
+  if (pppOccluderCut(vCutW)) discard;
+#endif
 #ifdef COUNT_FRAGMENTS
   // 重ね塗り計測：R = ラスタライズされた断片（四角形全体）, G = 円の内側で実際に色を書く断片
   gl_FragColor = vec4(1.0, inside ? 1.0 : 0.0, 0.0, 1.0);
