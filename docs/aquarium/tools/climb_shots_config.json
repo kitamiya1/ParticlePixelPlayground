@@ -1,6 +1,6 @@
 {
  "host": "http://localhost:5173",
- "dir": "D:/AI-Projects/ParticlePixelPlayground/docs/aquarium/wall-climb-glass-burrow/shots",
+ "dir": null,
  "w": 960, "h": 600,
  "shots": [
   { "name": "climb-rock-before", "host": "http://localhost:5174", "sc": { "at": [13.3, -1.6], "y": 12, "heading": 0, "cam": { "yaw": -2.0, "pitch": 0.25, "zoom": 3.2 }, "steps": [{ "t": 1.6, "dir": [1, 0] }] } },

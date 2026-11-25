@@ -9,7 +9,9 @@
 async (page) => {
   const cfgPage = await page.context().newPage();
   await cfgPage.goto('http://localhost:5173/docs/aquarium/tools/cam_entry_config.json?' + Date.now());
-  const O = JSON.parse(await cfgPage.evaluate(() => document.body.innerText));
+  const O = Object.assign(JSON.parse(await cfgPage.evaluate(() => document.body.innerText)), globalThis.__over ?? {});
+  // 画像を保存する前に、同じ名前の画像が既に無いか確かめる（out_guard.js。過去の報告の画像を上書きしない）
+  const shotPath = (0, eval)(await (await fetch('http://localhost:5173/docs/aquarium/tools/out_guard.js?' + Date.now())).text())(O);
   await cfgPage.close();
   const out = {};
   const errors = [];
@@ -64,7 +66,7 @@ async (page) => {
           }, [k - i, move]);
           rec.push(...part);
           i = k;
-          if (shotAt.has(i) && O.dir) await p.screenshot({ path: `${O.dir}/entry-${hn}-${v.name}-${(i / 60).toFixed(1)}.jpg`, type: 'jpeg', quality: 80 });
+          if (shotAt.has(i) && O.dir) await p.screenshot({ path: await shotPath(`${O.dir}/entry-${hn}-${v.name}-${(i / 60).toFixed(1)}.jpg`), type: 'jpeg', quality: 80 });
         }
         let jmax = 0, at = 0, dcRate = 0, minClear = 9;
         for (let j = 0; j < rec.length; j++) {

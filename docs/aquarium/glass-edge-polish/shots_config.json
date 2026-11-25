@@ -1,0 +1,36 @@
+{
+ "about": "climb_shots.js の shots（globalThis.__over = { dir, shots } で渡す）。before = PR #3 の bf7e17c（5174）、after = この修正（5173）",
+ "w": 960, "h": 600,
+ "shots": [
+  { "name": "pinhole-inside-before", "host": "http://localhost:5174", "plans": [{ "at": [-4.6, 8.3], "heading": 1.5708, "seconds": 4 }, { "continue": true, "seconds": 6, "aim": [0.8, 0], "aimRamp": true }], "crabAt": [-16, -8], "pose": { "pos": [3.0, 0.62, 9.35], "target": [3.4, 0.6, 10.0], "fov": 60 } },
+  { "name": "pinhole-inside-after", "plans": [{ "at": [-4.6, 8.3], "heading": 1.5708, "seconds": 4 }, { "continue": true, "seconds": 6, "aim": [0.8, 0], "aimRamp": true }], "crabAt": [-16, -8], "pose": { "pos": [3.0, 0.62, 9.35], "target": [3.4, 0.6, 10.0], "fov": 60 } },
+  { "name": "pinhole-outside-before", "host": "http://localhost:5174", "plans": [{ "at": [-4.6, 8.3], "heading": 1.5708, "seconds": 4 }, { "continue": true, "seconds": 6, "aim": [0.8, 0], "aimRamp": true }], "crabAt": [-16, -8], "pose": { "pos": [3.0, 1.2, 12.4], "target": [3.0, 0.8, 10.0], "fov": 45 } },
+  { "name": "pinhole-outside-after", "plans": [{ "at": [-4.6, 8.3], "heading": 1.5708, "seconds": 4 }, { "continue": true, "seconds": 6, "aim": [0.8, 0], "aimRamp": true }], "crabAt": [-16, -8], "pose": { "pos": [3.0, 1.2, 12.4], "target": [3.0, 0.8, 10.0], "fov": 45 } },
+  { "name": "longtunnel-right-before", "host": "http://localhost:5174", "plans": [{ "at": [3.6, 0], "heading": 1.5708, "seconds": 16 }], "crabAt": [-16, -8], "pose": { "pos": [20.6, 2.6, 0.0], "target": [18.0, 2.1, 0.0], "fov": 45 } },
+  { "name": "longtunnel-right-after", "plans": [{ "at": [3.6, 0], "heading": 1.5708, "seconds": 16 }], "crabAt": [-16, -8], "pose": { "pos": [20.6, 2.6, 0.0], "target": [18.0, 2.1, 0.0], "fov": 45 } },
+  { "name": "longtunnel-inside-before", "host": "http://localhost:5174", "plans": [{ "at": [3.6, 0], "heading": 1.5708, "seconds": 16 }], "crabAt": [-16, -8], "pose": { "pos": [16.6, 2.3, 0.0], "target": [18.0, 2.1, 0.0], "fov": 60 } },
+  { "name": "longtunnel-inside-after", "plans": [{ "at": [3.6, 0], "heading": 1.5708, "seconds": 16 }], "crabAt": [-16, -8], "pose": { "pos": [16.6, 2.3, 0.0], "target": [18.0, 2.1, 0.0], "fov": 60 } },
+
+  { "name": "logcam-before-1", "host": "http://localhost:5174", "sc": { "at": [-7.3, 4.9], "heading": 1.5708, "cam": { "yaw": 0.3, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 3, "dir": [0, -1] }, { "t": 0.38, "dir": null }] } },
+  { "name": "logcam-before-2", "host": "http://localhost:5174", "sc": { "at": [-7.3, 4.9], "heading": 1.5708, "cam": { "yaw": 0.3, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 3, "dir": [0, -1] }, { "t": 0.45, "dir": null }] } },
+  { "name": "logcam-before-3", "host": "http://localhost:5174", "sc": { "at": [-7.3, 4.9], "heading": 1.5708, "cam": { "yaw": 0.3, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 3, "dir": [0, -1] }, { "t": 0.6, "dir": null }] } },
+  { "name": "logcam-after-1", "sc": { "at": [-7.3, 4.9], "heading": 1.5708, "cam": { "yaw": 0.3, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 3, "dir": [0, -1] }, { "t": 0.38, "dir": null }] } },
+  { "name": "logcam-after-2", "sc": { "at": [-7.3, 4.9], "heading": 1.5708, "cam": { "yaw": 0.3, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 3, "dir": [0, -1] }, { "t": 0.45, "dir": null }] } },
+  { "name": "logcam-after-3", "sc": { "at": [-7.3, 4.9], "heading": 1.5708, "cam": { "yaw": 0.3, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 3, "dir": [0, -1] }, { "t": 0.6, "dir": null }] } },
+
+  { "name": "burrow-right-before", "host": "http://localhost:5174", "glass": { "at": [14.5, 1.0], "heading": 1.5708, "toGlass": 7, "along": 2.5, "alongSign": 1 }, "pose": { "pos": [21.5, 5.9, -0.4], "target": [17.8, 5.1, -0.4] } },
+  { "name": "burrow-right-after", "glass": { "at": [14.5, 1.0], "heading": 1.5708, "toGlass": 7, "along": 2.5, "alongSign": 1 }, "pose": { "pos": [21.5, 5.9, -0.4], "target": [17.8, 5.1, -0.4] } },
+  { "name": "burrow-left-before", "host": "http://localhost:5174", "glass": { "at": [-15.5, -3.6], "heading": -1.5708, "toGlass": 6, "along": 2.5, "alongSign": 1 }, "pose": { "pos": [-21.5, 1.6, -2.2], "target": [-17.8, 0.7, -2.2] } },
+  { "name": "burrow-left-after", "glass": { "at": [-15.5, -3.6], "heading": -1.5708, "toGlass": 6, "along": 2.5, "alongSign": 1 }, "pose": { "pos": [-21.5, 1.6, -2.2], "target": [-17.8, 0.7, -2.2] } },
+  { "name": "burrow-back-before", "host": "http://localhost:5174", "glass": { "at": [-0.8, -7.0], "heading": 3.1416, "toGlass": 6, "along": 2.5, "alongSign": 1 }, "pose": { "pos": [-2.1, 1.9, -13.6], "target": [-2.1, 0.9, -9.8] } },
+  { "name": "burrow-back-after", "glass": { "at": [-0.8, -7.0], "heading": 3.1416, "toGlass": 6, "along": 2.5, "alongSign": 1 }, "pose": { "pos": [-2.1, 1.9, -13.6], "target": [-2.1, 0.9, -9.8] } },
+  { "name": "burrow-front-before", "host": "http://localhost:5174", "glass": { "at": [-2.0, 7.5], "heading": 0, "toGlass": 6, "along": 2.5, "alongSign": 1 }, "pose": { "pos": [-0.6, 2.1, 13.6], "target": [-0.6, 1.1, 9.8] } },
+  { "name": "burrow-front-after", "glass": { "at": [-2.0, 7.5], "heading": 0, "toGlass": 6, "along": 2.5, "alongSign": 1 }, "pose": { "pos": [-0.6, 2.1, 13.6], "target": [-0.6, 1.1, 9.8] } },
+  { "name": "burrow-corner-fr-before", "host": "http://localhost:5174", "glass": { "at": [15.6, 7.6], "heading": 0.7854, "toGlass": 7, "along": 1.5, "alongSign": -1 }, "pose": { "pos": [20.8, 6.6, 12.8], "target": [17.3, 5.5, 9.3] } },
+  { "name": "burrow-corner-fr-after", "glass": { "at": [15.6, 7.6], "heading": 0.7854, "toGlass": 7, "along": 1.5, "alongSign": -1 }, "pose": { "pos": [20.8, 6.6, 12.8], "target": [17.3, 5.5, 9.3] } },
+  { "name": "burrow-corner-bl-before", "host": "http://localhost:5174", "glass": { "at": [-15.8, -8.2], "heading": -2.3562, "toGlass": 6, "along": 1.5, "alongSign": 1 }, "pose": { "pos": [-20.8, 1.9, -12.8], "target": [-17.3, 0.8, -9.3] } },
+  { "name": "burrow-corner-bl-after", "glass": { "at": [-15.8, -8.2], "heading": -2.3562, "toGlass": 6, "along": 1.5, "alongSign": 1 }, "pose": { "pos": [-20.8, 1.9, -12.8], "target": [-17.3, 0.8, -9.3] } },
+  { "name": "observe-right-after", "glass": { "at": [14.5, 1.0], "heading": 1.5708, "toGlass": 7, "along": 2.5, "alongSign": 1, "observe": true }, "after": [{ "cam": { "zoom": 3.5, "pitch": 0.12 }, "steps": [{ "t": 0.3, "dir": null }] }] },
+  { "name": "observe-corner-bl-after", "glass": { "at": [-15.8, -8.2], "heading": -2.3562, "toGlass": 6, "along": 1.5, "alongSign": 1, "observe": true }, "after": [{ "cam": { "zoom": 3.0, "pitch": 0.15, "yaw": -2.4 }, "steps": [{ "t": 0.3, "dir": null }] }] }
+ ]
+}

@@ -1,0 +1,10 @@
+{
+ "hosts": ["http://localhost:5174", "http://localhost:5173"],
+ "rounds": 2,
+ "w": 390, "h": 844, "dsf": 3, "throttle": 4,
+ "scenes": [
+  { "name": "dig", "at": [3.6, 0], "heading": 1.5708, "phases": [{ "t": 7, "dig": true, "dir": [1, 0] }] },
+  { "name": "glass", "at": [14.5, 1.0], "heading": 1.5708, "phases": [{ "t": 7, "dig": true, "dir": [1, 0] }, { "t": 5, "dig": true, "dir": [0, 1] }] },
+  { "name": "observe", "mode": "observe", "zoom": 3.0, "phases": [{ "t": 4, "spin": 0.4 }] }
+ ]
+}

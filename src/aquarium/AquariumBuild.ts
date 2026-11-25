@@ -275,6 +275,8 @@ const GLASS_FACE = 0.015;
  * - ガラスに接する区画（水槽の縁の区画）は、砂をガラスの内側の面（GLASS_FACE）で切り、水槽の底の少し下から作る：
  *   高さ場の網の断面（buildTerrain が同じ区画の範囲に入れている）の代わりに、穴の開いた断面がこの区画の三角形になる
  *   （ガラス際まで掘った穴を外から見られる）。断面の頂点は網の断面と同じ色・向き・明るさ。
+ *   空洞・地表より十分下の断面（平らな面だけの所）は Surface Nets を使わず同じ格子の頂点・四角形を並べる（stripCap。
+ *   角の区画を除く）。区画の作り直しの時間は、空洞の距離関数（AquariumDig.carve）の評価がほとんどを占める。
  * - 色：掘っていない地表は高さ場の網と同じ色・法線・日照（継ぎ目で色が変わらない）。掘った面は断面と同じ地層の色にして、
  *   元の地表より深いほど暗く・日が当たらなくする（トンネルの中は薄暗いが、環境光で見える）。
  * - 空洞の形は view の版（作り直し中は 'snap'。AquariumDigFx が全区画を同時に差し替えてから当たり判定へ commit する）。
@@ -309,7 +311,20 @@ export function buildDigChunk(world: AquariumWorld, light: LightGrid, i: number,
   const deepY = cMin - 0.6;
   const y0 = TANK.floorY + Math.floor((lo - TANK.floorY) / h) * h;
   const ny = Math.ceil((gMax + 0.3 - y0) / h) + 1;
-  const box: Box3Like = { min: [ox, y0, oz], max: [ox + (n - 1 - 1e-3) * h, y0 + (ny - 1 - 1e-3) * h, oz + (n - 1 - 1e-3) * h] };
+  // ガラスの 1 面だけに接する区画（角の区画を除く）：断面の下の部分（空洞・地表より十分下で、砂の中に平らな断面だけがある所）は
+  // Surface Nets を使わず、Surface Nets が作るのと同じ格子の頂点・四角形を並べる（cut 行目の格子点まで。stripCap）。
+  // Surface Nets は cut 行目から上だけ（掘って形が変わりうる高さ）。cut 行目の格子点は、断面の 1 列目（ガラスの面から 1 マス）で
+  // 砂の値が −0.1 以下（面が必ずガラスの面の GLASS_FACE 内側を通る）・すべての列で砂の中になる所まで
+  const corner = (i === 0 || i === dig.ncx - 1) && (j === 0 || j === dig.ncz - 1);
+  let cut = 0;
+  if (edge && !corner) {
+    let top = cMin - 0.45;
+    for (let q = 0; q < n * n; q++) top = Math.min(top, H[q] - 0.1 / Math.max(NY[q], 0.1));
+    cut = Math.max(0, Math.floor((top - h - y0) / h));
+    if (cut < 4) cut = 0;
+  }
+  const yb = y0 + cut * h;
+  const box: Box3Like = { min: [ox, yb, oz], max: [ox + (n - 1 - 1e-3) * h, y0 + (ny - 1 - 1e-3) * h, oz + (n - 1 - 1e-3) * h] };
   const sdf: Sdf = (x, y, z) => {
     const fq = (x - ox) / h, fk = (z - oz) / h;
     const q = Math.round(fq), k = Math.round(fk);
@@ -322,12 +337,17 @@ export function buildDigChunk(world: AquariumWorld, light: LightGrid, i: number,
       g = world.groundAt(x, z);
       nyv = world.groundNormal(x, z)[1];
     }
-    if (edge && y < deepY) return Math.max((y - g) * nyv, GLASS_FACE - glassIn(x, z));
-    const v = dig.meshValue((y - g) * nyv, x, y, z, view);
-    return edge ? Math.max(v, GLASS_FACE - glassIn(x, z)) : v;
+    if (edge) {
+      // ガラスの面の外の格子点：符号（外）だけが要る（頂点・法線はガラスの面と 1 列目の間のセルの隅の値だけで決まる）
+      const cap = GLASS_FACE - glassIn(x, z);
+      if (cap > GLASS_FACE) return cap;
+      if (y < deepY) return Math.max((y - g) * nyv, cap);
+      return Math.max(dig.meshValue((y - g) * nyv, x, y, z, view), cap);
+    }
+    return dig.meshValue((y - g) * nyv, x, y, z, view);
   };
   const wl = TANK.waterY;
-  surfaceNets(sdf, box, h, mb, (x, y, z, nx, nyy, nz) => {
+  const vert = (x: number, y: number, z: number, nx: number, nyy: number, nz: number): number => {
     const g = world.groundAt(x, z);
     const depth = g - y;
     if (edge) {
@@ -364,8 +384,35 @@ export function buildDigChunk(world: AquariumWorld, light: LightGrid, i: number,
     const k = ao * (1 - 0.34 * cover);
     const sun = light.sample(x + nn[0] * 0.15, y + nn[1] * 0.15, z + nn[2] * 0.15) * (1 - 0.88 * cover);
     return mb.vertex(x, y, z, nx, nyy, nz, u8(c[0] * k), u8(c[1] * k), u8(c[2] * k), sun, 0.7);
-  }, true);
+  };
+  surfaceNets(sdf, box, h, mb, vert, true);
+  if (cut > 0) stripCap(mb, vert, i === 0 ? 'minX' : i === dig.ncx - 1 ? 'maxX' : j === 0 ? 'minZ' : 'maxZ', ox, oz, y0, h, n, cut);
   return mb.finish();
+}
+
+/**
+ * ガラスに接する区画の断面の下の部分（buildDigChunk の cut 行目まで）：Surface Nets が平らな断面に作るのと同じ頂点・四角形。
+ * 断面の格子（ガラスの面と 1 列目の格子点の間のセル）の頂点は、面に沿った向き・高さの向きにセルの中心、面からは GLASS_FACE 内側
+ * （1 列目の砂の値が −0.085 以下なら、Surface Nets の辺の交点は必ずここ）。四角形は高さ 1〜cut 行目・面に沿った 1〜n − 2 列目の
+ * 格子点のまわり（Surface Nets が箱の中の 4 つのセルで張るのと同じ）。cut 行目のセルの頂点は Surface Nets の側にも同じ位置にあり、
+ * 継ぎ目は同じ位置の頂点どうしでつながる。頂点の色は vert（Surface Nets と同じ関数）で決める
+ */
+function stripCap(mb: MeshBuilder, vert: (x: number, y: number, z: number, nx: number, ny: number, nz: number) => number, side: 'minX' | 'maxX' | 'minZ' | 'maxZ', ox: number, oz: number, y0: number, h: number, n: number, cut: number) {
+  const alongX = side === 'minZ' || side === 'maxZ';
+  const out: [number, number] = side === 'minX' ? [-1, 0] : side === 'maxX' ? [1, 0] : side === 'minZ' ? [0, -1] : [0, 1];
+  const face = side === 'minX' ? TANK.minX + GLASS_FACE : side === 'maxX' ? TANK.maxX - GLASS_FACE : side === 'minZ' ? TANK.minZ + GLASS_FACE : TANK.maxZ - GLASS_FACE;
+  const o = alongX ? ox : oz;
+  const cols = n - 1;
+  const id = new Int32Array((cut + 1) * cols);
+  for (let r = 0; r <= cut; r++) for (let q = 0; q < cols; q++) {
+    const s = o + (q + 0.5) * h, y = y0 + (r + 0.5) * h;
+    id[r * cols + q] = alongX ? vert(s, y, face, 0, 0, out[1]) : vert(face, y, s, out[0], 0, 0);
+  }
+  for (let r = 1; r <= cut; r++) for (let q = 1; q < cols; q++) {
+    const a = id[(r - 1) * cols + q - 1], b = id[r * cols + q - 1], c = id[r * cols + q], d = id[(r - 1) * cols + q];
+    mb.tri(a, b, c, out[0], 0, out[1]);
+    mb.tri(a, c, d, out[0], 0, out[1]);
+  }
 }
 
 /** 小石：低ポリゴンの楕円体（正二十面体を 1 回分割）を砂の上に散らす */

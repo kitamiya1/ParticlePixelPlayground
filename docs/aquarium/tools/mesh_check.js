@@ -11,6 +11,8 @@ async (page) => {
   const cfgPage = await page.context().newPage();
   await cfgPage.goto('http://localhost:5173/docs/aquarium/tools/mesh_config.json?' + Date.now());
   const O = Object.assign(JSON.parse(await cfgPage.evaluate(() => document.body.innerText)), globalThis.__over ?? {});
+  // 画像を保存する前に、同じ名前の画像が既に無いか確かめる（out_guard.js。過去の報告の画像を上書きしない）
+  const shotPath = (0, eval)(await (await fetch('http://localhost:5173/docs/aquarium/tools/out_guard.js?' + Date.now())).text())(O);
   await cfgPage.close();
   const ctx = await page.context().browser().newContext({ viewport: { width: 640, height: 400 } });
   const p = await ctx.newPage();
@@ -168,7 +170,7 @@ async (page) => {
         return { hit: hit.map((v) => +v.toFixed(2)), filmDepth: +depthMin.toFixed(3), farSide: +w.contactSolid(...far).toFixed(2), groundAtHit: +w.groundAt(hit[0], hit[2]).toFixed(2) };
       }, e);
       await p.waitForTimeout(150);
-      await p.screenshot({ path: `${O.shotDir}/mismatch-${k}.jpg`, type: 'jpeg', quality: 85 });
+      await p.screenshot({ path: await shotPath(`${O.shotDir}/mismatch-${k}.jpg`), type: 'jpeg', quality: 85 });
       r.visual.push({ k, ...e, ...info });
     }
   }  await ctx.close();

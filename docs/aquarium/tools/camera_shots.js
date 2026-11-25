@@ -6,7 +6,9 @@
 async (page) => {
   const cfgPage = await page.context().newPage();
   await cfgPage.goto('http://localhost:5173/docs/aquarium/tools/camera_config.json?' + Date.now());
-  const O = JSON.parse(await cfgPage.evaluate(() => document.body.innerText));
+  const O = Object.assign(JSON.parse(await cfgPage.evaluate(() => document.body.innerText)), globalThis.__over ?? {});
+  // 画像を保存する前に、同じ名前の画像が既に無いか確かめる（out_guard.js。過去の報告の画像を上書きしない）
+  const shotPath = (0, eval)(await (await fetch('http://localhost:5173/docs/aquarium/tools/out_guard.js?' + Date.now())).text())(O);
   await cfgPage.close();
   const W = O.w ?? 960, H = O.h ?? 600;
   const ctx = await page.context().browser().newContext({ viewport: { width: W, height: H }, hasTouch: !!O.touch, isMobile: !!O.touch, deviceScaleFactor: 1 });
@@ -103,7 +105,7 @@ async (page) => {
     if (O.only && !O.only.includes(s.name)) continue;
     if (s.prep) out.push({ name: s.name, prep: await p.evaluate((q) => window.__cam.dig(q.at, q.heading, q.seconds, q.opt), s.prep) });
     const r = await p.evaluate((q) => window.__cam.place(q), s);
-    if (O.dir && !s.noShot) await p.screenshot({ path: `${O.dir}/${O.tag}-${s.name}.jpg`, type: 'jpeg', quality: 82 });
+    if (O.dir && !s.noShot) await p.screenshot({ path: await shotPath(`${O.dir}/${O.tag}-${s.name}.jpg`), type: 'jpeg', quality: 82 });
     const sw = s.sweep ? await p.evaluate((q) => window.__cam.sweep(q.sweep, q.sweepPitch), s) : null;
     out.push({ name: s.name, ...r, sweep: sw });
   }

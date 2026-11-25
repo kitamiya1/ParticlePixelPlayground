@@ -21,6 +21,9 @@
 //   カメラは常にガラスの外（外面から zoom）で、ガラス際まで掘った穴の中・地下のトンネルを外から見る。
 //   砂に隠れているときはカニの位置に印（crabHidden）。カニが水槽の外へ出たら、戻るまで冒険カメラと同じ。
 // - 壁登り中は注視点を面の外向きへ離す（CLIMB_LIFT）。
+// - 越えて描画で抜いていた物（倒木など）を越えられなくなったとき、その物の向こう・中にいるカメラは 1 フレームで手前へ
+//   飛ばさず、抜いて描いたまま TRAVERSE_SPEED で手前へ抜ける（traverse）。床・天井で変えた仰角は、床・天井が無くなったら
+//   いまの仰角までゆっくり戻す（見る向きを急に変えない）。
 // 切り替えは 冒険 → ガラス越し → 箱庭 → 冒険（toggle）。
 // 切り替えてもカニの位置・向きは変えない（カメラの状態は別々に持つ）。
 // - 水槽の外：カニのいる区画（CrabController.region）ごとに範囲と遮蔽を変える。
@@ -84,6 +87,8 @@ const CLOSE_SPEED = 3.5;
 const SMOOTH = { see: 4.5, hidden: 9 };
 /** 壁登り中に注視点を面の外向きへ離す距離 */
 const CLIMB_LIFT = 0.3;
+/** 越えて抜いていた物を越えられなくなったとき、その物の向こうのカメラが手前へ抜ける速さ（1 秒あたり） */
+const TRAVERSE_SPEED = 8;
 
 export type TunnelCam = 'orbit' | 'shoulder' | 'near';
 import type { VistaView } from './AquariumSpots';
@@ -198,6 +203,13 @@ export class AquaCamera {
   /** 動きの上限：直前のカメラの位置・カニの位置（null = つながない）と、上限で詰められずに固体の手前まで寄せた回数（検証用） */
   private smoothPrev: { pos: V3; crab: V3 } | null = null;
   smoothSnaps = 0;
+  /**
+   * 越えて抜いていた物（直前のフレームの腕の passed）と、それを越えられなくなったときにカメラが手前へ抜けている途中の区間
+   * （注視点からの距離。null = 抜けていない）。抜けた回数（検証用）
+   */
+  private prevPassed: [number, number][] = [];
+  private traverse: [number, number] | null = null;
+  traverses = 0;
   /** 壁登り中の度合い（0..1。平滑化。注視点を面から離す） */
   private climbW = 0;
 
@@ -347,10 +359,14 @@ export class AquaCamera {
       this.pose.fov = 40;
       this.occluded = false;
       this.blendT = 0;
+      this.prevPassed = [];
+      this.traverse = null;
       return;
     }
     this.crabHidden = false;
     if (observing) {
+      this.prevPassed = [];
+      this.traverse = null;
       this.observePose(o, c);
       this.blendT = 0;
       this.sanitize(c);
@@ -370,6 +386,8 @@ export class AquaCamera {
     if (c.region === 'drain' || c.region === 'return') {
       this.lookUp = this.lookDown = 0;
       this.cut.on = 0;
+      this.prevPassed = [];
+      this.traverse = null;
     }
     // 区画が変わった直後は、前の位置からなめらかにつなぐ
     // （つないだ途中の位置が壁・床の中になるとき＝瞬間移動などで遠くから来たときは、つながずに切り替える）
@@ -578,6 +596,8 @@ export class AquaCamera {
     this.nearDist = 0;
     this.cut.on = 0;
     this.smoothPrev = null;
+    this.prevPassed = [];
+    this.traverse = null;
     this.placeBehind(c);
     const dir = direction(o);
     P.pos = [t.x + dir[0] * 3.2, t.y + dir[1] * 3.2, t.z + dir[2] * 3.2];
@@ -643,9 +663,14 @@ export class AquaCamera {
       if (f2 === 'floor') fp = Math.max(fp, this.searchPitch(T2, yaw, op, Z, o.maxPitch, 'floor'));
       else if (f2 === 'ceil') cp = Math.min(cp, this.searchPitch(T2, yaw, op, Z, Math.max(o.minPitch, op - LOOK_DOWN_MAX), 'ceil'));
     }
-    // 床・天井が近づくときは速く、離れるときはゆっくり追う（砂の起伏で上下に揺れない）。追いつくまでの間のめり込みは 4 が押し出す
-    this.floorPitch += (fp - this.floorPitch) * (1 - Math.exp(-dt * (fp > this.floorPitch ? 14 : 4)));
-    this.ceilPitch += (cp - this.ceilPitch) * (1 - Math.exp(-dt * (cp < this.ceilPitch ? 14 : 4)));
+    // 床・天井が近づくときは速く、離れるときはゆっくり追う（砂の起伏で上下に揺れない）。追いつくまでの間のめり込みは 4 が押し出す。
+    // 床・天井が無くなったとき（fp = −2・cp = 2 の番兵）は、番兵ではなくいまの仰角までゆっくり戻し、戻りきったら番兵にする
+    // （番兵へ向けて戻すと、離れ始めの 1 フレームに 0.16 rad も仰角が変わり、倒木を越えて降りるときにカメラが大きく振れた）
+    const fpT = Math.max(fp, Math.min(op, this.floorPitch)), cpT = Math.min(cp, Math.max(op, this.ceilPitch));
+    this.floorPitch += (fpT - this.floorPitch) * (1 - Math.exp(-dt * (fpT > this.floorPitch ? 14 : 4)));
+    this.ceilPitch += (cpT - this.ceilPitch) * (1 - Math.exp(-dt * (cpT < this.ceilPitch ? 14 : 4)));
+    if (fp < op && this.floorPitch < op + 2e-3) this.floorPitch = fp;
+    if (cp > op && this.ceilPitch > op - 2e-3) this.ceilPitch = cp;
     const pitch = clamp(op, this.floorPitch, Math.max(this.floorPitch, this.ceilPitch));
     this.lookUp = Math.max(0, pitch - op);
     this.lookDown = Math.max(0, op - pitch);
@@ -669,10 +694,27 @@ export class AquaCamera {
       const safe = w.cameraSolid(T[0] + q[0] * this.dist, T[1] + q[1] * this.dist, T[2] + q[2] * this.dist, region) > CAM_R;
       if (safe) nd = this.dist - CLOSE_SPEED * dt;
     }
+    // 越えて抜いていた物を越えられなくなったとき（カニが動いて腕に沿った厚さが THIN を超えた・腕の向きが変わった）、カメラが
+    // まだその物の向こうにいれば、4 の安全網で 1 フレームに手前へ飛ばさず、その物を抜いて描いたまま TRAVERSE_SPEED で
+    // 手前へ抜ける（中空の倒木を越えて降りると、倒木の向こうのカメラが 1 フレームに 0.88 寄っていた）。見る向きは変えない
+    if (!this.traverse && hit < this.dist) {
+      // カメラがその物の手前の面より向こう（物の中・向こう側）にいる
+      const was = this.prevPassed.find(([a0, a1]) => this.dist > a0 - 0.1 && hit < a1 && !arm.passed.some(([b0]) => Math.abs(b0 - a0) < 0.3));
+      if (was) {
+        this.traverse = [Math.min(was[0], hit), Math.max(was[1], this.dist)];
+        this.traverses++;
+      }
+    }
+    if (this.traverse) {
+      const tr = this.traverse;
+      if (!closing || this.dist < tr[0] - 0.1 || arm.passed.length > 0) this.traverse = null;
+      else nd = Math.max(nd, this.dist - TRAVERSE_SPEED * dt);
+    }
+    this.prevPassed = arm.passed;
     this.dist = nd;
     // 越えた薄い物の中をカメラが通る間は、4 の安全網で手前へ戻さない（戻すと遠ざかる向きに越えられなくなる）。
     // その物はカメラとカニの間で抜いて描くので、中を通っても視界は遮られない（面はカメラと反対を向いていて描かれない）
-    const inPassed = arm.passed.some(([a0, a1]) => this.dist > a0 - 0.1 && this.dist < a1 + 0.05);
+    const inPassed = this.traverse !== null || arm.passed.some(([a0, a1]) => this.dist > a0 - 0.1 && this.dist < a1 + 0.05);
     // 寄らされて近いほど画角を広げる（最大 +16°）
     const near = this.dist < Z - 0.05 ? 1 - smoothstep(0.7, Math.max(1.2, Math.min(Z, 3)), this.dist) : 0;
     this.closeFov += (16 * near - this.closeFov) * (1 - Math.exp(-dt * 4));
@@ -732,10 +774,12 @@ export class AquaCamera {
     // 描画で抜く範囲：カメラから見た、越えた薄い物の区間（前後に少し余白）。カニの手前 0.5 より先は抜かない
     const D = Math.hypot(px - T[0], py - T[1], pz - T[2]);
     const cut = this.cut;
-    const want = arm.cutFrom >= 0 && arm.cutFrom < D - 0.2 ? 1 : 0;
+    // 手前へ抜けている途中（traverse）は、抜けている物の区間を抜く
+    const cf = this.traverse ? this.traverse[0] : arm.cutFrom, ctt = this.traverse ? this.traverse[1] : arm.cutTo;
+    const want = cf >= 0 && cf < D - 0.2 ? 1 : 0;
     if (want) {
-      cut.near = Math.max(0, D - arm.cutTo - 0.3);
-      cut.far = Math.max(cut.near, D - Math.max(arm.cutFrom - 0.3, 0.5));
+      cut.near = Math.max(0, D - ctt - 0.3);
+      cut.far = Math.max(cut.near, D - Math.max(cf - 0.3, 0.5));
     }
     cut.on += (want - cut.on) * (1 - Math.exp(-dt * (want ? 14 : 5)));
     cut.to = [c.x, c.y + c.radius, c.z];

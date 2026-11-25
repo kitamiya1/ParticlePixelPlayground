@@ -8,7 +8,9 @@
 async (page) => {
   const cfgPage = await page.context().newPage();
   await cfgPage.goto('http://localhost:5173/docs/aquarium/tools/route_config.json?' + Date.now());
-  const O = JSON.parse(await cfgPage.evaluate(() => document.body.innerText));
+  const O = Object.assign(JSON.parse(await cfgPage.evaluate(() => document.body.innerText)), globalThis.__over ?? {});
+  // 画像を保存する前に、同じ名前の画像が既に無いか確かめる（out_guard.js。過去の報告の画像を上書きしない）
+  const shotPath = (0, eval)(await (await fetch('http://localhost:5173/docs/aquarium/tools/out_guard.js?' + Date.now())).text())(O);
   await cfgPage.close();
   const out = {};
   for (const host of O.hosts) {
@@ -67,7 +69,7 @@ async (page) => {
       const diorama = { pos: P.pos.map((v) => +v.toFixed(2)), target: P.target.map((v) => +v.toFixed(2)), fov: P.fov };
       return { found, total: a.tracker.total, missed, fellOut, drainRoute: regions, room, diorama };
     });
-    if (O.dir) await p.screenshot({ path: `${O.dir}/${host === O.hosts[0] ? 'before' : 'after'}-20-diorama.jpg`, type: 'jpeg', quality: 82 });
+    if (O.dir) await p.screenshot({ path: await shotPath(`${O.dir}/${host === O.hosts[0] ? 'before' : 'after'}-20-diorama.jpg`), type: 'jpeg', quality: 82 });
     // 箱庭カメラから冒険カメラへ戻したとき
     r.backToAdventure = await p.evaluate(() => {
       const a = window.__aqua;

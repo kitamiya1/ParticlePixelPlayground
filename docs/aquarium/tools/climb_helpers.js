@@ -256,6 +256,35 @@
     }
     return { side: S, ...st, examples: ex };
   };
-  window.__ct = { run, axisFor, blocker, tunnelReclimb, tunnelLateral, digGlass, glassCheck };
+  /**
+   * mesh_check.js と同じ掘り方の計画（plans：[{ at, heading, seconds, continue?, aim?, aimRamp?, turn?, up? }]）で掘り、
+   * すべての区画を作り直す（作り直しの時間の上限なし＝毎回同じ形）。mesh_check の不一致の場所を画面で見るため
+   */
+  const digPlans = (plans) => {
+    const fx = a.view.digFx;
+    fx.budgetMs = 1e9;
+    a.freeze = true;
+    const step = (n, fn) => { a.freeze = false; for (let i = 0; i < n; i++) { fn?.(i); a.step(1, 1 / 60); } a.freeze = true; };
+    for (const pl of plans) {
+      if (!pl.continue) { c.teleport(pl.at[0], pl.at[1]); c.heading = pl.heading; step(20); cam.adventure.yaw = pl.heading + Math.PI; }
+      a.dig = true;
+      const n = Math.round(pl.seconds * 60);
+      step(n, (i) => {
+        const k = pl.aimRamp ? i / n : 1;
+        const tx = pl.turn ? Math.max(-1, Math.min(1, -(pl.turn * (i / 60)) / (Math.PI / 2))) : 0;
+        a.digAim = pl.aim || pl.turn ? { x: (pl.aim ? pl.aim[0] * k : 0) + tx, y: pl.aim ? pl.aim[1] * k : 0 } : null;
+        const hd = c.state === 'dig' ? c.digYaw : pl.continue ? cam.yaw - Math.PI : pl.heading;
+        const yaw = cam.yaw, fxx = -Math.sin(yaw), fzz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
+        const wx = Math.sin(hd), wz = Math.cos(hd);
+        inp.touchMove = { x: wx * rx + wz * rz, y: wx * fxx + wz * fzz };
+        inp.touchJump = !!pl.up && i > pl.seconds * 30;
+      });
+      a.dig = false; a.digAim = null; inp.touchMove = { x: 0, y: 0 }; inp.touchJump = false;
+      if (!plans[plans.indexOf(pl) + 1]?.continue) step(30);
+    }
+    fx.flushAll();
+    return { end: [r3(c.x), r3(c.y + c.radius), r3(c.z)], prims: w.dig.count };
+  };
+  window.__ct = { run, axisFor, blocker, tunnelReclimb, tunnelLateral, digGlass, glassCheck, digPlans };
   return 'ok';
 })();

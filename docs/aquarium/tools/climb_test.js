@@ -4,7 +4,7 @@
 async (page) => {
   const cfgPage = await page.context().newPage();
   await cfgPage.goto('http://localhost:5173/docs/aquarium/tools/climb_config.json?' + Date.now());
-  const O = JSON.parse(await cfgPage.evaluate(() => document.body.innerText));
+  const O = Object.assign(JSON.parse(await cfgPage.evaluate(() => document.body.innerText)), globalThis.__over ?? {});
   await cfgPage.close();
   const ctx = await page.context().browser().newContext({ viewport: { width: 640, height: 400 } });
   const open = async () => {

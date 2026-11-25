@@ -7,7 +7,8 @@
 async (page) => {
   const cfgPage = await page.context().newPage();
   await cfgPage.goto('http://localhost:5173/docs/aquarium/tools/glass_burrow_config.json?' + Date.now());
-  const O = JSON.parse(await cfgPage.evaluate(() => document.body.innerText));
+  // 実行する側で globalThis.__over に入れた値は設定を上書きする（例：{ host: 'http://localhost:5174' } で変更前と比べる）
+  const O = Object.assign(JSON.parse(await cfgPage.evaluate(() => document.body.innerText)), globalThis.__over ?? {});
   await cfgPage.close();
   const ctx = await page.context().browser().newContext({ viewport: { width: 640, height: 400 } });
   const out = [];
