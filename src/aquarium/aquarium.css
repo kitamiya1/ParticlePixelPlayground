@@ -15,7 +15,44 @@ body.aqua #loading { color: #9fc7c0; }
 #hud .sub { color: #9fb8b2; font-size: 11px; }
 #hud a { pointer-events: auto; color: #8fd4ff; }
 
-body.aqua #help { line-height: 1.65; }
+/* 操作の説明：右上の × で閉じ、右上のメニューの「？」で開き直す（AquaHelp.ts）。長い説明は欄の中でスクロールする。
+   欄は指を受ける（pointer-events: auto。ゲームの指は Canvas と操作のボタンだけが受けるので、欄の上の指は視点の回転・
+   移動にならない）。中でスクロールする欄は先祖の touch-action: none が効かないので、pan-y でピンチの拡大を止める */
+body.aqua #help { pointer-events: auto; display: flex; flex-direction: column; z-index: 5; padding: 0; line-height: 1.6; font-size: 12px;
+  left: calc(12px + env(safe-area-inset-left)); top: auto; bottom: calc(12px + env(safe-area-inset-bottom));
+  width: min(560px, calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right))); max-width: none;
+  max-height: calc(100vh - 230px); max-height: calc(100dvh - 230px);
+  background: rgba(10, 22, 28, 0.9); border: 1px solid rgba(160, 220, 210, 0.3); border-radius: 8px; color: #e8fff8;
+  touch-action: pan-y; overscroll-behavior: contain; }
+body.aqua #help.closed { display: none; }
+#help .help-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 0 12px; flex: none; }
+#help .help-close { min-width: 44px; min-height: 40px; padding: 0; background: transparent; border: 0; border-radius: 0 8px 0 8px; color: #e8fff8;
+  font-size: 22px; line-height: 1; touch-action: manipulation; }
+#help .help-close:active, #help .help-close:hover { background: rgba(255, 255, 255, 0.12); }
+#help .help-body { overflow-y: auto; min-height: 0; padding: 0 12px 10px; touch-action: pan-y; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+#help.brief .help-full, #help.full .help-brief { display: none; }
+#help p { margin: 2px 0 6px; }
+#help ul { margin: 2px 0 6px; padding-left: 1.2em; }
+#help li { margin: 2px 0; }
+#help .help-btns { display: flex; justify-content: flex-end; }
+#help .help-more { min-height: 36px; padding: 4px 12px; border-radius: 6px; font-size: 12px; background: #2e5e5a; color: #f2fff9;
+  border: 1px solid rgba(255, 255, 255, 0.2); touch-action: manipulation; }
+#menu .menu-btn.help-btn { min-width: 38px; padding: 4px 10px; }
+#menu .menu-btn.help-btn.on { background: rgba(46, 128, 121, 0.85); }
+/* スマホ：短い案内はスティックの上（右の「調べる」ボタンに掛からない幅）。詳しい説明は画面の上から、縦横どちらでも
+   画面に収まる高さ（はみ出す分は中でスクロール） */
+body.aqua.touch #help.brief { top: auto; bottom: calc(196px + env(safe-area-inset-bottom)); width: min(290px, 62vw);
+  max-height: calc(100vh - 208px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  max-height: calc(100dvh - 208px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
+body.aqua.touch #help.full { top: calc(12px + env(safe-area-inset-top)); bottom: auto;
+  width: min(460px, calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+  max-height: calc(100vh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
+/* 縦長の画面：下の操作のボタンは隠さない */
+@media (orientation: portrait) {
+  body.aqua.touch #help.full { max-height: calc(100vh - 250px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    max-height: calc(100dvh - 250px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
+}
 #help kbd { display: inline-block; min-width: 18px; padding: 0 4px; border-radius: 3px; background: rgba(255, 255, 255, 0.14); font: inherit; font-size: 11px; text-align: center; }
 
 #crab-marker { position: fixed; left: 0; top: 0; transform: translate(-50%, -100%); display: none; pointer-events: none; z-index: 2;
@@ -31,10 +68,9 @@ body.aqua #touch-ui .run { right: calc(128px + env(safe-area-inset-right)); bott
 body.aqua #touch-ui .cam { position: fixed; right: calc(20px + env(safe-area-inset-right)); bottom: calc(140px + env(safe-area-inset-bottom));
   width: 72px; height: 44px; border-radius: 22px; font-size: 13px; background: rgba(74, 90, 122, 0.8); border: 2px solid rgba(255, 255, 255, 0.35);
   touch-action: none; user-select: none; -webkit-user-select: none; z-index: 3; }
-body.aqua.touch #help { top: auto; bottom: calc(196px + env(safe-area-inset-bottom)); left: calc(12px + env(safe-area-inset-left)); max-width: 62%; }
 @media (max-width: 760px) {
   body.aqua #touch-ui { display: block; }
-  body.aqua #help { display: block; }
+  body.aqua #help { display: flex; }
   #hud .card { padding: 5px 9px; font-size: 12px; }
 }
 
@@ -104,7 +140,9 @@ body.aqua #touch-ui .dig.aiming span { opacity: 0.35; }
 #menu .menu-btn:active { background: rgba(46, 128, 121, 0.85); }
 #save-panel { position: fixed; right: calc(12px + env(safe-area-inset-right)); top: calc(54px + env(safe-area-inset-top)); width: min(340px, calc(100vw - 24px));
   display: none; z-index: 5; background: rgba(10, 22, 28, 0.94); border: 1px solid rgba(160, 220, 210, 0.3); border-radius: 8px; padding: 10px 12px;
-  line-height: 1.55; font-size: 13px; color: #e8fff8; touch-action: manipulation;
+  /* 中でスクロールする欄は、先祖の touch-action: none が効かない（スクロールする要素で区切られる）。pan-y で 1 本指の
+     スクロールだけを許し、ピンチでページが拡大しないようにする（manipulation はピンチでの拡大を許してしまう） */
+  line-height: 1.55; font-size: 13px; color: #e8fff8; touch-action: pan-y;
   /* 背の低い画面（横持ちのスマホ）でも確認のボタンまで届くよう、はみ出す分は中でスクロール */
   max-height: calc(100vh - 66px - env(safe-area-inset-top)); max-height: calc(100dvh - 66px - env(safe-area-inset-top)); overflow-y: auto; overscroll-behavior: contain; }
 #save-panel.show { display: block; }
@@ -177,8 +215,32 @@ body.aqua #touch-ui .act.show { display: block; }
 body.aqua #touch-ui .act.on { filter: brightness(1.12); }
 body.aqua #touch-ui .act span { position: relative; pointer-events: none; }
 
-/* スマホ：ページ自体の拡大・スクロール・長押しのメニュー・文字選択を止める（HUD や説明の上から始めた指で
-   ページが拡大されたり、長押しで選択が始まって指の操作がゲームから奪われたりしない） */
+/* スマホ：ページ自体の拡大・スクロール・長押しのメニュー・文字選択を止める（HUD の上から始めた指で
+   ページが拡大されたり、長押しで選択が始まって指の操作がゲームから奪われたりしない）。
+   注意：touch-action は中でスクロールする要素（説明・セーブの欄）で区切られ、そこでは先祖の none が効かない。
+   それらの欄は自分で pan-y にする。iOS のピンチの拡大は AquaViewport.ts でも止める */
 html:has(body.aqua), body.aqua { touch-action: none; overscroll-behavior: none; }
 body.aqua #view, body.aqua #touch-ui, body.aqua #touch-ui *, body.aqua #hud, body.aqua #help {
   -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+
+/* ページ自体が拡大されてしまったときの知らせ（AquaViewport.ts）。見えている範囲いっぱいに、拡大を打ち消した大きさで出す。
+   出している間は html / body のピンチを許し（つまんで縮められる）、知らせが Canvas を覆うのでゲームの指にはならない */
+#zoom-fix { position: fixed; left: 0; top: 0; transform-origin: 0 0; display: none; z-index: 20; align-items: center; justify-content: center;
+  background: rgba(4, 10, 14, 0.62); touch-action: manipulation; overflow: hidden; }
+#zoom-fix.show { display: flex; }
+#zoom-fix .card { width: min(360px, calc(100% - 32px)); background: rgba(10, 22, 28, 0.97); border: 1px solid rgba(255, 224, 138, 0.6); border-radius: 10px;
+  padding: 12px 14px; color: #f2fff9; font-size: 14px; line-height: 1.6; }
+#zoom-fix .t { font-weight: 700; color: #ffe08a; font-size: 16px; }
+#zoom-fix .btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 6px; }
+#zoom-fix .btns button { min-height: 44px; padding: 6px 14px; border-radius: 8px; font-size: 14px; background: #2e5e5a; color: #fff; border: 1px solid rgba(255, 255, 255, 0.3); }
+#zoom-fix .btns button.danger { background: #7a3a32; }
+#zoom-fix .btns button:disabled { opacity: 0.6; }
+#zoom-fix .sv { font-size: 13px; color: #b9ece0; margin: 2px 0 6px; }
+#zoom-fix .sv[data-state="pending"] { color: #ffd27a; }
+#zoom-fix .sv[data-state="error"], #zoom-fix .sv[data-state="conflict"] { color: #ff8a7a; }
+#zoom-fix .sv[data-state="off"] { color: #c9d3d0; }
+#zoom-fix .s { font-size: 12px; color: #b9ece0; }
+html.aqua-zoomfix:has(body.aqua), html.aqua-zoomfix body.aqua { touch-action: manipulation; }
+/* ?diag：倍率・指の座標などの表示（指は受けない） */
+#vp-diag { position: fixed; left: 0; top: 0; transform-origin: 0 0; z-index: 19; pointer-events: none; white-space: pre; max-width: 100vw; overflow: hidden;
+  font: 10px/1.35 ui-monospace, Menlo, Consolas, monospace; color: #d8fff4; background: rgba(0, 0, 0, 0.62); padding: 4px 6px; }

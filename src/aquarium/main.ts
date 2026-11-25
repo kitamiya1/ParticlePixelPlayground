@@ -22,6 +22,8 @@ import { ROOM } from './AquariumStand';
 import { TANK } from './aquaConst';
 import { SAVE_FORMAT, SAVE_VERSION, SaveStore, type LoadResult, type SaveContext, type SaveData } from './AquaSave';
 import { AutoSaver, SaveMenu } from './AquaSaveUi';
+import { HelpPanel } from './AquaHelp';
+import { ViewportGuard } from './AquaViewport';
 
 /** いまの水槽の id（保存データの tanks の鍵。将来の隣の水槽は別の id） */
 const HOME_TANK = 'home';
@@ -111,13 +113,12 @@ async function boot() {
     </div>`;
   document.body.appendChild(hud);
   const $ = (id: string) => document.getElementById(id)!;
-  const help = document.createElement('div');
-  help.id = 'help';
-  help.innerHTML = touch
-    ? `<b>操作</b><br>左スティック：移動　ダッシュ：押している間<br>ジャンプ：跳ぶ（水中で長押し＝遊泳。壁では離れる）<br>壁登り：岩・流木・土の壁へスティックを倒し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）<br>掘る：押している間 前の砂を掘る。押したまま指をずらすと、その向き（上・下・左右・斜め）を掘る。掘りながらスティックで好きな向きへ動ける<br>画面ドラッグ：視点回転　2 本指：ズーム<br>カメラ：冒険 / ガラス越し（水槽の外から地下の穴を観察）/ 箱庭の切り替え<br>調べる / 引っこ抜く：穴のそばで出るボタン（引っこ抜くは長押し。離すとやめる）<br>仲間：右上のボタンで「呼ぶ（同行）/ 自由に暮らす」を切り替え<br>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</span>`
-    : `<b>操作</b><br><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る<br><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳。壁では離れる）<br>壁登り：岩・流木・土の壁へ押し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）<br><kbd>F</kbd> 長押し：掘る（押したままマウスを動かすと上下左右・斜めを狙う。掘りながら <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で好きな向きへ動ける）<br>右ボタンを押したままドラッグ：その向きを掘る<br>ドラッグ：視点回転　ホイール：ズーム<br><kbd>V</kbd> カメラ切替（冒険 / ガラス越し / 箱庭。ガラス越しはガラス際まで掘った穴を外から観察）<kbd>R</kbd> スタート地点へ　<kbd>H</kbd> 説明を隠す<br><kbd>E</kbd> 調べる（穴のそばで）・長押しで引っこ抜く（離すとやめる）　<kbd>Q</kbd> 仲間を呼ぶ / 自由に暮らす（右上のボタンでも）<br>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</span>`;
-  document.body.appendChild(help);
-  if (touch) setTimeout(() => help.classList.add('fade'), 12000);
+  // 操作の説明（右上の「？」で開く。初回だけ自動で出し、「×」で閉じたら次からは出さない）。欄は右上のメニューを作った後に作る
+  const helpBrief = `<p>左のスティックで移動、右の「ジャンプ」で跳ぶ・「掘る」で砂を掘る。画面をドラッグで視点を回し、2 本指でズーム。</p><p class="hint">詳しい操作は、右上の「？」でいつでも見られます。</p>`;
+  const helpFull = touch
+    ? `<ul><li>左スティック：移動。ダッシュ：押している間</li><li>ジャンプ：跳ぶ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へスティックを倒し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）</li><li>掘る：押している間 前の砂を掘る。押したまま指をずらすと、その向き（上・下・左右・斜め）を掘る。掘りながらスティックで好きな向きへ動ける</li><li>画面ドラッグ：視点の回転。2 本指：カメラのズーム</li><li>カメラ：冒険 / ガラス越し（水槽の外から地下の穴を観察）/ 箱庭の切り替え</li><li>調べる / 引っこ抜く：穴のそばで出るボタン（引っこ抜くは長押し。離すとやめる）</li><li>仲間：右上のボタンで「呼ぶ（同行）/ 自由に暮らす」を切り替え</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li>右上の「？」：この説明</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`
+    : `<ul><li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る</li><li><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へ押し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）</li><li><kbd>F</kbd> 長押し：掘る（押したままマウスを動かすと上下左右・斜めを狙う。掘りながら <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で好きな向きへ動ける）</li><li>右ボタンを押したままドラッグ：その向きを掘る</li><li>ドラッグ：視点回転　ホイール：ズーム</li><li><kbd>V</kbd> カメラ切替（冒険 / ガラス越し / 箱庭。ガラス越しはガラス際まで掘った穴を外から観察）　<kbd>R</kbd> スタート地点へ</li><li><kbd>E</kbd> 調べる（穴のそばで）・長押しで引っこ抜く（離すとやめる）　<kbd>Q</kbd> 仲間を呼ぶ / 自由に暮らす（右上のボタンでも）</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li><kbd>H</kbd> または右上の「？」：この説明の表示 / 非表示</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`;
+  let help: HelpPanel | null = null;
   const marker = document.createElement('div');
   marker.id = 'crab-marker';
   marker.textContent = 'カニ';
@@ -161,7 +162,7 @@ async function boot() {
     if (camera.mode === 'adventure') camera.placeBehind(crab);
   };
   input.onPress('KeyV', toggleCamera);
-  input.onPress('KeyH', () => help.classList.toggle('fade'));
+  input.onPress('KeyH', () => help?.toggle());
   input.onPress('KeyR', () => crab.teleport(world.spawn.x, world.spawn.z));
   // 自動検証用：発見の記録を消す
   const resetDiscovery = () => {
@@ -297,6 +298,22 @@ async function boot() {
   });
   const saver = new AutoSaver(store, gather);
   const saveMenu = new SaveMenu(menu, { saver, ctx: saveCtx, bootNote, toast });
+  // 右上の「？」（セーブの後ろ）と説明の欄
+  help = new HelpPanel(menu, { touch, brief: helpBrief, full: helpFull });
+  // ページ自体の拡大を防ぐ・気づいて戻す（ゲーム内カメラのズームとは別）。?diag で倍率・指の座標などを画面に出す
+  const viewport = new ViewportGuard({
+    input,
+    relayout: resize,
+    // 「保存して読み込み直す」は保存できたときだけ読み込み直す（失敗・競合・?nosave では読み込み直さず、書き出しを勧める）
+    save: {
+      info: () => ({ state: saver.state, lastSavedAt: saver.lastSavedAt, unsavedFor: saver.unsavedFor, error: saver.store.stats.lastError, noSave }),
+      flush: () => saver.flush(),
+      exportFile: () => saveMenu.exportFile(saver.store.conflict ? '-このタブ' : ''),
+      reload: () => location.reload(),
+    },
+    diag: new URLSearchParams(location.search).has('diag'),
+    camInfo: () => `${camera.mode} zoom ${camera[camera.mode].zoom.toFixed(2)}`,
+  });
   // 控えから戻したときは、すぐ保存先（IndexedDB）へ書く
   if (store.info.fromJournal) saver.markImportant();
   // ---------------- 仲間（スナモグリ） ----------------
@@ -491,7 +508,7 @@ async function boot() {
   /** 起動から最初のフレームまで（生成 + 保存データの読み込み・復元） */
   const bootMs = performance.now() - t0;
   requestAnimationFrame(loop);
-  (window as unknown as Record<string, unknown>).__aqua = Object.assign(debug, { world, crab, rig, camera, view, settings, input, spots, finds, tracker, life, resetDiscovery, goto, places, sump: SUMP, save: { store, saver, menu: saveMenu, ctx: saveCtx, gather, restore: restoreInfo, loaded }, buddy, toggleBuddy, buildMs, bootMs, buildPhases: built.ms, plantMs: plants.ms, plantCounts: plants.counts, plantTimes: plants.times });
+  (window as unknown as Record<string, unknown>).__aqua = Object.assign(debug, { world, crab, rig, camera, view, settings, input, spots, finds, tracker, life, resetDiscovery, goto, places, sump: SUMP, save: { store, saver, menu: saveMenu, ctx: saveCtx, gather, restore: restoreInfo, loaded }, help, viewport, buddy, toggleBuddy, buildMs, bootMs, buildPhases: built.ms, plantMs: plants.ms, plantCounts: plants.counts, plantTimes: plants.times });
 }
 
 // 読み込み表示を先に描画させてから重い生成処理に入る
