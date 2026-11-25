@@ -77,6 +77,8 @@ const CLOSE_SPEED = 3.5;
  * カニが見えている間は SMOOTH.see、砂に隠れている間は SMOOTH.hidden（早く追いつく）。視点を操作している間は制限しない
  */
 const SMOOTH = { see: 4.5, hidden: 9 };
+/** 壁登り中に注視点を面の外向きへ離す距離 */
+const CLIMB_LIFT = 0.3;
 
 export type TunnelCam = 'orbit' | 'shoulder' | 'near';
 import type { VistaView } from './AquariumSpots';
@@ -184,6 +186,8 @@ export class AquaCamera {
   /** 動きの上限：直前のカメラの位置・カニの位置（null = つながない）と、上限で詰められずに固体の手前まで寄せた回数（検証用） */
   private smoothPrev: { pos: V3; crab: V3 } | null = null;
   smoothSnaps = 0;
+  /** 壁登り中の度合い（0..1。平滑化。注視点を面から離す） */
+  private climbW = 0;
 
   constructor(private readonly world: AquariumWorld) {}
 
@@ -234,9 +238,13 @@ export class AquaCamera {
     // 注視点はカニを追う（箱庭カメラ中も追っておき、戻したときに飛ばないようにする）。管の中は速く流れるので強めに追う
     const fast = c.region === 'drain' || c.region === 'return';
     const kf = 1 - Math.exp(-dt * (fast ? 20 : 8));
-    this.target.x += (c.x - this.target.x) * kf;
-    this.target.y += (c.y + 0.3 - this.target.y) * kf;
-    this.target.z += (c.z - this.target.z) * kf;
+    // 壁登り：注視点を面から離す（体の中心から面の外向きへ CLIMB_LIFT。腕が面のすぐそばから始まって壁へ食い込み、
+    // カメラがカニに寄りすぎて壁しか見えなくなるのを防ぐ）。張り付く・離れるときはなめらかに
+    this.climbW += ((c.climbing ? 1 : 0) - this.climbW) * (1 - Math.exp(-dt * 5));
+    const lift = CLIMB_LIFT * this.climbW, n = c.climbN;
+    this.target.x += (c.x + n[0] * lift - this.target.x) * kf;
+    this.target.y += (c.y + 0.3 + n[1] * lift - this.target.y) * kf;
+    this.target.z += (c.z + n[2] * lift - this.target.z) * kf;
     // 掘ったトンネルの中にいる度合い：体の中心が空洞の中で元の地表より下（深さ 0.05〜0.4 で 0→1）× 頭の上の砂の天井
     // （上が開いた溝・地表へ抜けた出口では 0）。入るときは少し速く、出るときはゆっくり変える（境目で急に変わらない）
     const cy = c.y + c.radius;

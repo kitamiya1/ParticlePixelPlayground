@@ -6,6 +6,9 @@
 // - 穴掘り：体を掘る向きへ傾け、左右の鋏で交互に砂をすくっては後ろへかき出す（位相は CrabController.digPhase）。
 //   前脚も交互に砂を後ろへ蹴り、進んでいるときは歩行と同じ足運びを重ねる。照準の先に何も無いとき（digWhiff）は
 //   すくわずに、鋏を掘る向きへ伸ばして宙で振る（空振り）。
+// - 壁登り：体は張り付いた面の向き（groundN = CrabController.climbN）へ傾け、根を球の中心から面の側へ半径だけ下げた所に置く。
+//   進んでいる間は面に沿った歩行の足運び（体の座標の速度は面を床に起こして計算済み）、止まっている間は脚を広げて
+//   足先を面へ押し付け、ゆっくり踏ん張り直す。鋏は前へ伸ばして面をつかむ。
 
 import * as THREE from 'three';
 import { clamp } from '../core/math';
@@ -20,6 +23,7 @@ interface Weights {
   swim: number;
   sink: number;
   dig: number;
+  climb: number;
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -27,7 +31,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 export class CrabRig {
   readonly bones: THREE.Matrix4[] = Array.from({ length: CRAB_BONE_COUNT }, () => new THREE.Matrix4());
   readonly root = new THREE.Matrix4();
-  private readonly w: Weights = { idle: 1, walk: 0, run: 0, air: 0, swim: 0, sink: 0, dig: 0 };
+  private readonly w: Weights = { idle: 1, walk: 0, run: 0, air: 0, swim: 0, sink: 0, dig: 0, climb: 0 };
   private t = 0;
   private readonly tilt = new THREE.Quaternion();
   private readonly qTmp = new THREE.Quaternion();
@@ -49,8 +53,9 @@ export class CrabRig {
     this.t += dt;
     const t = this.t;
     // 状態の重み（なめらかに切り替える）
-    const target: Weights = { idle: 0, walk: 0, run: 0, air: 0, swim: 0, sink: 0, dig: 0 };
-    if (c.state === 'idle') target.idle = 1;
+    const target: Weights = { idle: 0, walk: 0, run: 0, air: 0, swim: 0, sink: 0, dig: 0, climb: 0 };
+    if (c.state === 'climb') target.climb = 1;
+    else if (c.state === 'idle') target.idle = 1;
     else if (c.state === 'walk') target.walk = 1;
     else if (c.state === 'run') target.run = 1;
     else if (c.state === 'swim') target.swim = 1;
@@ -66,18 +71,26 @@ export class CrabRig {
     const dph = c.digPhase;
     // 空振りの度合い（掘っている間だけ）
     const wh = clamp(c.digWhiff, 0, 1);
+    // 壁登り：面に沿って進んでいる分（歩行の足運び）と、止まって踏ん張っている分
+    const climbMove = W.climb * clamp(c.speed / 0.9, 0, 1);
+    const cling = W.climb - climbMove;
 
-    // 根：位置 + 向き + 地面の傾き（なめらかに追従）
+    // 根：位置 + 向き + 地面の傾き（なめらかに追従）。壁では傾きが大きいので、根は球の中心から「体の上」の逆へ
+    // 半径だけ下げた所（面に接する所）に置く（平らな床では従来と同じ、足元 = 中心の真下）
     this.qYaw.setFromAxisAngle(UP, c.heading);
     this.vTmp.set(c.groundN[0], c.groundN[1], c.groundN[2]).normalize();
     this.qTmp.setFromUnitVectors(UP, this.vTmp);
-    this.tilt.slerp(this.qTmp, 1 - Math.exp(-dt * 8));
-    this.root.makeRotationFromQuaternion(this.qTmp.copy(this.tilt).multiply(this.qYaw)).setPosition(c.x, c.y, c.z);
+    // 張り付いた直後・離れた直後は傾きが大きく変わるので、壁登りの間は少し速く追う
+    this.tilt.slerp(this.qTmp, 1 - Math.exp(-dt * (8 + 4 * W.climb)));
+    this.vTmp.set(0, 1, 0).applyQuaternion(this.tilt);
+    const R = c.radius;
+    this.root.makeRotationFromQuaternion(this.qTmp.copy(this.tilt).multiply(this.qYaw)).setPosition(c.x - this.vTmp.x * R, c.y + R - this.vTmp.y * R, c.z - this.vTmp.z * R);
 
     // 体：歩行の上下・左右の揺れ、呼吸、着地の沈み込み、遊泳の前傾
     const ph = c.stridePhase;
-    const bob = Math.abs(Math.cos(ph)) * (0.008 * W.walk + 0.014 * W.run + 0.008 * digMove) + Math.sin(t * 2.1) * 0.004 * W.idle + Math.abs(Math.sin(dph)) * 0.012 * W.dig;
-    const squat = c.landImpact * 0.06 + 0.03 * W.sink;
+    const bob = Math.abs(Math.cos(ph)) * (0.008 * W.walk + 0.014 * W.run + 0.008 * digMove + 0.006 * climbMove) + Math.sin(t * 2.1) * 0.004 * (W.idle + 0.5 * cling) + Math.abs(Math.sin(dph)) * 0.012 * W.dig;
+    // 壁では体を面へ寄せる（脚を広げて踏ん張る）
+    const squat = c.landImpact * 0.06 + 0.03 * W.sink + 0.025 * W.climb;
     const roll = Math.sin(ph) * (0.035 * W.walk + 0.05 * W.run) + Math.sin(c.swimPhase * 0.5) * 0.08 * W.swim + Math.sin(dph) * 0.045 * W.dig;
     // 穴掘り：掘る向きへ頭を下げる（上へ掘るときは上げる）。かき出すたびに小さく前へのめる（空振りではのめらず、少し伸び上がる）
     const pitch = -0.12 * W.swim + clamp(c.vy * 0.03, -0.12, 0.12) * (W.air + W.swim) + W.dig * (0.14 - c.digPitch * 0.4 + Math.abs(Math.sin(dph)) * 0.06 * (1 - wh) - 0.05 * wh);
@@ -104,8 +117,8 @@ export class CrabRig {
     }
 
     // 歩脚
-    const amp = 0.075 * W.walk + 0.1 * W.run + 0.06 * digMove;
-    const lift = 0.055 * W.walk + 0.08 * W.run + 0.045 * digMove;
+    const amp = 0.075 * W.walk + 0.1 * W.run + 0.06 * digMove + 0.07 * climbMove;
+    const lift = 0.055 * W.walk + 0.08 * W.run + 0.045 * digMove + 0.06 * climbMove;
     for (const sx of [1, -1] as const) {
       LEGS.forEach((L, i) => {
         const group = (i + (sx === 1 ? 0 : 1)) % 2;
@@ -121,6 +134,14 @@ export class CrabRig {
         fx = fx * (1 - W.air - W.swim - W.sink) + W.air * sx * L.rest.out * 0.9 + W.sink * sx * L.rest.out * 1.06;
         fz = fz * (1 - W.air - W.swim - W.sink) + W.air * L.rest.fwd * 0.85 + W.sink * L.rest.fwd * 1.05;
         fy = fy * (1 - W.air - W.swim - W.sink) + W.air * -0.07 + W.sink * (0.0 + 0.02 * Math.sin(t * 2.2 + i));
+        // 壁登り：脚を広げ（前脚は前へ・後脚は後ろへ）、足先を面へ押し付けて爪を掛ける。止まっている間は
+        // ゆっくり踏ん張り直す（前後の脚が交互にわずかに掛け直す）
+        if (W.climb > 0.001) {
+          fx += W.climb * sx * L.rest.out * 0.12;
+          fz += W.climb * L.rest.fwd * 0.18;
+          fy -= W.climb * 0.014;
+          fy += cling * 0.012 * Math.max(0, Math.sin(t * 1.7 + i * 1.6 + (sx === 1 ? 0 : 2.1)));
+        }
         // 穴掘り：前脚で砂を後ろへ蹴る（左右交互）。他の脚は少し広げて踏ん張る
         if (W.dig > 0.001) {
           const kp = dph + (sx === 1 ? 0 : Math.PI);
@@ -148,12 +169,13 @@ export class CrabRig {
     this.clawT -= dt;
     if (this.clawT <= 0) this.clawT = 2.2 + ((t * 3.7) % 2.4);
     const pulse = this.clawT < 0.5 ? Math.sin((this.clawT / 0.5) * Math.PI) : 0;
-    const openTarget = W.idle * pulse * 0.55 + W.air * 0.45 + W.sink * 0.3 + (move * Math.max(0, Math.sin(ph * 0.5)) * 0.1);
+    // 壁登り：鋏を少し開いて前へ伸ばし、面をつかむ（進んでいる間は歩みに合わせて開閉）
+    const openTarget = W.idle * pulse * 0.55 + W.air * 0.45 + W.sink * 0.3 + (move * Math.max(0, Math.sin(ph * 0.5)) * 0.1) + W.climb * (0.18 + 0.2 * climbMove * Math.max(0, Math.sin(ph * 0.5)));
     this.clawOpen += (openTarget - this.clawOpen) * (1 - Math.exp(-dt * 14));
     const breathe = Math.sin(t * 2.1) * 0.03 * W.idle;
-    const yawA0 = 0.55 + 0.3 * W.air + 0.2 * W.sink - 0.1 * W.swim - 0.25 * W.dig;
-    const pitchA0 = 0.28 + breathe - 0.65 * W.air - 0.2 * W.sink - 0.1 * W.run + Math.sin(ph) * 0.05 * move;
-    const fold0 = 1.75 - 0.6 * W.air - 0.35 * W.sink + 0.15 * W.swim;
+    const yawA0 = 0.55 + 0.3 * W.air + 0.2 * W.sink - 0.1 * W.swim - 0.25 * W.dig + 0.12 * W.climb;
+    const pitchA0 = 0.28 + breathe - 0.65 * W.air - 0.2 * W.sink - 0.1 * W.run + Math.sin(ph) * 0.05 * (move + climbMove) - 0.18 * W.climb;
+    const fold0 = 1.75 - 0.6 * W.air - 0.35 * W.sink + 0.15 * W.swim - 0.3 * W.climb;
     for (const [sx, k, arm, hand, finger] of [
       [1, CLAWS.scale.L, CRAB_BONE.armL, CRAB_BONE.handL, CRAB_BONE.fingerL],
       [-1, CLAWS.scale.R, CRAB_BONE.armR, CRAB_BONE.handR, CRAB_BONE.fingerR],
