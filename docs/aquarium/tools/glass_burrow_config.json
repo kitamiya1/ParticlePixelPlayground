@@ -1,0 +1,11 @@
+{
+ "host": "http://localhost:5173",
+ "sites": [
+  { "name": "右のガラス（陸地）", "at": [14.5, 1.0], "heading": 1.5708, "toGlass": 7, "along": 2.5, "alongSign": 1, "sides": [{ "side": "maxX", "from": -3.5, "to": 2.5 }] },
+  { "name": "左のガラス（水中）", "at": [-15.5, -3.6], "heading": -1.5708, "toGlass": 6, "along": 2.5, "alongSign": 1, "sides": [{ "side": "minX", "from": -6.5, "to": -0.5 }] },
+  { "name": "奥のガラス（水中）", "at": [-0.8, -7.0], "heading": 3.1416, "toGlass": 6, "along": 2.5, "alongSign": 1, "sides": [{ "side": "minZ", "from": -4.5, "to": 1.5 }] },
+  { "name": "手前のガラス（岸の斜面）", "at": [-2.0, 7.5], "heading": 0, "toGlass": 6, "along": 2.5, "alongSign": 1, "sides": [{ "side": "maxZ", "from": -3.5, "to": 2.5 }] },
+  { "name": "右手前の角（陸地）", "at": [15.6, 7.6], "heading": 0.7854, "toGlass": 7, "along": 1.5, "alongSign": -1, "sides": [{ "side": "maxX", "from": 6.5, "to": 9.97 }, { "side": "maxZ", "from": 14.5, "to": 17.97 }] },
+  { "name": "左奥の角（水中）", "at": [-15.8, -8.2], "heading": -2.3562, "toGlass": 6, "along": 1.5, "alongSign": 1, "sides": [{ "side": "minX", "from": -9.97, "to": -6.5 }, { "side": "minZ", "from": -17.97, "to": -14.5 }] }
+ ]
+}

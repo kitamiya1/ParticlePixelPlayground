@@ -1,4 +1,4 @@
-// 水槽ゲームの 2 種類のカメラ（状態だけ。Three.js のカメラへの反映は AquariumRenderer が行う）。
+// 水槽ゲームの 3 種類のカメラ（冒険・ガラス越し・箱庭。状態だけ。Three.js のカメラへの反映は AquariumRenderer が行う）。
 // 角度の決め方・ドラッグ量の係数は既存の CameraRig と同じ（yaw / pitch / direction()）。
 // - 冒険カメラ：カニの斜め後方から追従する三人称。水面の高さちょうどに来ないよう（水面を真横から見て割れて見えないよう）
 //   カニのいる側へずらす。視点の向き（yaw / pitch）はプレイヤーが決めたものをカメラが勝手に変えない（横へ回り込む・
@@ -17,6 +17,14 @@
 //   ズームの上限は区画ごと（部屋は水槽全体が入るよう遠くまで引ける）。
 //   どこかの値が数でなくなったら（NaN・無限大）、カニの後ろの既定の視点へ戻す（異常な状態から必ず復帰する）。
 // - 箱庭カメラ：水槽の外から全体を見回す。回転・ズームのみ（カニの位置は画面上の印で示す）。
+// - ガラス越し（observe）：アリの巣の観察ケースのように、水槽の外からガラスを通してカニを追う（observePose）。
+//   カメラは常にガラスの外（外面から zoom）で、ガラス際まで掘った穴の中・地下のトンネルを外から見る。
+//   砂に隠れているときはカニの位置に印（crabHidden）。カニが水槽の外へ出たら、戻るまで冒険カメラと同じ。
+// - 壁登り中は注視点を面の外向きへ離す（CLIMB_LIFT）。
+// - 越えて描画で抜いていた物（倒木など）を越えられなくなったとき、その物の向こう・中にいるカメラは 1 フレームで手前へ
+//   飛ばさず、抜いて描いたまま TRAVERSE_SPEED で手前へ抜ける（traverse）。床・天井で変えた仰角は、床・天井が無くなったら
+//   いまの仰角までゆっくり戻す（見る向きを急に変えない）。
+// 切り替えは 冒険 → ガラス越し → 箱庭 → 冒険（toggle）。
 // 切り替えてもカニの位置・向きは変えない（カメラの状態は別々に持つ）。
 // - 水槽の外：カニのいる区画（CrabController.region）ごとに範囲と遮蔽を変える。
 //   排水管の中は真上から覗き込み（管の内側に留める）、給水管の中は流れの上流から追う。濾過槽・水槽台・部屋は
@@ -77,13 +85,20 @@ const CLOSE_SPEED = 3.5;
  * カニが見えている間は SMOOTH.see、砂に隠れている間は SMOOTH.hidden（早く追いつく）。視点を操作している間は制限しない
  */
 const SMOOTH = { see: 4.5, hidden: 9 };
+/** 壁登り中に注視点を面の外向きへ離す距離 */
+const CLIMB_LIFT = 0.3;
+/** 越えて抜いていた物を越えられなくなったとき、その物の向こうのカメラが手前へ抜ける速さ（1 秒あたり） */
+const TRAVERSE_SPEED = 8;
 
 export type TunnelCam = 'orbit' | 'shoulder' | 'near';
 import type { VistaView } from './AquariumSpots';
 import type { CrabController } from './CrabController';
 
-export type CameraMode = 'adventure' | 'diorama';
-export const CAMERA_MODE_LABEL: Record<CameraMode, string> = { adventure: '冒険カメラ', diorama: '箱庭カメラ' };
+export type CameraMode = 'adventure' | 'observe' | 'diorama';
+export const CAMERA_MODE_LABEL: Record<CameraMode, string> = { adventure: '冒険カメラ', observe: 'ガラス越し', diorama: '箱庭カメラ' };
+/** ガラス越しのカメラ：ガラスの外面からカメラまでの最小の距離と、カメラの高さの下限（底板・台の天板より上） */
+const OBSERVE_GAP = 0.35;
+const OBSERVE_MIN_Y = DECK.top + 0.2;
 
 export interface CameraPose {
   pos: [number, number, number];
@@ -130,6 +145,10 @@ export class AquaCamera {
   // minPitch が深いのは、床で止まったカメラから見上げられるようにするため（床より下へ回した分は見上げる角度になる）
   readonly adventure: Orbit = { yaw: 0, pitch: 0.3, zoom: 3.2, minZoom: 1.4, maxZoom: ZOOM_MAX.room, minPitch: -1.25, maxPitch: 1.35 };
   readonly diorama: Orbit = { yaw: 0.42, pitch: 0.3, zoom: 68, minZoom: 22, maxZoom: 115, minPitch: -0.12, maxPitch: 1.45 };
+  /** ガラス越し：yaw / pitch はカニからカメラへの向き、zoom はガラスの外面からカメラまでの距離 */
+  readonly observe: Orbit = { yaw: 0, pitch: 0.08, zoom: 2.6, minZoom: OBSERVE_GAP, maxZoom: 14, minPitch: -0.45, maxPitch: 0.7 };
+  /** ガラス越しで、カメラからカニの体の中心までの間に砂・岩などがあってカニが隠れているか（描画側が印を出す） */
+  crabHidden = false;
   /** 追従する注視点（平滑化） */
   readonly target = { x: 0, y: 0, z: 0 };
   /** 遮蔽を避けたあとの実際の距離 */
@@ -184,6 +203,15 @@ export class AquaCamera {
   /** 動きの上限：直前のカメラの位置・カニの位置（null = つながない）と、上限で詰められずに固体の手前まで寄せた回数（検証用） */
   private smoothPrev: { pos: V3; crab: V3 } | null = null;
   smoothSnaps = 0;
+  /**
+   * 越えて抜いていた物（直前のフレームの腕の passed）と、それを越えられなくなったときにカメラが手前へ抜けている途中の区間
+   * （注視点からの距離。null = 抜けていない）。抜けた回数（検証用）
+   */
+  private prevPassed: [number, number][] = [];
+  private traverse: [number, number] | null = null;
+  traverses = 0;
+  /** 壁登り中の度合い（0..1。平滑化。注視点を面から離す） */
+  private climbW = 0;
 
   constructor(private readonly world: AquariumWorld) {}
 
@@ -200,19 +228,82 @@ export class AquaCamera {
     this.vista = v;
   }
 
-  toggle(): CameraMode {
-    this.mode = this.mode === 'adventure' ? 'diorama' : 'adventure';
+  /** 冒険 → ガラス越し → 箱庭 → 冒険。ガラス越しへ入るときは、カニにいちばん近いガラスの正面から見る */
+  toggle(c?: CrabController): CameraMode {
+    this.mode = this.mode === 'adventure' ? 'observe' : this.mode === 'observe' ? 'diorama' : 'adventure';
+    if (this.mode === 'observe' && c) this.faceNearestGlass(c);
     return this.mode;
+  }
+
+  /** ガラス越し：カニにいちばん近いガラスの外向き（水平）から見る向きにする */
+  faceNearestGlass(c: CrabController) {
+    const d = [c.x - TANK.minX, TANK.maxX - c.x, c.z - TANK.minZ, TANK.maxZ - c.z];
+    const k = d.indexOf(Math.min(...d));
+    const out: [number, number] = k === 0 ? [-1, 0] : k === 1 ? [1, 0] : k === 2 ? [0, -1] : [0, 1];
+    this.observe.yaw = Math.atan2(out[0], out[1]);
+    this.observe.pitch = 0.08;
+    this.target.x = c.x;
+    this.target.y = c.y + 0.3;
+    this.target.z = c.z;
+  }
+
+  /**
+   * ガラス越しのカメラ（アリの巣の観察ケースのように、水槽の外からガラスを通して地下のトンネルとカニを見る）：
+   * 注視点（カニ）から見る向き（yaw / pitch）へ進み、水槽のガラスの外面を越えた所から zoom だけ離れた所に置く
+   * （向きを回すと、そちらのガラスの外へ回り込む）。カメラは常に水槽の外なので、砂・ガラスにめり込まない。
+   * 高さは底板より上・部屋の中に留め、水面の高さちょうどは避ける。カニとの間に砂などがあれば crabHidden（画面に印）
+   */
+  private observePose(o: Orbit, c: CrabController) {
+    const T: V3 = [this.target.x, this.target.y, this.target.z];
+    const d = direction(o);
+    // 注視点からガラスの内面までの距離（向きの先で最初に出る面）
+    let t = Infinity;
+    if (d[0] > 1e-4) t = Math.min(t, (TANK.maxX - T[0]) / d[0]);
+    if (d[0] < -1e-4) t = Math.min(t, (TANK.minX - T[0]) / d[0]);
+    if (d[2] > 1e-4) t = Math.min(t, (TANK.maxZ - T[2]) / d[2]);
+    if (d[2] < -1e-4) t = Math.min(t, (TANK.minZ - T[2]) / d[2]);
+    if (d[1] > 1e-4) t = Math.min(t, (TANK.topY - T[1]) / d[1]);
+    if (!Number.isFinite(t)) t = 0;
+    const h = Math.hypot(d[0], d[2]) || 1;
+    // ガラスの厚みと間隔は水平に測る（斜めに見ても外面から OBSERVE_GAP 以上離れる）
+    const s = Math.max(0, t) + (TANK.glass + Math.max(OBSERVE_GAP, o.zoom)) / h;
+    let px = T[0] + d[0] * s, py = T[1] + d[1] * s, pz = T[2] + d[2] * s;
+    py = clamp(py, OBSERVE_MIN_Y, TANK.topY + 6);
+    px = clamp(px, ROOM.minX + 0.5, ROOM.maxX - 0.5);
+    pz = clamp(pz, ROOM.minZ + 0.5, ROOM.maxZ - 0.5);
+    const band = 0.22;
+    if (Math.abs(py - TANK.waterY) < band) py = T[1] < TANK.waterY ? TANK.waterY - band : TANK.waterY + band;
+    this.pose.pos = [px, py, pz];
+    this.pose.target = T;
+    this.pose.fov = 50;
+    this.occluded = false;
+    this.lookUp = this.lookDown = 0;
+    this.cut.on = 0;
+    this.tunnel = 0;
+    this.crabFade = 0;
+    this.smoothPrev = null;
+    // カニとの間に固体（砂の断面・岩）があるか：水槽の中だけを調べる（ガラスは透明）
+    const w = this.world, q: V3 = [c.x, c.y + c.radius, c.z];
+    const L = Math.hypot(q[0] - px, q[1] - py, q[2] - pz);
+    let hidden = false;
+    for (let k = 1; k < 40 && !hidden; k++) {
+      const f = k / 40, x = px + (q[0] - px) * f, y = py + (q[1] - py) * f, z = pz + (q[2] - pz) * f;
+      if (L * (1 - f) < c.radius + 0.05) break;
+      if (w.insideTank(x, z) && w.solid(x, y, z) < -0.02) hidden = true;
+    }
+    this.crabHidden = hidden;
   }
 
   update(dt: number, input: Input, c: CrabController) {
     dt = Number.isFinite(dt) ? clamp(dt, 0, 0.1) : 0;
     this.sanitize(c);
-    const o = this.mode === 'adventure' ? this.adventure : this.diorama;
+    // ガラス越しは水槽の中のカニだけ（水槽の外へ出たら、戻るまで冒険カメラと同じ動き）
+    const observing = this.mode === 'observe' && c.region === 'tank';
+    const o = this.mode === 'diorama' ? this.diorama : observing ? this.observe : this.adventure;
     // 既存の CameraRig と同じ係数（ドラッグ 1px あたりの回転量、ホイール 1 段で 1.12 倍）
     o.yaw -= input.dragDX * 0.006;
     o.pitch = clamp(o.pitch + input.dragDY * 0.004, o.minPitch, o.maxPitch);
-    const zMax = this.mode === 'adventure' ? ZOOM_MAX[c.region] : o.maxZoom;
+    const zMax = o === this.adventure ? ZOOM_MAX[c.region] : o.maxZoom;
     if (input.wheel !== 0) o.zoom = clamp(o.zoom * Math.pow(1.12, input.wheel), o.minZoom, zMax);
     if (this.autoRotate && this.mode === 'diorama') o.yaw += dt * 0.12;
     const touched = input.dragDX !== 0 || input.dragDY !== 0 || input.wheel !== 0;
@@ -234,9 +325,13 @@ export class AquaCamera {
     // 注視点はカニを追う（箱庭カメラ中も追っておき、戻したときに飛ばないようにする）。管の中は速く流れるので強めに追う
     const fast = c.region === 'drain' || c.region === 'return';
     const kf = 1 - Math.exp(-dt * (fast ? 20 : 8));
-    this.target.x += (c.x - this.target.x) * kf;
-    this.target.y += (c.y + 0.3 - this.target.y) * kf;
-    this.target.z += (c.z - this.target.z) * kf;
+    // 壁登り：注視点を面から離す（体の中心から面の外向きへ CLIMB_LIFT。腕が面のすぐそばから始まって壁へ食い込み、
+    // カメラがカニに寄りすぎて壁しか見えなくなるのを防ぐ）。張り付く・離れるときはなめらかに
+    this.climbW += ((c.climbing ? 1 : 0) - this.climbW) * (1 - Math.exp(-dt * 5));
+    const lift = CLIMB_LIFT * this.climbW, n = c.climbN;
+    this.target.x += (c.x + n[0] * lift - this.target.x) * kf;
+    this.target.y += (c.y + 0.3 + n[1] * lift - this.target.y) * kf;
+    this.target.z += (c.z + n[2] * lift - this.target.z) * kf;
     // 掘ったトンネルの中にいる度合い：体の中心が空洞の中で元の地表より下（深さ 0.05〜0.4 で 0→1）× 頭の上の砂の天井
     // （上が開いた溝・地表へ抜けた出口では 0）。入るときは少し速く、出るときはゆっくり変える（境目で急に変わらない）
     const cy = c.y + c.radius;
@@ -264,6 +359,17 @@ export class AquaCamera {
       this.pose.fov = 40;
       this.occluded = false;
       this.blendT = 0;
+      this.prevPassed = [];
+      this.traverse = null;
+      return;
+    }
+    this.crabHidden = false;
+    if (observing) {
+      this.prevPassed = [];
+      this.traverse = null;
+      this.observePose(o, c);
+      this.blendT = 0;
+      this.sanitize(c);
       return;
     }
 
@@ -280,6 +386,8 @@ export class AquaCamera {
     if (c.region === 'drain' || c.region === 'return') {
       this.lookUp = this.lookDown = 0;
       this.cut.on = 0;
+      this.prevPassed = [];
+      this.traverse = null;
     }
     // 区画が変わった直後は、前の位置からなめらかにつなぐ
     // （つないだ途中の位置が壁・床の中になるとき＝瞬間移動などで遠くから来たときは、つながずに切り替える）
@@ -488,6 +596,8 @@ export class AquaCamera {
     this.nearDist = 0;
     this.cut.on = 0;
     this.smoothPrev = null;
+    this.prevPassed = [];
+    this.traverse = null;
     this.placeBehind(c);
     const dir = direction(o);
     P.pos = [t.x + dir[0] * 3.2, t.y + dir[1] * 3.2, t.z + dir[2] * 3.2];
@@ -553,9 +663,14 @@ export class AquaCamera {
       if (f2 === 'floor') fp = Math.max(fp, this.searchPitch(T2, yaw, op, Z, o.maxPitch, 'floor'));
       else if (f2 === 'ceil') cp = Math.min(cp, this.searchPitch(T2, yaw, op, Z, Math.max(o.minPitch, op - LOOK_DOWN_MAX), 'ceil'));
     }
-    // 床・天井が近づくときは速く、離れるときはゆっくり追う（砂の起伏で上下に揺れない）。追いつくまでの間のめり込みは 4 が押し出す
-    this.floorPitch += (fp - this.floorPitch) * (1 - Math.exp(-dt * (fp > this.floorPitch ? 14 : 4)));
-    this.ceilPitch += (cp - this.ceilPitch) * (1 - Math.exp(-dt * (cp < this.ceilPitch ? 14 : 4)));
+    // 床・天井が近づくときは速く、離れるときはゆっくり追う（砂の起伏で上下に揺れない）。追いつくまでの間のめり込みは 4 が押し出す。
+    // 床・天井が無くなったとき（fp = −2・cp = 2 の番兵）は、番兵ではなくいまの仰角までゆっくり戻し、戻りきったら番兵にする
+    // （番兵へ向けて戻すと、離れ始めの 1 フレームに 0.16 rad も仰角が変わり、倒木を越えて降りるときにカメラが大きく振れた）
+    const fpT = Math.max(fp, Math.min(op, this.floorPitch)), cpT = Math.min(cp, Math.max(op, this.ceilPitch));
+    this.floorPitch += (fpT - this.floorPitch) * (1 - Math.exp(-dt * (fpT > this.floorPitch ? 14 : 4)));
+    this.ceilPitch += (cpT - this.ceilPitch) * (1 - Math.exp(-dt * (cpT < this.ceilPitch ? 14 : 4)));
+    if (fp < op && this.floorPitch < op + 2e-3) this.floorPitch = fp;
+    if (cp > op && this.ceilPitch > op - 2e-3) this.ceilPitch = cp;
     const pitch = clamp(op, this.floorPitch, Math.max(this.floorPitch, this.ceilPitch));
     this.lookUp = Math.max(0, pitch - op);
     this.lookDown = Math.max(0, op - pitch);
@@ -579,10 +694,27 @@ export class AquaCamera {
       const safe = w.cameraSolid(T[0] + q[0] * this.dist, T[1] + q[1] * this.dist, T[2] + q[2] * this.dist, region) > CAM_R;
       if (safe) nd = this.dist - CLOSE_SPEED * dt;
     }
+    // 越えて抜いていた物を越えられなくなったとき（カニが動いて腕に沿った厚さが THIN を超えた・腕の向きが変わった）、カメラが
+    // まだその物の向こうにいれば、4 の安全網で 1 フレームに手前へ飛ばさず、その物を抜いて描いたまま TRAVERSE_SPEED で
+    // 手前へ抜ける（中空の倒木を越えて降りると、倒木の向こうのカメラが 1 フレームに 0.88 寄っていた）。見る向きは変えない
+    if (!this.traverse && hit < this.dist) {
+      // カメラがその物の手前の面より向こう（物の中・向こう側）にいる
+      const was = this.prevPassed.find(([a0, a1]) => this.dist > a0 - 0.1 && hit < a1 && !arm.passed.some(([b0]) => Math.abs(b0 - a0) < 0.3));
+      if (was) {
+        this.traverse = [Math.min(was[0], hit), Math.max(was[1], this.dist)];
+        this.traverses++;
+      }
+    }
+    if (this.traverse) {
+      const tr = this.traverse;
+      if (!closing || this.dist < tr[0] - 0.1 || arm.passed.length > 0) this.traverse = null;
+      else nd = Math.max(nd, this.dist - TRAVERSE_SPEED * dt);
+    }
+    this.prevPassed = arm.passed;
     this.dist = nd;
     // 越えた薄い物の中をカメラが通る間は、4 の安全網で手前へ戻さない（戻すと遠ざかる向きに越えられなくなる）。
     // その物はカメラとカニの間で抜いて描くので、中を通っても視界は遮られない（面はカメラと反対を向いていて描かれない）
-    const inPassed = arm.passed.some(([a0, a1]) => this.dist > a0 - 0.1 && this.dist < a1 + 0.05);
+    const inPassed = this.traverse !== null || arm.passed.some(([a0, a1]) => this.dist > a0 - 0.1 && this.dist < a1 + 0.05);
     // 寄らされて近いほど画角を広げる（最大 +16°）
     const near = this.dist < Z - 0.05 ? 1 - smoothstep(0.7, Math.max(1.2, Math.min(Z, 3)), this.dist) : 0;
     this.closeFov += (16 * near - this.closeFov) * (1 - Math.exp(-dt * 4));
@@ -642,10 +774,12 @@ export class AquaCamera {
     // 描画で抜く範囲：カメラから見た、越えた薄い物の区間（前後に少し余白）。カニの手前 0.5 より先は抜かない
     const D = Math.hypot(px - T[0], py - T[1], pz - T[2]);
     const cut = this.cut;
-    const want = arm.cutFrom >= 0 && arm.cutFrom < D - 0.2 ? 1 : 0;
+    // 手前へ抜けている途中（traverse）は、抜けている物の区間を抜く
+    const cf = this.traverse ? this.traverse[0] : arm.cutFrom, ctt = this.traverse ? this.traverse[1] : arm.cutTo;
+    const want = cf >= 0 && cf < D - 0.2 ? 1 : 0;
     if (want) {
-      cut.near = Math.max(0, D - arm.cutTo - 0.3);
-      cut.far = Math.max(cut.near, D - Math.max(arm.cutFrom - 0.3, 0.5));
+      cut.near = Math.max(0, D - ctt - 0.3);
+      cut.far = Math.max(cut.near, D - Math.max(cf - 0.3, 0.5));
     }
     cut.on += (want - cut.on) * (1 - Math.exp(-dt * (want ? 14 : 5)));
     cut.to = [c.x, c.y + c.radius, c.z];
@@ -771,6 +905,8 @@ export class AquaCamera {
   /** カメラ基準の移動に使う向き（どちらのカメラでも、いま見ている向き） */
   get yaw(): number {
     if (this.mode === 'adventure') return this.adventure.yaw;
+    // ガラス越し：カメラが水槽の外にいる間は、その向きが移動の基準（スティックの上 = 画面の奥 = ガラスから離れる向き）
+    if (this.mode === 'observe') return this.region === 'tank' ? this.observe.yaw : this.adventure.yaw;
     return this.diorama.yaw;
   }
 }

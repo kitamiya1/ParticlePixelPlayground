@@ -5,7 +5,9 @@
 async (page) => {
   const cfgPage = await page.context().newPage();
   await cfgPage.goto('http://localhost:5173/docs/aquarium/tools/compare_config.json?' + Date.now());
-  const O = JSON.parse(await cfgPage.evaluate(() => document.body.innerText));
+  const O = Object.assign(JSON.parse(await cfgPage.evaluate(() => document.body.innerText)), globalThis.__over ?? {});
+  // 画像を保存する前に、同じ名前の画像が既に無いか確かめる（out_guard.js。過去の報告の画像を上書きしない）
+  const shotPath = (0, eval)(await (await fetch('http://localhost:5173/docs/aquarium/tools/out_guard.js?' + Date.now())).text())(O);
   await cfgPage.close();
   const methods = ['points', 'splats', 'surfels', 'voxels', 'pixelmesh', 'hybrid'];
   const shots = {};
@@ -55,7 +57,7 @@ async (page) => {
       shots[host][m] = data;
       if (O.dir) {
         const tag = host === O.hosts[0] ? 'base' : 'fix';
-        await p.locator('#view').screenshot({ path: `${O.dir}/compare-${tag}-${m}.png` });
+        await p.locator('#view').screenshot({ path: await shotPath(`${O.dir}/compare-${tag}-${m}.png`) });
       }
     }
     await ctx.close();

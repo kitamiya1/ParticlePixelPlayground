@@ -7,6 +7,7 @@
 // - カニが掘った空洞（AquariumDig の DigField）は、砂（高さ場）の距離だけを削る。岩・流木・設備は削れない
 // - 水槽の外（水槽台・濾過槽・配管・部屋）は AquariumStand（stand）。カニの当たり判定は contactSolid（水槽の中身 +
 //   ガラス・底板・天板・管・濾過槽・水槽台・部屋）、カメラの遮蔽は viewSolid、水面の高さは waterLevelAt、水流は flowAt
+// - 壁登りで脚を掛けられる面（砂・土・岩・流木）だけの距離は climbSolid（材質の判定は surfaceMaterial）
 // 見た目（メッシュ・サーフェル）は AquariumBuild が、この定義から作る。
 
 import { clamp, fbm2, lerp, noise3, smoothstep } from '../core/math';
@@ -18,6 +19,11 @@ import { DigField, type DigMaterial } from './AquariumDig';
 export { TANK, LAMP_DIR };
 
 export type RockZone = 'water' | 'land';
+
+/** カニが触れている物の材質（壁登り・表示用。none = 近くに何も無い） */
+export type SurfaceMaterial = 'sand' | 'soil' | 'rock' | 'wood' | 'glass' | 'acrylic' | 'pipe' | 'deck' | 'opaque' | 'none';
+/** 脚を掛けて登れる材質（ガラス・アクリル・滑らかな管・設備・家具は登れない） */
+export const CLIMBABLE: ReadonlySet<SurfaceMaterial> = new Set(['sand', 'soil', 'rock', 'wood']);
 
 /** 岩のかたまり（なめらかに合成した楕円体 + でこぼこ + くり抜き） */
 export interface RockFormation {
@@ -535,6 +541,57 @@ export class AquariumWorld {
 
   contactNormal(x: number, y: number, z: number): [number, number, number] {
     return gradient((a, b, c) => this.contactSolid(a, b, c), x, y, z);
+  }
+
+  // ---------------- 壁登り（登れる面だけの距離関数） ----------------
+
+  /**
+   * カニが脚を掛けて登れる面（砂・土・岩・流木）だけの距離。contactSolid（全部の物の min）からは何に触れているか
+   * 分からないので、登れる物だけで別の距離関数を作る：水槽の中身 solid を、縦の管の柱で切ったもの。
+   * - ガラス・アクリル・管・底板・水槽台・部屋は入れない（ガラスへ押し付けても、この距離は足もとの砂までのまま＝床）。
+   * - ガラスの内側の面では切らない（切ると、ガラス際まで掘った穴の床・壁とガラスの面が交わる所に、ありもしない
+   *   急な角ができて張り付いてしまう）。高さ場はガラスの外へもそのまま続き、ガラス際の空洞は面の外 DIG.glassClip まで
+   *   あるので、ガラスの裏の砂の壁はカニの体（ガラスから半径 0.24 より近づけない）から張り付ける距離より遠い。
+   * - 縦の管の柱（外径の円柱。管の上端より下）の中は空ける（管が砂を貫く穴の内壁は管の壁の内側にあるので）。
+   * 当たり判定（押し戻し）は従来どおり contactSolid が行う。これは「いま触れている面が登れるか」とその向きだけに使う
+   */
+  climbSolid(x: number, y: number, z: number): number {
+    const e = Math.min(x - TANK.minX, TANK.maxX - x, z - TANK.minZ, TANK.maxZ - z);
+    if (e < -0.6 || y < DECK.top - 0.5) return Math.max(-e, DECK.top - 0.5 - y, 0.6);
+    let d = this.solid(x, y, z);
+    for (const c of this.stand.columns) {
+      if (y > c.top + 0.4) continue;
+      d = Math.max(d, c.r + 0.02 - Math.hypot(x - c.x, z - c.z));
+    }
+    return d;
+  }
+
+  climbNormal(x: number, y: number, z: number): [number, number, number] {
+    return gradient((a, b, c) => this.climbSolid(a, b, c), x, y, z);
+  }
+
+  /**
+   * 点のいちばん近くにある物の材質（表示・自動検証用）。登れる = sand / soil / rock / wood（CLIMBABLE）
+   */
+  surfaceMaterial(x: number, y: number, z: number): SurfaceMaterial {
+    const S = this.stand;
+    const parts: [SurfaceMaterial, number][] = [
+      ['glass', S.glassSolid(x, y, z)],
+      ['acrylic', S.acrylicSolid(x, y, z)],
+      ['pipe', S.pipeWalls(x, y, z)],
+      ['deck', S.deck(x, y, z)],
+      ['opaque', S.opaqueSolid(x, y, z)],
+    ];
+    if (this.insideTank(x, z) && y > DECK.top - 0.5) {
+      parts.push([y > TANK.waterY ? 'soil' : 'sand', this.sandSolid(x, y, z)]);
+      let rock = Infinity, wood = Infinity;
+      for (const r of this.rocks) if (boxDist(r.box, x, y, z) < 0.5) rock = Math.min(rock, r.sdf(x, y, z));
+      for (const w of this.woods) if (boxDist(w.box, x, y, z) < 0.5) wood = Math.min(wood, w.sdf(x, y, z));
+      parts.push(['rock', rock], ['wood', wood]);
+    }
+    let best: SurfaceMaterial = 'none', bd = Infinity;
+    for (const [m, d] of parts) if (d < bd) { bd = d; best = m; }
+    return best;
   }
 
   /**

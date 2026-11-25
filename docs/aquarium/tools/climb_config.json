@@ -1,0 +1,37 @@
+{
+ "host": "http://localhost:5173",
+ "reclimbOpts": { "flat": 5, "aim": 1, "walk": 10 },
+ "reclimb": [
+  {"name":"岸の斜面 z8.3","at":[-4.6,8.3],"heading":1.5708},
+  {"name":"岸の斜面 z9.0","at":[-4.6,9.0],"heading":1.5708},
+  {"name":"岸の斜面 z6.6","at":[-4.6,6.6],"heading":1.5708},
+  {"name":"水面近くの砂","at":[3.6,0],"heading":1.5708},
+  {"name":"奥の砂地","at":[9.0,-3.5],"heading":0},
+  {"name":"手前の砂地（逆向き）","at":[-2.5,6.5],"heading":3.1416},
+  {"name":"右の砂地（-x 向き）","at":[12,4],"heading":-1.5708},
+  {"name":"奥の左（+z 向き）","at":[0.5,-7],"heading":0},
+  {"name":"左奥（+x 向き）","at":[-12,-5],"heading":1.5708},
+  {"name":"手前右（-z 向き）","at":[6,6],"heading":3.1416}
+ ],
+ "lateral": [
+  {"name":"岸の斜面の地下 z8.3","at":[-4.6,8.3],"heading":1.5708,"flat":6},
+  {"name":"陸地の地下（-x 向き）","at":[12,4],"heading":-1.5708,"flat":6}
+ ],
+ "scenes": {
+  "岩の垂直面（スティック）": { "at": [13.3, -1.6], "y": 12, "heading": 0, "cam": { "yaw": -1.5708, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 1.4, "dir": [1, 0] }, { "t": 2, "dir": null }, { "t": 3, "dir": [-1, 0] }], "stillFrom": 1.75, "stillTo": 3.4 },
+  "岩の垂直面（WASD）": { "at": [13.3, -1.6], "y": 12, "heading": 0, "cam": { "yaw": -1.5708, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 1.4, "dir": "keys:W" }, { "t": 1, "dir": "keys:D" }, { "t": 1, "dir": "keys:A" }, { "t": 1, "dir": null }, { "t": 3, "dir": "keys:S" }], "stillFrom": 3.6, "stillTo": 4.4 },
+  "岩の壁を横へ": { "at": [13.3, -1.6], "y": 12, "heading": 0, "cam": { "yaw": -1.5708, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 1.2, "dir": [1, 0] }, { "t": 1.5, "dir": [0, 1] }, { "t": 1.5, "dir": [0, -1] }], "detail": true },
+  "流木（中空の倒木）": { "at": [-7.3, 4.9], "heading": 1.5708, "cam": { "yaw": 0.3, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 3, "dir": [0, -1] }, { "t": 1, "dir": null }] },
+  "流木（流木の小屋の外側）": { "at": [3.0, -3.6], "heading": 0, "cam": { "yaw": 1.5708, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 3, "dir": [-1, 0] }, { "t": 1.5, "dir": null }], "stillFrom": 3.3, "stillTo": 4.5 },
+  "水中の岩の柱": { "at": [-3.3, -4.0], "heading": 1.5708, "cam": { "yaw": 0.2, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 4, "dir": [0, -1] }, { "t": 1, "dir": null }] },
+  "水中の洞窟の岩": { "at": [-12.0, 2.4], "heading": 1.5708, "cam": { "yaw": 0.2, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 3, "dir": [0, -1] }, { "t": 1.5, "dir": null }], "stillFrom": 3.3, "stillTo": 4.5 },
+  "ガラス 左（水中）": { "at": [-17.0, 5.0], "heading": 0, "cam": { "yaw": 1.5708, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 3, "dir": [-1, 0] }] },
+  "ガラス 右（陸地）": { "at": [16.8, 3.0], "y": 12, "heading": 0, "cam": { "yaw": -1.5708, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 3, "dir": [1, 0] }] },
+  "ガラス 手前（水中）": { "at": [-12.0, 9.0], "heading": 1.5708, "cam": { "yaw": 3.1416, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 3, "dir": [0, 1] }] },
+  "ガラス 奥（水中）": { "at": [-7.0, -8.8], "heading": 1.5708, "cam": { "yaw": 0, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 3, "dir": [0, -1] }] },
+  "ガラス 奥（陸地）": { "at": [16.5, -8.6], "y": 12, "heading": 1.5708, "cam": { "yaw": 0, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 3, "dir": [0, -1] }] },
+  "排水管": { "at": [-5.3, 5.6], "heading": 0, "cam": { "yaw": 1.5708, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 3, "dir": [-1, 0] }] },
+  "給水管": { "at": [1.5, -7.6], "heading": 1.5708, "cam": { "yaw": 0, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 3, "dir": [0, -1] }] },
+  "濾過槽のアクリル": { "at": [3.2, 4.4], "y": -7.9, "heading": 0, "cam": { "yaw": 3.1416, "pitch": 0.3, "zoom": 3.2 }, "steps": [{ "t": 3, "dir": [0, 1] }] }
+ }
+}

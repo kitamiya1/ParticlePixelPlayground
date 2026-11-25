@@ -1,0 +1,38 @@
+{
+ "host": "http://localhost:5173",
+ "dir": null,
+ "w": 960, "h": 600,
+ "shots": [
+  { "name": "climb-rock-before", "host": "http://localhost:5174", "sc": { "at": [13.3, -1.6], "y": 12, "heading": 0, "cam": { "yaw": -2.0, "pitch": 0.25, "zoom": 3.2 }, "steps": [{ "t": 1.6, "dir": [1, 0] }] } },
+  { "name": "climb-rock-after", "sc": { "at": [13.3, -1.6], "y": 12, "heading": 0, "cam": { "yaw": -2.0, "pitch": 0.25, "zoom": 3.2 }, "steps": [{ "t": 1.6, "dir": [1, 0] }, { "t": 0.6, "dir": null }] } },
+  { "name": "climb-rock-side", "sc": { "at": [13.3, -1.6], "y": 12, "heading": 0, "cam": { "yaw": -2.6, "pitch": 0.15, "zoom": 2.6 }, "steps": [{ "t": 1.3, "dir": [1, 0] }, { "t": 0.8, "dir": [0, 1] }] } },
+  { "name": "climb-log-after", "sc": { "at": [-7.3, 4.9], "heading": 1.5708, "cam": { "yaw": -0.7, "pitch": 0.2, "zoom": 3.0 }, "steps": [{ "t": 1.0, "dir": [0, -1] }, { "t": 0.5, "dir": null }] } },
+  { "name": "climb-hut-after", "sc": { "at": [3.0, -3.6], "heading": 0, "cam": { "yaw": 2.1, "pitch": 0.25, "zoom": 3.0 }, "steps": [{ "t": 1.4, "dir": [-1, 0] }, { "t": 0.5, "dir": null }] } },
+  { "name": "climb-pillar-underwater", "sc": { "at": [-3.3, -4.0], "heading": 1.5708, "cam": { "yaw": 0.6, "pitch": 0.15, "zoom": 3.2 }, "steps": [{ "t": 2.0, "dir": [0, -1] }, { "t": 0.5, "dir": null }] } },
+  { "name": "climb-glass-before", "host": "http://localhost:5174", "sc": { "at": [-17.0, 5.0], "heading": 0, "cam": { "yaw": 2.2, "pitch": 0.2, "zoom": 3.0 }, "steps": [{ "t": 2.5, "dir": [-1, 0] }] } },
+  { "name": "climb-glass-after", "sc": { "at": [-17.0, 5.0], "heading": 0, "cam": { "yaw": 2.2, "pitch": 0.2, "zoom": 3.0 }, "steps": [{ "t": 2.5, "dir": [-1, 0] }] } },
+  { "name": "reclimb-tunnel-before", "host": "http://localhost:5174", "reclimb": { "at": [9.0, -3.5], "heading": 0, "flat": 5, "aim": 1, "walk": 2.6 } },
+  { "name": "reclimb-tunnel-after", "reclimb": { "at": [9.0, -3.5], "heading": 0, "flat": 5, "aim": 1, "walk": 2.6 } },
+
+  { "name": "burrow-right-before", "host": "http://localhost:5174", "glass": { "at": [14.5, 1.0], "heading": 1.5708, "toGlass": 7, "along": 2.5, "alongSign": 1 }, "pose": { "pos": [21.5, 5.9, -0.4], "target": [17.8, 5.1, -0.4] } },
+  { "name": "burrow-right-after", "glass": { "at": [14.5, 1.0], "heading": 1.5708, "toGlass": 7, "along": 2.5, "alongSign": 1 }, "pose": { "pos": [21.5, 5.9, -0.4], "target": [17.8, 5.1, -0.4] } },
+  { "name": "burrow-left-before", "host": "http://localhost:5174", "glass": { "at": [-15.5, -3.6], "heading": -1.5708, "toGlass": 6, "along": 2.5, "alongSign": 1 }, "pose": { "pos": [-21.5, 1.6, -2.2], "target": [-17.8, 0.7, -2.2] } },
+  { "name": "burrow-left-after", "glass": { "at": [-15.5, -3.6], "heading": -1.5708, "toGlass": 6, "along": 2.5, "alongSign": 1 }, "pose": { "pos": [-21.5, 1.6, -2.2], "target": [-17.8, 0.7, -2.2] } },
+  { "name": "burrow-back-before", "host": "http://localhost:5174", "glass": { "at": [-0.8, -7.0], "heading": 3.1416, "toGlass": 6, "along": 2.5, "alongSign": 1 }, "pose": { "pos": [-2.1, 1.9, -13.6], "target": [-2.1, 0.9, -9.8] } },
+  { "name": "burrow-back-after", "glass": { "at": [-0.8, -7.0], "heading": 3.1416, "toGlass": 6, "along": 2.5, "alongSign": 1 }, "pose": { "pos": [-2.1, 1.9, -13.6], "target": [-2.1, 0.9, -9.8] } },
+  { "name": "burrow-front-before", "host": "http://localhost:5174", "glass": { "at": [-2.0, 7.5], "heading": 0, "toGlass": 6, "along": 2.5, "alongSign": 1 }, "pose": { "pos": [-0.6, 2.1, 13.6], "target": [-0.6, 1.1, 9.8] } },
+  { "name": "burrow-front-after", "glass": { "at": [-2.0, 7.5], "heading": 0, "toGlass": 6, "along": 2.5, "alongSign": 1 }, "pose": { "pos": [-0.6, 2.1, 13.6], "target": [-0.6, 1.1, 9.8] } },
+  { "name": "burrow-corner-fr-before", "host": "http://localhost:5174", "glass": { "at": [15.6, 7.6], "heading": 0.7854, "toGlass": 7, "along": 1.5, "alongSign": -1 }, "pose": { "pos": [20.8, 6.6, 12.8], "target": [17.3, 5.5, 9.3] } },
+  { "name": "burrow-corner-fr-after", "glass": { "at": [15.6, 7.6], "heading": 0.7854, "toGlass": 7, "along": 1.5, "alongSign": -1 }, "pose": { "pos": [20.8, 6.6, 12.8], "target": [17.3, 5.5, 9.3] } },
+  { "name": "burrow-corner-bl-before", "host": "http://localhost:5174", "glass": { "at": [-15.8, -8.2], "heading": -2.3562, "toGlass": 6, "along": 1.5, "alongSign": 1 }, "pose": { "pos": [-20.8, 1.9, -12.8], "target": [-17.3, 0.8, -9.3] } },
+  { "name": "burrow-corner-bl-after", "glass": { "at": [-15.8, -8.2], "heading": -2.3562, "toGlass": 6, "along": 1.5, "alongSign": 1 }, "pose": { "pos": [-20.8, 1.9, -12.8], "target": [-17.3, 0.8, -9.3] } },
+
+  { "name": "observe-right", "glass": { "at": [14.5, 1.0], "heading": 1.5708, "toGlass": 7, "along": 2.5, "alongSign": 1, "observe": true }, "after": [{ "cam": { "zoom": 3.5, "pitch": 0.12 }, "steps": [{ "t": 0.3, "dir": null }] }] },
+  { "name": "observe-right-walk1", "glass": { "at": [14.5, 1.0], "heading": 1.5708, "toGlass": 7, "along": 2.5, "alongSign": 1, "observe": true }, "after": [{ "cam": { "zoom": 3.5, "pitch": 0.12 }, "steps": [{ "t": 1.0, "dir": [0, 1] }] }] },
+  { "name": "observe-right-walk2", "glass": { "at": [14.5, 1.0], "heading": 1.5708, "toGlass": 7, "along": 2.5, "alongSign": 1, "observe": true }, "after": [{ "cam": { "zoom": 3.5, "pitch": 0.12 }, "steps": [{ "t": 2.0, "dir": [0, 1] }, { "t": 1.2, "dir": [-1, 0] }] }] },
+  { "name": "observe-right-angle", "glass": { "at": [14.5, 1.0], "heading": 1.5708, "toGlass": 7, "along": 2.5, "alongSign": 1, "observe": true }, "after": [{ "cam": { "zoom": 3.0, "pitch": 0.35, "yaw": 2.1 }, "steps": [{ "t": 0.3, "dir": null }] }] },
+  { "name": "observe-left", "glass": { "at": [-15.5, -3.6], "heading": -1.5708, "toGlass": 6, "along": 2.5, "alongSign": 1, "observe": true }, "after": [{ "cam": { "zoom": 3.0, "pitch": 0.1 }, "steps": [{ "t": 0.3, "dir": null }] }] },
+  { "name": "observe-corner-fr", "glass": { "at": [15.6, 7.6], "heading": 0.7854, "toGlass": 7, "along": 1.5, "alongSign": -1, "observe": true }, "after": [{ "cam": { "zoom": 3.0, "pitch": 0.15, "yaw": 0.8 }, "steps": [{ "t": 0.3, "dir": null }] }] },
+  { "name": "adventure-gallery", "glass": { "at": [14.5, 1.0], "heading": 1.5708, "toGlass": 7, "along": 2.5, "alongSign": 1 }, "after": [{ "steps": [{ "t": 0.6, "dir": null }] }] }
+ ]
+}

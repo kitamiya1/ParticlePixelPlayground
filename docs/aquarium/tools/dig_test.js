@@ -8,7 +8,9 @@
 async (page) => {
   const cfgPage = await page.context().newPage();
   await cfgPage.goto('http://localhost:5173/docs/aquarium/tools/dig_config.json?' + Date.now());
-  const O = JSON.parse(await cfgPage.evaluate(() => document.body.innerText));
+  const O = Object.assign(JSON.parse(await cfgPage.evaluate(() => document.body.innerText)), globalThis.__over ?? {});
+  // 画像を保存する前に、同じ名前の画像が既に無いか確かめる（out_guard.js。過去の報告の画像を上書きしない）
+  const shotPath = (0, eval)(await (await fetch('http://localhost:5173/docs/aquarium/tools/out_guard.js?' + Date.now())).text())(O);
   await cfgPage.close();
   const ctx = await page.context().browser().newContext({ viewport: { width: O.w ?? 960, height: O.h ?? 600 }, deviceScaleFactor: 1 });
   const p = await ctx.newPage();
@@ -124,7 +126,7 @@ async (page) => {
     await p.waitForTimeout((O.shotEvery ?? 1) * 1000);
     if (O.dir) {
       const name = `${O.dir}/${O.tag}-dig-${String(Math.round(t * 10)).padStart(3, '0')}.jpg`;
-      await p.screenshot({ path: name, type: 'jpeg', quality: 80 });
+      await p.screenshot({ path: await shotPath(name),type: 'jpeg', quality: 80 });
       shots.push(name.split('/').pop());
     }
   }

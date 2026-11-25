@@ -5,7 +5,8 @@
 // - 砂（底床）の距離 d に対して smax(d, −空洞, RIM_K) を取る（cut）。縁は丸く盛り上がらずに落ち込む。
 //   AquariumWorld.solid がこれを使うので、カニ・カメラ・泡・日照の当たり判定は自動で掘った形に従う。
 // - 岩・流木・ガラス・底板・管は solid / contactSolid で砂のあとに min するので削れない。
-//   さらに空洞自体を、水槽の底の少し上・ガラス際・縦の管のまわりの区画・発見物のまわりで打ち切る（clip）。
+//   さらに空洞自体を、水槽の底の少し上・ガラスの内側の面の外・縦の管のまわりの区画・発見物のまわりで打ち切る（clip）。
+//   ガラス際はガラスの内側の面まで掘れる（ガラス越しに穴の中が見える。ガラス際の断面は描画側が区画ごとに作り直す）。
 // - 見た目：水槽を 1×1 の区画（高さ場 5 マス分）に分け、空洞が触れた区画だけを「汚れた」印にする。
 //   描画側（AquariumDigFx）がその区画の高さ場の三角形を隠し、同じ関数を Surface Nets（MeshBuild）で三角形にし直す。
 // - 見た目と当たり判定を同じ瞬間に変える（2 つの版）：かき出し（stroke）が書き換えるのは「最新の形」だけ。
@@ -18,7 +19,7 @@
 // PAD より近い空洞は必ず登録されていて、どの場所でも値は「真の距離以下」になる（球の追跡・Surface Nets の間引きが安全）。
 
 import { clamp } from '../core/math';
-import { sdCapsule, smin } from '../visual/sdf/sdf';
+import { smin } from '../visual/sdf/sdf';
 import { TANK } from './aquaConst';
 
 type V3 = [number, number, number];
@@ -38,9 +39,16 @@ export const DIG = {
   reach: 1.05,
   /** 地表から斜め下へ掘るときの、足元の深さの目標（これより深くなったら水平に掘る） */
   tunnelDepth: 1.15,
-  /** 水槽の底（ガラス）の上に残す砂の厚み・ガラス際に残す幅 */
+  /**
+   * 水槽の底（ガラス）の上に残す砂の厚み・ガラス際の打ち切り（ガラスの内側の面からの距離。負 = 面の外まで空洞にしてよい）。
+   * ガラス際は内側の面の外（0.12。ガラスの厚みの中）まで空洞を作る：ガラスの内側の面まで穴が届き、外からガラス越しに穴の中が見える。
+   * 面の外の空洞の端（ガラスの裏の砂の壁）は、ガラスに押し付けたカニの体から 0.36 離れるので、壁登りで張り付けない
+   * （AquariumWorld.climbSolid はガラスの面で切らない）
+   * （アリの巣の観察ケースのように）。ガラス自体は contactSolid の当たり判定で残るので、削れず・越えられない。
+   * 面の外の空洞は見た目では断面（buildDigChunk のガラスの面）で切り、当たり判定ではガラスに隠れる
+   */
   floorClip: TANK.floorY + 0.3,
-  glassClip: 0.7,
+  glassClip: -0.12,
   /**
    * 地表と空洞のつなぎの丸み・空洞どうしのつなぎの丸み。空洞どうしの継ぎ目（砂が空洞の側へ尖った稜線）は、
    * Surface Nets（格子 0.1）では頂点が平均されて丸まるので、距離関数の側も格子に見合うだけ丸める
@@ -83,6 +91,24 @@ function carveSand(d: number, c: number): number {
   return Math.max(smax(d, -c, DIG.rimK), (FILM + d - c) * 0.5) + SHAVE * clamp((SHAVE_FAR - c) / 0.2, 0, 1);
 }
 
+/**
+ * ガラスの内側の面から GLASS_ROW（= 格子 DIG.cell の 1 マス。区画の格子はガラスの面に揃っているので、面から 1 列目の格子点）
+ * より近い所の空洞の値は、面から GLASS_ROW の所（1 列目）の値 c1 から、ガラスへ近づくほど GLASS_SLOPE の傾きで下げた値にする
+ * （c1 − GLASS_SLOPE ×（GLASS_ROW − e）。carveAt）。
+ * 穴の突き当たりがガラスの手前 0.1 ほどで止まると、その間の砂は格子より薄い板になり、1 列目の格子点では空洞なのに
+ * 面との間に砂が残る所は、見た目（ガラスの面で切った Surface Nets）では穴がガラスまで抜けて外が透け、当たり判定には板が残っていた
+ * （mesh_check の 49 本。突き当たりは丸いので、板の厚みは場所ごとに格子の 1 マスをまたいで変わる）。
+ * 1 列目より内側を c1 だけで決めると、1 列目が空洞（c1 < 0）なら面まで空洞、砂なら面の側の砂は 1 列目まで続く。
+ * 面に垂直な向きには値が 1 次式なので、Surface Nets が面と 1 列目の格子点の値から求める断面の位置は当たり判定の面と同じ所になる。
+ * 傾きを 0 にすると（そのまま延ばすと）、突き当たりが 1 列目ちょうどの所で値がほぼ 0 の平らな帯になり、格子点ごとに符号が
+ * ばらばらな砂のかけらが残った。傾きを大きくすると、穴の縁とガラスの角（格子では丸まる）に残る砂のくさびも小さくなる
+ * （mesh_check の不一致：傾き 0.5 → 24 本、1 → 13 本、2 → 6 本）。ガラスの面では穴の輪郭が最大 0.2 広がる（漏斗のような面取り）。
+ * 傾きが 1 より大きい分、この帯（ガラスの 0.1 内側）だけ距離の下限より値が大きくなりうるが、帯はガラスの当たり判定に接している
+ */
+const GLASS_ROW = DIG.cell;
+const GLASS_SLOPE = 2.0;
+const GLASS_SLOPE_FAR = 0.3;
+
 export interface CarvePrim {
   a: V3;
   b: V3;
@@ -117,21 +143,28 @@ function smax(a: number, b: number, k: number): number {
   return -smin(-a, -b, k);
 }
 
-function boxDist(min: V3, max: V3, x: number, y: number, z: number): number {
+/** 外接箱までの距離の 2 乗（carve が箱から遠い空洞を平方根なしで飛ばす） */
+function boxDist2(min: V3, max: V3, x: number, y: number, z: number): number {
   const dx = Math.max(min[0] - x, 0, x - max[0]);
   const dy = Math.max(min[1] - y, 0, y - max[1]);
   const dz = Math.max(min[2] - z, 0, z - max[2]);
-  return Math.hypot(dx, dy, dz);
+  return dx * dx + dy * dy + dz * dz;
 }
 
-/** 平らな床を付けたカプセル（床は軸の高さから r × floorK 下。坂のカプセルは床も坂になる） */
+/**
+ * 平らな床を付けたカプセル（床は軸の高さから r × floorK 下。坂のカプセルは床も坂になる）。
+ * カプセルは sdCapsule（共有の距離関数）と同じ式を、ここだけ Math.hypot の代わりに平方根で計算する（区画の作り直しで
+ * いちばん多く呼ばれる所。hypot は遅い。値は丸め誤差の範囲で同じ）
+ */
 function primDist(p: CarvePrim, x: number, y: number, z: number): number {
   const [ax, ay, az] = p.a, [bx, by, bz] = p.b;
-  const d = sdCapsule(x, y, z, ax, ay, az, bx, by, bz, p.r);
   const vx = bx - ax, vy = by - ay, vz = bz - az;
   const L2 = vx * vx + vy * vy + vz * vz;
-  const tr = L2 > 1e-9 ? ((x - ax) * vx + (y - ay) * vy + (z - az) * vz) / L2 : 0;
+  const px = x - ax, py = y - ay, pz = z - az;
+  const tr = L2 > 1e-9 ? (px * vx + py * vy + pz * vz) / L2 : 0;
   const t = clamp(tr, 0, 1);
+  const qx = px - vx * t, qy = py - vy * t, qz = pz - vz * t;
+  const d = Math.sqrt(qx * qx + qy * qy + qz * qz) - p.r;
   // 両端の丸い部分では床を平らに伸ばさず、端から離れるほど上げる（約 42°）。平らなままだと、次に上・下へ向きを
   // 変えて掘った坂の床より下に「踊り場」が残り、カニがそこへ進んで坂の始まりの段差に引っかかる
   const over = (tr < 0 ? -tr : tr > 1 ? tr - 1 : 0) * Math.sqrt(L2);
@@ -247,11 +280,21 @@ export class DigField {
   clip(x: number, y: number, z: number): number {
     let c = DIG.floorClip - y;
     c = Math.max(c, DIG.glassClip - Math.min(x - TANK.minX, TANK.maxX - x, z - TANK.minZ, TANK.maxZ - z));
+    // 管の区画・発見物は、c より大きくなりうる近さのときだけ平方根を取る（離れた所の値は max に効かない）
     for (const r of this.lockRects) {
+      const lim = 0.3 - c;
+      if (lim <= 0) continue;
       const dx = Math.max(r.x0 - x, 0, x - r.x1), dz = Math.max(r.z0 - z, 0, z - r.z1);
-      c = Math.max(c, 0.3 - Math.hypot(dx, dz));
+      const q = dx * dx + dz * dz;
+      if (q < lim * lim) c = 0.3 - Math.sqrt(q);
     }
-    for (const p of this.protect) c = Math.max(c, p.r - Math.hypot(x - p.x, y - p.y, z - p.z));
+    for (const p of this.protect) {
+      const lim = p.r - c;
+      if (lim <= 0) continue;
+      const dx = x - p.x, dy = y - p.y, dz = z - p.z;
+      const q = dx * dx + dy * dy + dz * dz;
+      if (q < lim * lim) c = p.r - Math.sqrt(q);
+    }
     return c;
   }
 
@@ -279,12 +322,29 @@ export class DigField {
     for (let i = 0; i < list.length; i++) {
       const p = V[list[i]];
       if (!p) continue;
-      const bd = boxDist(p.min, p.max, x, y, z);
-      // 外接箱から離れていれば箱までの距離（下限）で十分（つなぎの丸みが届かない）
-      c = bd > 0.3 ? Math.min(c, bd) : smin(c, primDist(p, x, y, z), DIG.unionK);
+      const b2 = boxDist2(p.min, p.max, x, y, z);
+      // 外接箱から離れていれば箱までの距離（下限）で十分（つなぎの丸みが届かない）。今の c 以上なら何も変わらない
+      if (b2 > 0.09) {
+        if (c > 0 && b2 < c * c) c = Math.sqrt(b2);
+      } else c = smin(c, primDist(p, x, y, z), DIG.unionK);
     }
     if (c < CLIP_NEAR) c = Math.max(c, this.clip(x, y, z));
     return c;
+  }
+
+  /**
+   * 砂を削るときの空洞の値：carve と同じだが、ガラスの内側の面から GLASS_ROW より近い所は面から GLASS_ROW の所の値を
+   * GLASS_SLOPE で下げたもの（角では両方の面から）。ガラスの外へは従来どおり glassClip で打ち切る。近くに空洞が無ければ PAD
+   */
+  private carveAt(x: number, y: number, z: number, view: DigView): number {
+    const e = Math.min(x - TANK.minX, TANK.maxX - x, z - TANK.minZ, TANK.maxZ - z);
+    if (e >= GLASS_ROW) return this.carve(x, y, z, view);
+    const qx = clamp(x, TANK.minX + GLASS_ROW, TANK.maxX - GLASS_ROW), qz = clamp(z, TANK.minZ + GLASS_ROW, TANK.maxZ - GLASS_ROW);
+    const c1 = this.carve(qx, y, qz, view);
+    if (c1 >= GLASS_SLOPE_FAR) return c1;
+    // 空洞から離れた砂（c1 が GLASS_SLOPE_FAR 以上）は下げない：作り直さない区画の砂の値（SHAVE・丸み）を変えない
+    const k = clamp((GLASS_SLOPE_FAR - c1) / 0.15, 0, 1);
+    return Math.max(c1 - GLASS_SLOPE * k * (GLASS_ROW - e), DIG.glassClip - e);
   }
 
   /** 砂（底床）の距離 d を空洞で削る。近くに空洞が無ければ d のまま */
@@ -292,7 +352,7 @@ export class DigField {
     if (this.prims.length === 0) return d;
     const list = this.cells[this.cj(z) * this.ncx + this.ci(x)];
     if (list.length === 0) return d;
-    return carveSand(d, this.carve(x, y, z, view));
+    return carveSand(d, this.carveAt(x, y, z, view));
   }
 
   /**
@@ -307,7 +367,7 @@ export class DigField {
     if (this.prims.length === 0) return d;
     const list = this.cells[this.cj(z) * this.ncx + this.ci(x)];
     if (list.length === 0) return d;
-    const c = this.carve(x, y, z, view);
+    const c = this.carveAt(x, y, z, view);
     if (c >= PAD && d < -0.6) return d;
     return carveSand(d, c);
   }

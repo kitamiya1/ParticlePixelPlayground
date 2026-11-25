@@ -9,7 +9,9 @@
 async (page) => {
   const cfgPage = await page.context().newPage();
   await cfgPage.goto('http://localhost:5173/docs/aquarium/tools/freedig_config.json?' + Date.now());
-  const O = JSON.parse(await cfgPage.evaluate(() => document.body.innerText));
+  const O = Object.assign(JSON.parse(await cfgPage.evaluate(() => document.body.innerText)), globalThis.__over ?? {});
+  // 画像を保存する前に、同じ名前の画像が既に無いか確かめる（out_guard.js。過去の報告の画像を上書きしない）
+  const shotPath = (0, eval)(await (await fetch('http://localhost:5173/docs/aquarium/tools/out_guard.js?' + Date.now())).text())(O);
   await cfgPage.close();
   const out = {};
   for (const [name, host] of [['after', O.host], ...(O.base ? [['before', O.base]] : [])]) {
@@ -37,7 +39,7 @@ async (page) => {
       return { moved: +moved.toFixed(2), moveDirCam: moved > 0.05 ? +Math.atan2(mx * rx + mz * rz, mx * fx + mz * fz).toFixed(2) : null, digYawFromPress: w(c.digYaw - s.yaw0), digPitch: +c.digPitch.toFixed(2), state: c.state };
     }, n); };
     const res = {};
-    const shot = async (n) => { if (O.dir) await p.screenshot({ path: `${O.dir}/touch-indep-${name}-${n}.jpg`, type: 'jpeg', quality: 80 }); };
+    const shot = async (n) => { if (O.dir) await p.screenshot({ path: await shotPath(`${O.dir}/touch-indep-${name}-${n}.jpg`), type: 'jpeg', quality: 80 }); };
     // 1. 上を掘りながら前へ
     await place();
     await touch('touchStart', [[dig[0], dig[1], 1]]);

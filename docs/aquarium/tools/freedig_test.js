@@ -8,7 +8,9 @@
 async (page) => {
   const cfgPage = await page.context().newPage();
   await cfgPage.goto('http://localhost:5173/docs/aquarium/tools/freedig_config.json?' + Date.now());
-  const O = JSON.parse(await cfgPage.evaluate(() => document.body.innerText));
+  const O = Object.assign(JSON.parse(await cfgPage.evaluate(() => document.body.innerText)), globalThis.__over ?? {});
+  // 画像を保存する前に、同じ名前の画像が既に無いか確かめる（out_guard.js。過去の報告の画像を上書きしない）
+  const shotPath = (0, eval)(await (await fetch('http://localhost:5173/docs/aquarium/tools/out_guard.js?' + Date.now())).text())(O);
   await cfgPage.close();
   const errors = [];
   const open = async (host) => {
@@ -32,7 +34,7 @@ async (page) => {
       if (O.dir) {
         // 出口を地上から見る（カニの後ろ上から）
         await p.evaluate(() => { const a = window.__aqua, cam = a.camera; cam.adventure.pitch = 0.75; cam.adventure.zoom = 4.5; a.freeze = false; a.step(90); a.freeze = true; });
-        await p.screenshot({ path: `${O.dir}/exit-${y}.jpg`, type: 'jpeg', quality: 82 });
+        await p.screenshot({ path: await shotPath(`${O.dir}/exit-${y}.jpg`), type: 'jpeg', quality: 82 });
       }
       await ctx.close();
     }
@@ -42,7 +44,7 @@ async (page) => {
     out.curve = await p.evaluate(() => window.__fd.curveTest(0.8, 6));
     if (O.dir) {
       // 曲がったトンネルを箱庭カメラのように真上近くから（地形を透かさないので、掘った穴の口と曲がった先を地下の視点で）
-      await p.screenshot({ path: `${O.dir}/curve-inside.jpg`, type: 'jpeg', quality: 82 });
+      await p.screenshot({ path: await shotPath(`${O.dir}/curve-inside.jpg`), type: 'jpeg', quality: 82 });
     }
     await ctx.close();
   }
@@ -56,7 +58,7 @@ async (page) => {
         await p.evaluate((q) => { const a = window.__aqua; a.freeze = true; a.crab.teleport(q[0], q[2], q[1] + 0.02); }, r.inside.pos);
         for (const [name, dyaw, pitch] of [['back', 0, 0.3], ['side', Math.PI / 2, 0.3], ['entrance', Math.PI, 0.3], ['up', 0, -0.6]]) {
           await p.evaluate(([dyaw, pitch]) => { const a = window.__aqua, c = a.crab, cam = a.camera; c.heading = Math.PI / 2; cam.adventure.yaw = c.heading + Math.PI + dyaw; cam.adventure.pitch = pitch; a.freeze = false; a.step(120); a.freeze = true; }, [dyaw, pitch]);
-          await p.screenshot({ path: `${O.dir}/cam-${v.m}-${name}.jpg`, type: 'jpeg', quality: 82 });
+          await p.screenshot({ path: await shotPath(`${O.dir}/cam-${v.m}-${name}.jpg`), type: 'jpeg', quality: 82 });
         }
         r.shotStats = await p.evaluate(() => window.__fd.camStats());
       }
