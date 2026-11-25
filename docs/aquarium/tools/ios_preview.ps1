@@ -10,19 +10,22 @@ param(
   [string]$Ref = 'origin/fix/aquarium-ios-zoom-help',
   [int]$Port = 4190
 )
-$ErrorActionPreference = 'Stop'
+# git・cloudflared は案内を stderr に出す（Windows PowerShell 5.1 は Stop だとそれを失敗として止まる）。失敗は終了コードで見る
+$ErrorActionPreference = 'Continue'
 $repo = (git rev-parse --show-toplevel).Trim()
 $cloudflared = (Get-Command cloudflared -ErrorAction SilentlyContinue).Source
 if (-not $cloudflared) { throw 'cloudflared が見つかりません（https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/）' }
 
 git -C $repo fetch origin --quiet
-$sha = (git -C $repo rev-parse --short $Ref).Trim()
+$sha = "$(git -C $repo rev-parse --short $Ref)".Trim()
+if ($LASTEXITCODE -or -not $sha) { throw "$Ref が見つかりません" }
 $root = Join-Path $env:TEMP 'ppp-ios-preview'
 $wt = Join-Path $root "wt-$sha"
 $out = Join-Path $root "build-$sha"
 New-Item -ItemType Directory -Force $root | Out-Null
 if (-not (Test-Path $wt)) {
   git -C $repo worktree add --detach $wt $sha
+  if ($LASTEXITCODE) { throw 'worktree を作れませんでした' }
   # 依存は同じものを使う（package-lock が変わった PR では npm ci を worktree の中で行う）
   New-Item -ItemType Junction -Path (Join-Path $wt 'node_modules') -Target (Join-Path $repo 'node_modules') | Out-Null
 }
