@@ -378,14 +378,60 @@ export class DigField {
     return ground - y;
   }
 
+  // ---------------- 保存・復元 ----------------
+
+  /** 保存用：最新の形の空洞を 7 個ずつ（a.xyz, b.xyz, r）並べたもの。掘った順 */
+  exportPrims(): Float64Array {
+    const out = new Float64Array(this.prims.length * 7);
+    this.prims.forEach((p, i) => {
+      out.set(p.a, i * 7);
+      out.set(p.b, i * 7 + 3);
+      out[i * 7 + 6] = p.r;
+    });
+    return out;
+  }
+
+  /**
+   * 保存データから空洞を戻す（まだ何も掘っていないときだけ。掘った後に呼ぶと形が二重になるので例外）。
+   * かき出し（stroke）と同じ add を通すので、区画の登録・作り直しの印・版（live / snap）の扱いは掘ったときと同じ：
+   * 戻した空洞はまだ当たり判定（live）に入っていない。描画側が作り直しを済ませて commit した瞬間に、見た目と当たり判定が
+   * 同時に穴の開いた形になる（起動時は AquariumDigFx.flushAll で、最初のフレームより前に済ませる）。
+   * 値は呼ぶ側（AquaSave.validateSave）で検証済みのもの。ここでも有限でない・太さが範囲外の空洞は飛ばす。返り値 = 戻した数
+   */
+  restore(data: ArrayLike<number>): number {
+    if (this.prims.length > 0) throw new Error('DigField.restore は掘る前にだけ呼べます');
+    const n = Math.min(Math.floor(data.length / 7), DIG.maxPrims);
+    let k = 0;
+    for (let i = 0; i < n; i++) {
+      const o = i * 7;
+      const a: V3 = [data[o], data[o + 1], data[o + 2]], b: V3 = [data[o + 3], data[o + 4], data[o + 5]];
+      const r = data[o + 6];
+      if (![...a, ...b, r].every(Number.isFinite) || r <= 0.01 || r > DIG.rMax + 1e-3) continue;
+      this.add(a, b, r);
+      k++;
+    }
+    // 掘り続け（伸ばす・太らせる）は戻した空洞につながない（次に掘るときは新しく掘り始める）
+    this.session = { last: -1, r: 0, time: -10, recent: [] };
+    return k;
+  }
+
   // ---------------- かき出し ----------------
 
+  /**
+   * 区画の一覧へ番号の小さい順に入れる。carve の滑らかな min（smin）は足す順で値がわずかに変わるので、
+   * 掘りながら（太らせた空洞があとから別の区画へ入る）でも、保存データから一度に戻しても同じ順＝同じ値になるようにする
+   */
   private register(id: number) {
     const p = this.prims[id];
     const i0 = this.ci(p.min[0] - PAD), i1 = this.ci(p.max[0] + PAD), j0 = this.cj(p.min[2] - PAD), j1 = this.cj(p.max[2] + PAD);
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
       const list = this.cells[j * this.ncx + i];
-      if (!list.includes(id)) list.push(id);
+      if (list.length === 0 || list[list.length - 1] < id) list.push(id);
+      else if (!list.includes(id)) {
+        let k = list.length;
+        while (k > 0 && list[k - 1] > id) k--;
+        list.splice(k, 0, id);
+      }
     }
   }
 

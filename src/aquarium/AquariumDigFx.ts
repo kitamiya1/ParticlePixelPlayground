@@ -279,8 +279,35 @@ export class AquariumDigFx {
       while (w.next < w.ids.length) this.build(w.ids[w.next++]);
       this.swap();
     }
+    // 区画に触れない形の変化（作り直さない区画の中だけ）も当たり判定へ（flush と同じ）
+    if (!this.work && dig.uncommitted > 0) {
+      dig.snapshot();
+      dig.commit();
+    }
     this.stats.pending = 0;
     this.stats.batch = this.stats.built = 0;
+  }
+
+  /**
+   * 起動時の復元用：汚れた区画をすべて作り直して差し替える（flushAll と同じ結果）。sliceMs ごとに処理を手放して
+   * 進み具合を知らせる（掘った区画が多いと数秒かかるので、読み込みの表示を止めない）。差し替え（swap = 見た目と
+   * 当たり判定の切り替え）は、すべての区画ができてから 1 回だけ行う
+   */
+  async flushAllAsync(onProgress?: (done: number, total: number) => void, sliceMs = 40) {
+    const dig = this.d.world.dig;
+    for (let k = 0; k < 2; k++) {
+      if (!this.work && dig.dirty.size > 0) this.begin({ x: 0, z: 0 });
+      const w = this.work;
+      if (!w) break;
+      while (w.next < w.ids.length) {
+        const t0 = performance.now();
+        while (w.next < w.ids.length && performance.now() - t0 < sliceMs) this.build(w.ids[w.next++]);
+        onProgress?.(w.next, w.ids.length);
+        await new Promise((r) => setTimeout(r, 0));
+      }
+      this.swap();
+    }
+    this.flushAll();
   }
 
   // ---------------- 砂粒・照準 ----------------

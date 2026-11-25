@@ -15,8 +15,15 @@ import { buildSpots, DiscoveryTracker, type Spot } from './AquariumSpots';
 import { AquariumWorld } from './AquariumWorld';
 import { REGION_LABEL, SUMP } from './AquariumStand';
 import { CRAB_STATE_LABEL, CrabController } from './CrabController';
-import { DIG_MATERIAL_LABEL, diggable } from './AquariumDig';
+import { DIG, DIG_MATERIAL_LABEL, diggable } from './AquariumDig';
 import { CrabRig } from './CrabRig';
+import { ROOM } from './AquariumStand';
+import { TANK } from './aquaConst';
+import { SAVE_FORMAT, SAVE_VERSION, SaveStore, type LoadResult, type SaveContext, type SaveData } from './AquaSave';
+import { AutoSaver, SaveMenu } from './AquaSaveUi';
+
+/** いまの水槽の id（保存データの tanks の鍵。将来の隣の水槽は別の id） */
+const HOME_TANK = 'home';
 
 /** 方式 F v2 の既定値を土台に、水槽用のパレット・光の段階を選ぶ */
 function gameSettings(): RenderSettings {
@@ -38,8 +45,10 @@ function gameSettings(): RenderSettings {
   };
 }
 
-function boot() {
+async function boot() {
   const t0 = performance.now();
+  // 保存先は重い生成と並行して開く（IndexedDB を開くのは非同期）
+  const storeP = SaveStore.open();
   const canvas = document.getElementById('view') as HTMLCanvasElement;
   const loading = document.getElementById('loading')!;
   const settings = gameSettings();
@@ -91,8 +100,8 @@ function boot() {
   const help = document.createElement('div');
   help.id = 'help';
   help.innerHTML = touch
-    ? `<b>操作</b><br>左スティック：移動　ダッシュ：押している間<br>ジャンプ：跳ぶ（水中で長押し＝遊泳。壁では離れる）<br>壁登り：岩・流木・土の壁へスティックを倒し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）<br>掘る：押している間 前の砂を掘る。押したまま指をずらすと、その向き（上・下・左右・斜め）を掘る。掘りながらスティックで好きな向きへ動ける<br>画面ドラッグ：視点回転　2 本指：ズーム<br>カメラ：冒険 / ガラス越し（水槽の外から地下の穴を観察）/ 箱庭の切り替え<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</span>`
-    : `<b>操作</b><br><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る<br><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳。壁では離れる）<br>壁登り：岩・流木・土の壁へ押し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）<br><kbd>F</kbd> 長押し：掘る（押したままマウスを動かすと上下左右・斜めを狙う。掘りながら <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で好きな向きへ動ける）<br>右ボタンを押したままドラッグ：その向きを掘る<br>ドラッグ：視点回転　ホイール：ズーム<br><kbd>V</kbd> カメラ切替（冒険 / ガラス越し / 箱庭。ガラス越しはガラス際まで掘った穴を外から観察）<kbd>R</kbd> スタート地点へ　<kbd>H</kbd> 説明を隠す<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</span>`;
+    ? `<b>操作</b><br>左スティック：移動　ダッシュ：押している間<br>ジャンプ：跳ぶ（水中で長押し＝遊泳。壁では離れる）<br>壁登り：岩・流木・土の壁へスティックを倒し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）<br>掘る：押している間 前の砂を掘る。押したまま指をずらすと、その向き（上・下・左右・斜め）を掘る。掘りながらスティックで好きな向きへ動ける<br>画面ドラッグ：視点回転　2 本指：ズーム<br>カメラ：冒険 / ガラス越し（水槽の外から地下の穴を観察）/ 箱庭の切り替え<br>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</span>`
+    : `<b>操作</b><br><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る<br><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳。壁では離れる）<br>壁登り：岩・流木・土の壁へ押し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）<br><kbd>F</kbd> 長押し：掘る（押したままマウスを動かすと上下左右・斜めを狙う。掘りながら <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で好きな向きへ動ける）<br>右ボタンを押したままドラッグ：その向きを掘る<br>ドラッグ：視点回転　ホイール：ズーム<br><kbd>V</kbd> カメラ切替（冒険 / ガラス越し / 箱庭。ガラス越しはガラス際まで掘った穴を外から観察）<kbd>R</kbd> スタート地点へ　<kbd>H</kbd> 説明を隠す<br>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</span>`;
   document.body.appendChild(help);
   if (touch) setTimeout(() => help.classList.add('fade'), 12000);
   const marker = document.createElement('div');
@@ -177,6 +186,93 @@ function boot() {
   new ResizeObserver(resize).observe(canvas);
   resize();
 
+  // ---------------- セーブ（読み込み・復元・自動保存） ----------------
+  // 右上のメニュー（セーブ・仲間）と、短い知らせ
+  const menu = document.createElement('div');
+  menu.id = 'menu';
+  document.body.appendChild(menu);
+  const toastEl = document.createElement('div');
+  toastEl.id = 'aqua-toast';
+  document.body.appendChild(toastEl);
+  let toastTimer = 0;
+  const toast = (msg: string) => {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => toastEl.classList.remove('show'), 2600);
+  };
+  const M = 1.5;
+  const saveCtx: SaveContext = {
+    spotIds: new Set(spots.map((s) => s.id)),
+    buddyIds: new Set<string>(),
+    tankIds: new Set([HOME_TANK]),
+    maxPrims: DIG.maxPrims,
+    maxR: DIG.rMax,
+    tankBox: { min: [TANK.minX - M, TANK.floorY - M, TANK.minZ - M], max: [TANK.maxX + M, TANK.topY + M, TANK.maxZ + M] },
+    worldBox: { min: [ROOM.minX, ROOM.floorY - 1, ROOM.minZ], max: [ROOM.maxX, ROOM.ceilY, ROOM.maxZ] },
+  };
+  loading.textContent = '保存データを読み込んでいます…';
+  const store = await storeP;
+  const tLoad = performance.now();
+  let loaded: LoadResult;
+  try {
+    loaded = await store.load(saveCtx);
+  } catch (e) {
+    loaded = { status: 'corrupt', error: (e as Error).message };
+  }
+  const loadMs = performance.now() - tLoad;
+  let created = Date.now();
+  let playTime = 0;
+  const flags: Record<string, boolean> = {};
+  const restoreInfo = { status: loaded.status, prims: 0, restoreMs: 0, flushMs: 0, loadMs, playerFallback: false };
+  if (loaded.status === 'ok' || loaded.status === 'recovered') {
+    const d = loaded.data;
+    created = d.created;
+    playTime = d.playTime;
+    Object.assign(flags, d.progress.flags);
+    // 掘った穴：空洞を戻し、最初のフレームより前に区画をすべて作り直して当たり判定へ入れる（見た目と同時）
+    const tr = performance.now();
+    const tank = d.tanks[HOME_TANK];
+    if (tank) restoreInfo.prims = world.dig.restore(tank.dig.prims);
+    const tf = performance.now();
+    await view.digFx.flushAllAsync((done, total) => (loading.textContent = `掘った穴を復元しています… ${done} / ${total} 区画`));
+    restoreInfo.flushMs = performance.now() - tf;
+    restoreInfo.restoreMs = performance.now() - tr;
+    for (const id of d.progress.visited) tracker.visited.add(id);
+    // プレイヤー：保存した位置が固体の中なら（あり得ないが）スタート地点へ
+    const P = d.player;
+    if (world.contactSolid(P.x, P.y + crab.radius, P.z) > crab.radius * 0.5) {
+      crab.teleport(P.x, P.z, P.y);
+      crab.heading = P.heading;
+    } else {
+      restoreInfo.playerFallback = true;
+      crab.teleport(world.spawn.x, world.spawn.z);
+    }
+    camera.placeBehind(crab);
+    for (let i = 0; i < 3 && camera.mode !== P.camera; i++) camera.toggle(crab);
+  }
+  const bootNote =
+    loaded.status === 'recovered' ? `保存データが壊れていたため、1 つ前のデータから再開しました（${loaded.error}）。壊れたデータは別に残しています。`
+    : loaded.status === 'corrupt' ? `保存データを読み込めなかったため、初期状態で始めました（${loaded.error}）。読めなかったデータは別に残しています。`
+    : null;
+  if (bootNote) setTimeout(() => toast(loaded.status === 'recovered' ? '保存データを 1 つ前から復元しました' : '保存データを読めず、初期状態で始めました'), 600);
+  const gather = (): SaveData => ({
+    format: SAVE_FORMAT,
+    version: SAVE_VERSION,
+    created,
+    savedAt: Date.now(),
+    playTime,
+    player: { tank: HOME_TANK, x: crab.x, y: crab.y, z: crab.z, heading: crab.heading, camera: camera.mode },
+    progress: { visited: [...tracker.visited], flags: { ...flags } },
+    tanks: { [HOME_TANK]: { dig: { prims: world.dig.exportPrims() } } },
+    buddies: [],
+  });
+  const saver = new AutoSaver(store, gather);
+  const saveMenu = new SaveMenu(menu, { saver, ctx: saveCtx, bootNote, toast });
+  // 自動保存の印：掘った（かき出しの回数）・初めての場所・動いた
+  let lastCarves = world.dig.stats.carves;
+  let lastPos = { x: crab.x, y: crab.y, z: crab.z };
+
   // ---------------- ループ ----------------
   // 自動検証用：freeze = true でゲームの更新を止める。step(n, dt) は通常のループと同じ処理を n 回まわす
   // （ブラウザのタブが裏にあって requestAnimationFrame が間引かれていても、実際の入力の状態で時間を進められる）
@@ -194,8 +290,21 @@ function boot() {
       rig.update(dt, crab);
       life.update(dt, { x: crab.x, y: crab.y + crab.radius, z: crab.z });
       tracker.update(dt, crab.x, crab.y + crab.radius, crab.z);
-      for (const e of tracker.drainEvents()) showBanner(e.spot, e.first, e.parentFirst);
+      for (const e of tracker.drainEvents()) {
+        showBanner(e.spot, e.first, e.parentFirst);
+        if (e.first) saver.markDirty();
+      }
       camera.setVista(tracker.current?.vista ?? null);
+      playTime += dt;
+      if (world.dig.stats.carves !== lastCarves) {
+        lastCarves = world.dig.stats.carves;
+        saver.markDirty();
+      }
+      if (Math.hypot(crab.x - lastPos.x, crab.y - lastPos.y, crab.z - lastPos.z) > 0.5) {
+        lastPos = { x: crab.x, y: crab.y, z: crab.z };
+        saver.markMoved();
+      }
+      saver.update(dt);
     }
     if (bannerT > 0) {
       bannerT -= dtRaw;
@@ -271,17 +380,17 @@ function boot() {
     tick(dtRaw);
   };
   loading.remove();
+  /** 起動から最初のフレームまで（生成 + 保存データの読み込み・復元） */
+  const bootMs = performance.now() - t0;
   requestAnimationFrame(loop);
-  (window as unknown as Record<string, unknown>).__aqua = Object.assign(debug, { world, crab, rig, camera, view, settings, input, spots, finds, tracker, life, resetDiscovery, goto, places, sump: SUMP, buildMs, buildPhases: built.ms, plantMs: plants.ms, plantCounts: plants.counts, plantTimes: plants.times });
+  (window as unknown as Record<string, unknown>).__aqua = Object.assign(debug, { world, crab, rig, camera, view, settings, input, spots, finds, tracker, life, resetDiscovery, goto, places, sump: SUMP, save: { store, saver, menu: saveMenu, ctx: saveCtx, gather, restore: restoreInfo, loaded }, buildMs, bootMs, buildPhases: built.ms, plantMs: plants.ms, plantCounts: plants.counts, plantTimes: plants.times });
 }
 
 // 読み込み表示を先に描画させてから重い生成処理に入る
 setTimeout(() => {
-  try {
-    boot();
-  } catch (e) {
+  boot().catch((e) => {
     const l = document.getElementById('loading');
     if (l) l.textContent = `初期化に失敗しました：${(e as Error).message}`;
     throw e;
-  }
+  });
 }, 50);

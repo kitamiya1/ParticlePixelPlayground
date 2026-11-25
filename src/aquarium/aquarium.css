@@ -96,6 +96,33 @@ body.aqua #touch-ui .dig.aiming span { opacity: 0.35; }
 #hud .tag.dig.ng { background: #8a4a3a; }
 #hud .tag.dig.off { display: none; }
 
+/* 右上のメニュー（セーブ・仲間）。押せる大きさ（高さ 34px 以上）で、スマホでも指で押せる */
+#menu { position: fixed; right: calc(12px + env(safe-area-inset-right)); top: calc(12px + env(safe-area-inset-top)); display: flex; gap: 6px; z-index: 4;
+  flex-wrap: wrap; justify-content: flex-end; max-width: 60vw; }
+#menu .menu-btn { min-height: 34px; padding: 4px 12px; border-radius: 17px; font-size: 13px; font-weight: 700; color: #e8fff8;
+  background: rgba(10, 22, 28, 0.72); border: 1px solid rgba(160, 220, 210, 0.35); touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+#menu .menu-btn:active { background: rgba(46, 128, 121, 0.85); }
+#save-panel { position: fixed; right: calc(12px + env(safe-area-inset-right)); top: calc(54px + env(safe-area-inset-top)); width: min(340px, calc(100vw - 24px));
+  display: none; z-index: 5; background: rgba(10, 22, 28, 0.94); border: 1px solid rgba(160, 220, 210, 0.3); border-radius: 8px; padding: 10px 12px;
+  line-height: 1.55; font-size: 13px; color: #e8fff8; touch-action: manipulation; }
+#save-panel.show { display: block; }
+#save-panel .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+#save-panel .close { min-width: 34px; min-height: 34px; border-radius: 17px; background: transparent; border: 0; color: #e8fff8; font-size: 18px; }
+#save-panel .status { color: #b9ece0; font-size: 12px; }
+#save-panel .note { color: #ffe08a; font-size: 12px; }
+#save-panel .note:empty { display: none; }
+#save-panel .btns { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+#save-panel .btns button { min-height: 38px; padding: 4px 12px; border-radius: 6px; font-size: 13px; background: #2e5e5a; color: #f2fff9; border: 1px solid rgba(255, 255, 255, 0.2); }
+#save-panel .btns button.danger { background: #7a3a32; }
+#save-panel .confirm { display: none; background: rgba(122, 58, 50, 0.25); border: 1px solid rgba(224, 122, 95, 0.5); border-radius: 6px; padding: 8px; font-size: 12px; }
+#save-panel .confirm.show { display: block; }
+#save-panel .sub { color: #9fb8b2; font-size: 11px; }
+#aqua-toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translate(-50%, 10px); opacity: 0; transition: opacity 0.3s, transform 0.3s;
+  pointer-events: none; z-index: 6; background: rgba(10, 22, 28, 0.85); color: #f2fff9; padding: 6px 16px; border-radius: 16px; font-size: 13px; white-space: nowrap; }
+#aqua-toast.show { opacity: 1; transform: translate(-50%, 0); }
+body.aqua.touch #aqua-toast { bottom: auto; top: calc(56px + env(safe-area-inset-top)); }
+body.aqua #menu, body.aqua #save-panel { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+
 /* スマホ：ページ自体の拡大・スクロール・長押しのメニュー・文字選択を止める（HUD や説明の上から始めた指で
    ページが拡大されたり、長押しで選択が始まって指の操作がゲームから奪われたりしない） */
 html:has(body.aqua), body.aqua { touch-action: none; overscroll-behavior: none; }
