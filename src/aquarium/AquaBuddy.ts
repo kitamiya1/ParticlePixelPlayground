@@ -108,6 +108,8 @@ export class BuddySystem {
   private tx = 0;
   private tz = 0;
   private stuckT = 0;
+  /** 回り込む側（1 / -1。前に回り込めた側） */
+  private side = 1;
   private readonly rng: Rng = mulberry32(4242);
   readonly events: BuddyEvent[] = [];
   readonly stats = { warps: 0, blockedSteps: 0, slides: 0, pulls: 0, cancels: 0 };
@@ -377,7 +379,9 @@ export class BuddySystem {
     if (d < 1e-3) return true;
     const step = Math.min(speed * dt, d);
     const base = Math.atan2(dx, dz);
-    for (const off of [0, 0.6, -0.6, 1.2, -1.2]) {
+    // まっすぐ → 左右へずらす。前に回り込めた側を先に試す（縦の管・岩の柱のような丸い物を同じ側から回り込み、左右に迷わない）
+    const s = this.side;
+    for (const off of [0, s * 0.6, -s * 0.6, s * 1.2, -s * 1.2, s * 1.8, -s * 1.8]) {
       const a = base + off;
       const nx = this.x + Math.sin(a) * step, nz = this.z + Math.cos(a) * step;
       const fy = this.canStep(nx, nz, allowDrop, step);
@@ -385,7 +389,10 @@ export class BuddySystem {
         this.stats.blockedSteps++;
         continue;
       }
-      if (off !== 0) this.stats.slides++;
+      if (off !== 0) {
+        this.stats.slides++;
+        this.side = off > 0 ? 1 : -1;
+      }
       this.x = nx;
       this.z = nz;
       // 下りが大きいときは落ちる（重力）。小さいときは床へ寄せる

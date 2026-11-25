@@ -56,7 +56,9 @@ function gameSettings(): RenderSettings {
 async function boot() {
   const t0 = performance.now();
   // 保存先は重い生成と並行して開く（IndexedDB を開くのは非同期）
-  const storeP = SaveStore.open();
+  // ?nosave：保存せず、保存データも読まない（自動検証が同じブラウザの中で前のページの穴を持ち込まないように）
+  const noSave = new URLSearchParams(location.search).has('nosave');
+  const storeP = SaveStore.open({ memory: noSave });
   const canvas = document.getElementById('view') as HTMLCanvasElement;
   const loading = document.getElementById('loading')!;
   const settings = gameSettings();
@@ -272,14 +274,22 @@ async function boot() {
   const bootNote =
     loaded.status === 'recovered' ? `保存データが壊れていたため、1 つ前のデータから再開しました（${loaded.error}）。壊れたデータは別に残しています。`
     : loaded.status === 'corrupt' ? `保存データを読み込めなかったため、初期状態で始めました（${loaded.error}）。読めなかったデータは別に残しています。`
+    : store.info.fromJournal ? '前回は閉じる・読み込み直す直前の保存が終わらなかったため、その直前の控えから再開しました（進捗は失われていません）。'
+    : store.info.orphan ? '前回閉じる直前の進捗（控え）は、別のタブの保存の方が新しかったため使いませんでした。「使わなかった進捗を書き出す」でファイルに残せます。'
+    : noSave ? '自動検証のため保存しません（?nosave）。'
     : null;
-  if (bootNote) setTimeout(() => toast(loaded.status === 'recovered' ? '保存データを 1 つ前から復元しました' : '保存データを読めず、初期状態で始めました'), 600);
+  // 知らせは利用者が気にすべきときだけ（控えから戻したのは、再読み込み・タブを閉じたときのふつうの流れなので出さない）
+  const bootToast = loaded.status === 'recovered' ? '保存データを 1 つ前から復元しました' : loaded.status === 'corrupt' ? '保存データを読めず、初期状態で始めました' : store.info.orphan ? '使わなかった進捗があります（セーブのメニュー）' : null;
+  if (bootToast && !noSave) setTimeout(() => toast(bootToast), 600);
   const gather = (): SaveData => ({
     format: SAVE_FORMAT,
     version: SAVE_VERSION,
     created,
     savedAt: Date.now(),
     playTime,
+    // 世代と識別子は SaveStore が書くときに付ける
+    rev: 0,
+    saveId: '',
     player: { tank: HOME_TANK, x: crab.x, y: crab.y, z: crab.z, heading: crab.heading, camera: camera.mode },
     progress: { visited: [...tracker.visited], flags: { ...flags, [FLAG_EXAMINED]: buddy.examined } },
     tanks: { [HOME_TANK]: { dig: { prims: world.dig.exportPrims() } } },
@@ -287,6 +297,8 @@ async function boot() {
   });
   const saver = new AutoSaver(store, gather);
   const saveMenu = new SaveMenu(menu, { saver, ctx: saveCtx, bootNote, toast });
+  // 控えから戻したときは、すぐ保存先（IndexedDB）へ書く
+  if (store.info.fromJournal) saver.markImportant();
   // ---------------- 仲間（スナモグリ） ----------------
   // 右上の「仲間」ボタン（見つけた後だけ出る）：押すと自由生活 ↔ 同行。PC は Q キーでも
   const buddyBtn = document.createElement('button');
@@ -333,7 +345,7 @@ async function boot() {
     for (const e of buddy.drainEvents()) {
       if (e.kind === 'examined') {
         toast('触角をつかめば、引っこ抜けそうだ！');
-        saver.markDirty();
+        saver.markImportant();
       } else if (e.kind === 'popped') {
         // 抜けた瞬間：砂煙と泡、カニは反動で後ろへ尻もち
         view.puff(e.x, e.y, e.z, true);
@@ -351,8 +363,8 @@ async function boot() {
         banner.querySelector('.desc')!.textContent = `${BUDDY_DESC}。${touch ? '右上のボタン' : 'Q キー・右上のボタン'}で呼ぶと、ついてくる`;
         bannerT = 5.5;
         showBuddyBtn();
-        saver.markDirty();
-      } else if (e.kind === 'mode') saver.markDirty();
+        saver.markImportant();
+      } else if (e.kind === 'mode') saver.markImportant();
       else if (e.kind === 'warp') {
         view.puff(e.from[0], e.from[1], e.from[2], false);
         view.puff(e.to[0], e.to[1], e.to[2], false);
@@ -388,7 +400,7 @@ async function boot() {
       tracker.update(dt, crab.x, crab.y + crab.radius, crab.z);
       for (const e of tracker.drainEvents()) {
         showBanner(e.spot, e.first, e.parentFirst);
-        if (e.first) saver.markDirty();
+        if (e.first) saver.markImportant();
       }
       camera.setVista(tracker.current?.vista ?? null);
       playTime += dt;

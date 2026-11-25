@@ -15,7 +15,7 @@ async (page) => {
     const ctx = await page.context().browser().newContext({ viewport: { width: 640, height: 400 } });
     for (const site of O.sites) for (const aim of O.aims) {
       const p = await ctx.newPage();
-      await p.goto(host + '/aquarium.html?' + Date.now());
+      await p.goto(host + '/aquarium.html?nosave&' + Date.now());
       await p.waitForFunction(() => window.__aqua, null, { timeout: 180000 });
       const r = await p.evaluate(([O, site, aim]) => {
         const a = window.__aqua, c = a.crab, w = a.world, cam = a.camera, inp = a.input;

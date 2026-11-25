@@ -19,7 +19,7 @@ async (page) => {
     const p = await ctx.newPage();
     const errors = [];
     p.on('pageerror', (e) => errors.push(String(e)));
-    await p.goto(host + '/aquarium.html?' + Date.now());
+    await p.goto(host + '/aquarium.html?nosave&' + Date.now());
     await p.waitForFunction(() => window.__aqua, null, { timeout: 180000 });
     await p.evaluate(() => document.getElementById('help')?.classList.add('fade'));
     const cdp = await ctx.newCDPSession(p);

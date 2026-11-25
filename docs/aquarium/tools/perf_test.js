@@ -12,7 +12,7 @@ async (page) => {
   for (const host of O.hosts) {
     const ctx = await page.context().browser().newContext({ viewport: { width: O.w ?? 960, height: O.h ?? 600 }, deviceScaleFactor: O.dsf ?? 1, hasTouch: !!O.touch, isMobile: !!O.touch });
     const p = await ctx.newPage();
-    await p.goto(host + '/aquarium.html?' + Date.now());
+    await p.goto(host + '/aquarium.html?nosave&' + Date.now());
     await p.waitForFunction(() => window.__aqua, null, { timeout: 180000 });
     if (O.throttle > 1) {
       const cdp = await ctx.newCDPSession(p);

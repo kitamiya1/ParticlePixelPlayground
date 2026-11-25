@@ -16,7 +16,7 @@ async (page) => {
   for (const [name, host] of [['after', O.host], ...(O.base ? [['before', O.base]] : [])]) {
     const ctx = await page.context().browser().newContext({ viewport: { width: 640, height: 400 } });
     const p = await ctx.newPage();
-    await p.goto(host + '/aquarium.html?' + Date.now());
+    await p.goto(host + '/aquarium.html?nosave&' + Date.now());
     await p.waitForFunction(() => window.__aqua, null, { timeout: 180000 });
     out[name] = await p.evaluate(() => {
       const a = window.__aqua, c = a.crab, cam = a.camera, inp = a.input;

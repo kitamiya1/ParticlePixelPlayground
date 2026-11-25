@@ -20,7 +20,7 @@ async (page) => {
       const p = await ctx.newPage();
       const errs = [];
       p.on('pageerror', (e) => errs.push(String(e)));
-      await p.goto(host + '/aquarium.html?' + Date.now());
+      await p.goto(host + '/aquarium.html?nosave&' + Date.now());
       await p.waitForFunction(() => window.__aqua, null, { timeout: 180000 });
       if (O.throttle > 1) {
         const cdp = await ctx.newCDPSession(p);

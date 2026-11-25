@@ -9,7 +9,7 @@ async (page) => {
   for (const dev of [{ tag: 'pc', viewport: { width: 960, height: 600 } }, { tag: 'mobile', viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }]) {
     const ctx = await page.context().browser().newContext({ viewport: dev.viewport, deviceScaleFactor: dev.deviceScaleFactor ?? 1, isMobile: !!dev.isMobile, hasTouch: !!dev.hasTouch });
     const p = await ctx.newPage();
-    await p.goto(O.host + '/aquarium.html?' + Date.now());
+    await p.goto(O.host + '/aquarium.html?nosave&' + Date.now());
     await p.waitForFunction(() => window.__aqua, null, { timeout: 180000 });
     await p.evaluate(async () => {
       await fetch('http://localhost:5173/docs/aquarium/tools/buddy_helpers.js?' + Date.now()).then((r) => r.text()).then(eval);

@@ -18,7 +18,7 @@ async (page) => {
     const p = await ctx.newPage();
     p.on('pageerror', (e) => errors.push(host + ': ' + String(e)));
     p.on('console', (m) => { if (m.type() === 'error') errors.push(host + ': ' + m.text()); });
-    await p.goto(host + '/aquarium.html?' + Date.now());
+    await p.goto(host + '/aquarium.html?nosave&' + Date.now());
     await p.waitForFunction(() => window.__aqua, null, { timeout: 180000 });
     await p.evaluate(() => document.getElementById('help')?.classList.add('fade'));
     // 補助は変更後のサーバーから読む（変更前のビルドでも同じ手順で測る）

@@ -6,7 +6,7 @@ async (page) => {
   const p = await ctx.newPage();
   const logs = [];
   p.on('pageerror', (e) => logs.push(String(e)));
-  await p.goto(host + '/aquarium.html?' + Date.now());
+  await p.goto(host + '/aquarium.html?nosave&' + Date.now());
   await p.waitForFunction(() => window.__aqua, null, { timeout: 120000 });
   const cdp = await ctx.newCDPSession(p);
   // スティックの状態はページ側で次の描画フレームに反映されるので、送ったあと少し待つ
