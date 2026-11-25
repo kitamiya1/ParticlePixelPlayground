@@ -96,6 +96,87 @@ body.aqua #touch-ui .dig.aiming span { opacity: 0.35; }
 #hud .tag.dig.ng { background: #8a4a3a; }
 #hud .tag.dig.off { display: none; }
 
+/* 右上のメニュー（セーブ・仲間）。押せる大きさ（高さ 34px 以上）で、スマホでも指で押せる */
+#menu { position: fixed; right: calc(12px + env(safe-area-inset-right)); top: calc(12px + env(safe-area-inset-top)); display: flex; gap: 6px; z-index: 4;
+  flex-wrap: wrap; justify-content: flex-end; max-width: 60vw; }
+#menu .menu-btn { min-height: 34px; padding: 4px 12px; border-radius: 17px; font-size: 13px; font-weight: 700; color: #e8fff8;
+  background: rgba(10, 22, 28, 0.72); border: 1px solid rgba(160, 220, 210, 0.35); touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+#menu .menu-btn:active { background: rgba(46, 128, 121, 0.85); }
+#save-panel { position: fixed; right: calc(12px + env(safe-area-inset-right)); top: calc(54px + env(safe-area-inset-top)); width: min(340px, calc(100vw - 24px));
+  display: none; z-index: 5; background: rgba(10, 22, 28, 0.94); border: 1px solid rgba(160, 220, 210, 0.3); border-radius: 8px; padding: 10px 12px;
+  line-height: 1.55; font-size: 13px; color: #e8fff8; touch-action: manipulation;
+  /* 背の低い画面（横持ちのスマホ）でも確認のボタンまで届くよう、はみ出す分は中でスクロール */
+  max-height: calc(100vh - 66px - env(safe-area-inset-top)); max-height: calc(100dvh - 66px - env(safe-area-inset-top)); overflow-y: auto; overscroll-behavior: contain; }
+#save-panel.show { display: block; }
+/* 保存の状態：セーブのボタンの印（緑 = 保存済み、黄 = 未保存・保存中、赤 = 保存できていない・競合、灰 = 保存しない） */
+#menu .menu-btn.save .dot { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: #7cd6c4; vertical-align: 1px; }
+#menu .menu-btn.save[data-state="pending"] .dot, #menu .menu-btn.save[data-state="saving"] .dot { background: #ffd27a; }
+#menu .menu-btn.save[data-state="error"] .dot, #menu .menu-btn.save[data-state="conflict"] .dot { background: #ff6a5a; }
+#menu .menu-btn.save[data-state="error"], #menu .menu-btn.save[data-state="conflict"] { border-color: rgba(255, 106, 90, 0.8); }
+#menu .menu-btn.save[data-state="off"] .dot { background: #8a9894; }
+#save-panel .state { font-weight: 700; color: #b9ece0; }
+#save-panel .state[data-state="pending"], #save-panel .state[data-state="saving"] { color: #ffd27a; }
+#save-panel .state[data-state="error"], #save-panel .state[data-state="conflict"] { color: #ff8a7a; }
+#save-panel .btns button:disabled { opacity: 0.45; }
+/* 競合の知らせ：画面の上の中央。閉じずに残す（このタブは保存しない） */
+#save-alert { position: fixed; left: max(345px, calc(50% - 260px)); top: calc(12px + env(safe-area-inset-top)); display: none; z-index: 6;
+  /* 左上の表示（幅約 320px）と右上のボタンの間に収める */
+  width: min(520px, calc(100vw - 345px - 110px)); background: rgba(60, 22, 18, 0.95); border: 1px solid rgba(255, 138, 122, 0.7); border-radius: 8px;
+  padding: 8px 12px; color: #fff1ec; font-size: 13px; line-height: 1.5; touch-action: manipulation; }
+#save-alert.show { display: block; }
+#save-alert .btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+#save-alert .btns button { min-height: 38px; padding: 4px 12px; border-radius: 6px; font-size: 13px; background: #7a3a32; color: #fff; border: 1px solid rgba(255, 255, 255, 0.3); }
+@media (max-width: 760px) { #save-alert { left: 12px; width: calc(100vw - 24px); top: calc(182px + env(safe-area-inset-top)); } }
+#save-panel .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+#save-panel .close { min-width: 34px; min-height: 34px; border-radius: 17px; background: transparent; border: 0; color: #e8fff8; font-size: 18px; }
+#save-panel .status { color: #b9ece0; font-size: 12px; }
+#save-panel .note { color: #ffe08a; font-size: 12px; }
+#save-panel .note:empty { display: none; }
+#save-panel .btns { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+#save-panel .btns button { min-height: 38px; padding: 4px 12px; border-radius: 6px; font-size: 13px; background: #2e5e5a; color: #f2fff9; border: 1px solid rgba(255, 255, 255, 0.2); }
+#save-panel .btns button.danger { background: #7a3a32; }
+#save-panel .confirm { display: none; background: rgba(122, 58, 50, 0.25); border: 1px solid rgba(224, 122, 95, 0.5); border-radius: 6px; padding: 8px; font-size: 12px; }
+#save-panel .confirm.show { display: block; }
+#save-panel .sub { color: #9fb8b2; font-size: 11px; }
+#aqua-toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translate(-50%, 10px); opacity: 0; transition: opacity 0.3s, transform 0.3s;
+  pointer-events: none; z-index: 6; background: rgba(10, 22, 28, 0.85); color: #f2fff9; padding: 6px 16px; border-radius: 16px; font-size: 13px; white-space: nowrap; }
+#aqua-toast.show { opacity: 1; transform: translate(-50%, 0); }
+#menu .menu-btn .nm2 { display: none; }
+/* 縦長の画面：知らせは左上の表示・場所の名前の下（下は操作のボタンがあるので避ける）。右上のボタンは縦に並べ、
+   左上の表示（幅約 250px）に重ならないよう短い名前にする */
+@media (max-width: 760px) {
+  #aqua-toast { bottom: auto; top: calc(320px + env(safe-area-inset-top)); white-space: normal; max-width: 86vw; text-align: center; }
+  #menu { flex-direction: column; align-items: flex-end; max-width: 34vw; }
+  #menu .menu-btn { padding: 4px 10px; font-size: 12px; }
+  #menu .menu-btn .nm { display: none; }
+  #menu .menu-btn .nm2 { display: inline; }
+  #save-panel { top: calc(96px + env(safe-area-inset-top)); max-height: calc(100dvh - 110px - env(safe-area-inset-top)); }
+}
+body.aqua #menu, body.aqua #save-panel { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+
+/* 仲間：右上のボタン（同行中は明るく）・巣穴の案内・タッチの「調べる / 引っこ抜く」ボタン */
+#menu .menu-btn.buddy.on { background: rgba(214, 140, 104, 0.9); color: #2a140c; border-color: rgba(255, 220, 190, 0.7); }
+#act-prompt { position: fixed; left: 0; top: 0; display: none; pointer-events: none; z-index: 2; text-align: center; white-space: nowrap;
+  background: rgba(10, 22, 28, 0.78); border: 1px solid rgba(255, 224, 138, 0.45); border-radius: 8px; padding: 4px 10px 5px; color: #f2fff9; font-size: 13px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8); }
+#act-prompt.show { display: block; }
+#act-prompt .who { font-size: 11px; color: #ffe08a; letter-spacing: 0.06em; }
+#act-prompt .what { font-weight: 700; }
+#act-prompt .bar { display: none; width: 96px; height: 6px; margin: 3px auto 0; border-radius: 3px; background: rgba(255, 255, 255, 0.15); overflow: hidden; }
+#act-prompt.hold .bar { display: block; }
+#act-prompt .bar i { display: block; height: 100%; width: 0; background: #ffbf7a; }
+#act-prompt kbd { display: inline-block; min-width: 18px; padding: 0 4px; border-radius: 3px; background: rgba(255, 255, 255, 0.18); font: inherit; font-size: 11px; }
+#place-banner.buddy .kicker { color: #ffbf7a; }
+#place-banner.buddy.first { border-color: rgba(255, 191, 122, 0.6); }
+/* 「調べる / 引っこ抜く」：ジャンプの上（カメラの上）。巣穴のそばでだけ出る。外周の輪が長押しの進み具合 */
+body.aqua #touch-ui .act { position: fixed; right: calc(16px + env(safe-area-inset-right)); bottom: calc(196px + env(safe-area-inset-bottom));
+  width: 86px; height: 86px; border-radius: 50%; font-size: 14px; font-weight: 700; color: #2a140c; display: none;
+  background: radial-gradient(circle, rgba(255, 214, 170, 0.95) 58%, transparent 60%), conic-gradient(#ff8a4a calc(var(--p, 0) * 360deg), rgba(255, 255, 255, 0.25) 0);
+  border: 2px solid rgba(255, 236, 200, 0.7); touch-action: none; user-select: none; -webkit-user-select: none; z-index: 3; }
+body.aqua #touch-ui .act.show { display: block; }
+body.aqua #touch-ui .act.on { filter: brightness(1.12); }
+body.aqua #touch-ui .act span { position: relative; pointer-events: none; }
+
 /* スマホ：ページ自体の拡大・スクロール・長押しのメニュー・文字選択を止める（HUD や説明の上から始めた指で
    ページが拡大されたり、長押しで選択が始まって指の操作がゲームから奪われたりしない） */
 html:has(body.aqua), body.aqua { touch-action: none; overscroll-behavior: none; }

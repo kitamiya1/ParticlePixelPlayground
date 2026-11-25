@@ -18,7 +18,7 @@ async (page) => {
     const p = await ctx.newPage();
     const errors = [];
     p.on('pageerror', (e) => errors.push(String(e)));
-    await p.goto(host + '/aquarium.html?' + Date.now());
+    await p.goto(host + '/aquarium.html?nosave&' + Date.now());
     await p.waitForFunction(() => window.__aqua, null, { timeout: 180000 });
     const r = await p.evaluate(() => {
       const a = window.__aqua, c = a.crab, w = a.world;

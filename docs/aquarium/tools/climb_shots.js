@@ -18,7 +18,7 @@ async (page) => {
   for (const s of O.shots) {
     if (O.only && !O.only.includes(s.name)) continue;
     const p = await ctx.newPage();
-    await p.goto((s.host ?? O.host) + '/aquarium.html?' + Date.now());
+    await p.goto((s.host ?? O.host) + '/aquarium.html?nosave&' + Date.now());
     await p.waitForFunction(() => window.__aqua, null, { timeout: 180000 });
     res[s.name] = await p.evaluate(async (s) => {
       await fetch('http://localhost:5173/docs/aquarium/tools/climb_helpers.js?' + Date.now()).then((r) => r.text()).then(eval);

@@ -17,7 +17,7 @@ async (page) => {
     const p = await ctx.newPage();
     const errs = [];
     p.on('pageerror', (e) => errs.push(String(e)));
-    await p.goto(O.host + '/aquarium.html?' + Date.now());
+    await p.goto(O.host + '/aquarium.html?nosave&' + Date.now());
     await p.waitForFunction(() => window.__aqua, null, { timeout: 180000 });
     const r = await p.evaluate(async (site) => {
       await fetch('http://localhost:5173/docs/aquarium/tools/climb_helpers.js?' + Date.now()).then((r) => r.text()).then(eval);

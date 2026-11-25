@@ -16,7 +16,7 @@ async (page) => {
   const errors = [];
   p.on('pageerror', (e) => errors.push(String(e)));
   p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  await p.goto((O.host ?? 'http://localhost:5173') + '/aquarium.html?' + Date.now());
+  await p.goto((O.host ?? 'http://localhost:5173') + '/aquarium.html?nosave&' + Date.now());
   await p.waitForFunction(() => window.__aqua, null, { timeout: 180000 });
   await p.evaluate(() => {
     const a = window.__aqua;

@@ -16,7 +16,7 @@ async (page) => {
   await cfgPage.close();
   const ctx = await page.context().browser().newContext({ viewport: { width: 640, height: 400 } });
   const p = await ctx.newPage();
-  await p.goto((O.host ?? 'http://localhost:5173') + '/aquarium.html?' + Date.now());
+  await p.goto((O.host ?? 'http://localhost:5173') + '/aquarium.html?nosave&' + Date.now());
   await p.waitForFunction(() => window.__aqua, null, { timeout: 180000 });
   const r = await p.evaluate((O) => {
     const a = window.__aqua, c = a.crab, w = a.world, dig = w.dig, fx = a.view.digFx;

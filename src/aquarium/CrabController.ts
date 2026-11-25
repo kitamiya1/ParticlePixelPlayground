@@ -40,10 +40,10 @@ import { TANK, type AquariumWorld } from './AquariumWorld';
 import { ROOM, type Flow, type Region } from './AquariumStand';
 import { DIG, diggable, type DigMaterial } from './AquariumDig';
 
-export type CrabState = 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'swim' | 'sink' | 'ride' | 'dig' | 'climb';
+export type CrabState = 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'swim' | 'sink' | 'ride' | 'dig' | 'climb' | 'pull';
 
 export const CRAB_STATE_LABEL: Record<CrabState, string> = {
-  idle: '待機', walk: '歩行', run: '走行', jump: 'ジャンプ', fall: '落下', swim: '遊泳', sink: '沈降', ride: '水流に乗る', dig: '穴掘り', climb: '壁登り',
+  idle: '待機', walk: '歩行', run: '走行', jump: 'ジャンプ', fall: '落下', swim: '遊泳', sink: '沈降', ride: '水流に乗る', dig: '穴掘り', climb: '壁登り', pull: '引っこ抜き',
 };
 
 /** 見た目側（泡・水しぶき・波紋）に知らせる出来事 */
@@ -77,7 +77,15 @@ export interface CrabInput {
   dig?: boolean;
   /** 掘る向きの照準（x = 右, y = 上、長さ 0〜1。0 = 正面。Input.digAim） */
   digAim?: { x: number; y: number };
+  /**
+   * 穴の生き物を引っ張っている（AquaBuddy が決める。x, z = 穴、t = 進み具合 0..1）。この間は移動・ジャンプ・穴掘りの入力を
+   * 使わず、穴へ向いて、穴から PULL_STAND（+ 進み具合で少し後ろへ）の所に踏ん張る
+   */
+  pull?: { x: number; z: number; t: number } | null;
 }
+
+/** 引っ張るときに立つ距離（穴の中心から体の中心まで。AquaBuddy.PULL_STAND と同じ） */
+const PULL_STAND = 0.6;
 
 const RADIUS = 0.24;
 /** 照準を上・下いっぱいにしたときの掘る向きの仰角（上は登れる坂の限界 57° より少し急、下は −57°）と、左右の最大 */
@@ -220,7 +228,19 @@ export class CrabController {
     this.mantle = null;
   }
 
+  /** 穴の生き物を引っ張っているか・引っ張りの進み具合（見た目 CrabRig の踏ん張り・鋏に使う） */
+  pulling = false;
+  pullT = 0;
+  private pullAt: [number, number] = [0, 0];
+
   update(dt: number, inp: CrabInput) {
+    // 引っ張っている間：移動・ジャンプ・穴掘りの入力は使わない（体の位置と向きは step で穴に合わせる）
+    this.pulling = !!inp.pull;
+    if (inp.pull) {
+      this.pullT = inp.pull.t;
+      this.pullAt = [inp.pull.x, inp.pull.z];
+      inp = { ...inp, move: { x: 0, y: 0 }, run: false, jumpHeld: false, dig: false };
+    } else this.pullT = 0;
     // 大きな時間差は分割して当たり判定のすり抜けを防ぐ
     const steps = Math.max(1, Math.ceil(dt / (1 / 90)));
     const h = dt / steps;
@@ -425,9 +445,17 @@ export class CrabController {
         maxSpeed = DIG_MOVE_SPEED;
         accel = 10;
       }
-      const tvx = mx * maxSpeed, tvz = mz * maxSpeed;
+      let tvx = mx * maxSpeed, tvz = mz * maxSpeed;
+      // 引っ張っている間：穴から PULL_STAND（抜けてくるほど少し後ろへ下がる）の所へ寄る
+      if (this.pulling) {
+        const ox = this.x - this.pullAt[0], oz = this.z - this.pullAt[1];
+        const od = Math.hypot(ox, oz) || 1;
+        const err = PULL_STAND + 0.14 * this.pullT - od;
+        tvx = (ox / od) * clamp(err * 5, -1.2, 1.2);
+        tvz = (oz / od) * clamp(err * 5, -1.2, 1.2);
+      }
       // 入力が無いとき：地上ではすぐ止まり、水中・空中ではゆっくり減速する
-      const k = 1 - Math.exp(-(hasInput ? accel : this.grounded ? 12 : lerp(0.6, 2.2, s)) * dt);
+      const k = 1 - Math.exp(-(hasInput || this.pulling ? accel : this.grounded ? 12 : lerp(0.6, 2.2, s)) * dt);
       if (this.hopT > 0 && !this.grounded) this.hopT -= dt;
       else {
         this.hopT = 0;
@@ -620,6 +648,10 @@ export class CrabController {
     if (digging) {
       this.digYaw = wrap(this.digBaseYaw - (inp.digAim?.x ?? 0) * DIG_YAW_MAX * this.digSign);
       this.heading = wrap(this.heading + wrap(this.digYaw - this.heading) * (1 - Math.exp(-10 * dt)));
+    } else if (this.pulling) {
+      // 引っ張っている：正面（鋏の側）を穴へ
+      const h = Math.atan2(this.pullAt[0] - this.x, this.pullAt[1] - this.z);
+      this.heading = wrap(this.heading + wrap(h - this.heading) * (1 - Math.exp(-12 * dt)));
     } else if (this.climbing) {
       // 壁：面に沿った速度を体の座標（面を床に起こした向き）へ戻し、その向きに対して横歩きになるよう回す
       const L = toSurfaceLocal(this.climbN, this.vx, this.vy, this.vz);
@@ -649,6 +681,7 @@ export class CrabController {
 
     // 状態
     if (ride) this.state = 'ride';
+    else if (this.pulling) this.state = 'pull';
     else if (digging) this.state = 'dig';
     else if (this.climbing) this.state = 'climb';
     else if (this.swimming) this.state = 'swim';

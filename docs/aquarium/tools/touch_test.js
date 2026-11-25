@@ -19,7 +19,7 @@ async (page) => {
   const logs = [];
   p.on('console', (m) => { if (m.type() === 'error') logs.push(m.text()); });
   p.on('pageerror', (e) => logs.push(String(e)));
-  await p.goto((O.host ?? 'http://localhost:5173') + '/aquarium.html?' + Date.now());
+  await p.goto((O.host ?? 'http://localhost:5173') + '/aquarium.html?nosave&' + Date.now());
   await p.waitForFunction(() => window.__aqua, null, { timeout: 120000 });
   const cdp = await ctx.newCDPSession(p);
   // 注意：touchEnd / touchCancel に渡す点は「離す指」（空なら全部）。touchStart / touchMove は押している全部の指

@@ -93,7 +93,13 @@
     const bottom = [c.x, c.y, c.z];
     a.digAim = { x: 0, y: site.aim ?? 1 };
     let outAt = null;
-    for (let i = 0; i < 14 * 60; i++) { a.step(1); if (depth() < -0.15 && c.grounded) { outAt = +(i / 60).toFixed(2); break; } }
+    // 斜め上へ掘っている間に照準が当たった物の数（地表まで掘れなかったときの理由：rock / wood なら岩・流木に当たった）
+    const digUpAim = {};
+    for (let i = 0; i < 14 * 60; i++) {
+      a.step(1);
+      if (c.digAim.face) digUpAim[c.digAim.material] = (digUpAim[c.digAim.material] ?? 0) + 1;
+      if (depth() < -0.15 && c.grounded) { outAt = +(i / 60).toFixed(2); break; }
+    }
     a.dig = false; a.digAim = null; inp.moveAxis = () => ({ x: 0, y: 0 }); a.step(10); a.view.digFx.flushAll();
     a.freeze = true; c.teleport(bottom[0] - hx * 0.4, bottom[2] - hz * 0.4, bottom[1] + 0.05); a.freeze = false; a.step(20);
     const s0 = { ...(c.climbStats ?? {}) }, climbs0 = c.climbs;
@@ -113,7 +119,7 @@
     setInput({});
     const st = {};
     for (const k in c.climbStats ?? {}) st[k] = c.climbStats[k] - s0[k];
-    return { site: site.name, digOutAt: outAt, startDepth: +maxD.toFixed(2), reclimbOutAt: out, endDepth: +depth().toFixed(2), state: c.state, climb: st, digClimbs: c.climbs - climbs0, camJump: r3(camJump), hiddenFrac: +(hidden / Math.max(1, n)).toFixed(2), tr };
+    return { site: site.name, digOutAt: outAt, digUpAim, startDepth: +maxD.toFixed(2), reclimbOutAt: out, endDepth: +depth().toFixed(2), state: c.state, climb: st, digClimbs: c.climbs - climbs0, camJump: r3(camJump), hiddenFrac: +(hidden / Math.max(1, n)).toFixed(2), tr };
   };
   /**
    * 地下の壁を横へ：site = { at, heading, flat } で水平のトンネルを掘り、全区画を作り直してから、トンネルの途中で

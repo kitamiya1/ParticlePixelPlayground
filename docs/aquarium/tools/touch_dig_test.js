@@ -20,7 +20,7 @@ async (page) => {
   const errors = [];
   p.on('pageerror', (e) => errors.push(String(e)));
   p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  await p.goto((O.host ?? 'http://localhost:5173') + '/aquarium.html?' + Date.now());
+  await p.goto((O.host ?? 'http://localhost:5173') + '/aquarium.html?nosave&' + Date.now());
   await p.waitForFunction(() => window.__aqua, null, { timeout: 180000 });
   const cdp = await ctx.newCDPSession(p);
   const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map((q) => ({ x: q[0], y: q[1], id: q[2], radiusX: 4, radiusY: 4, force: 1 })) });

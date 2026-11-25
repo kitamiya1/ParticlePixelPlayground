@@ -21,6 +21,11 @@ export interface TouchControlsOptions {
    * （Input.touchDigAim：上へずらす = 上を掘る、左右 = 左右、斜めも可。指がボタンの外へ出ても続く）
    */
   dig?: boolean;
+  /**
+   * その場の操作のボタン（押している間 Input.touchAct = true。水槽ゲームの「調べる / 引っこ抜く」）。
+   * ふだんは隠れていて、setAct で文字を入れたときだけ出る
+   */
+  act?: boolean;
 }
 
 export class TouchControls {
@@ -34,8 +39,11 @@ export class TouchControls {
       <button class="run" type="button">${opts.runLabel ?? '走る'}</button>${opts.jump ? `
       <button class="jump" type="button">ジャンプ</button>` : ''}${opts.dig ? `
       <button class="dig" type="button"><i class="aim"></i><span>掘る</span></button>` : ''}${opts.onCamera ? `
-      <button class="cam" type="button">カメラ</button>` : ''}`;
+      <button class="cam" type="button">カメラ</button>` : ''}${opts.act ? `
+      <button class="act" type="button"><i class="ring"></i><span></span></button>` : ''}`;
     document.body.appendChild(this.root);
+    const act = this.root.querySelector<HTMLButtonElement>('.act');
+    if (act) this.bindHold(act, (on) => (this.input.touchAct = on));
     this.bindStick(this.root.querySelector<HTMLElement>('.stick')!);
     this.bindHold(this.root.querySelector<HTMLButtonElement>('.run')!, (on) => (this.input.touchRun = on));
     const jump = this.root.querySelector<HTMLButtonElement>('.jump');
@@ -50,6 +58,26 @@ export class TouchControls {
         fn();
       });
       cam.addEventListener('contextmenu', (e) => e.preventDefault());
+    }
+  }
+
+  /**
+   * その場の操作のボタンを出す・隠す（label = null で隠す）。progress（0..1）は長押しの進み具合の輪。
+   * 隠すときは押している指も終わらせる（押したまま隠れたボタンが押しっぱなしにならない）
+   */
+  setAct(label: string | null, progress = 0) {
+    const btn = this.root.querySelector<HTMLButtonElement>('.act');
+    if (!btn) return;
+    const show = label !== null;
+    if (!show && this.input.touchAct) {
+      this.input.touchAct = false;
+      btn.classList.remove('on');
+    }
+    btn.classList.toggle('show', show);
+    if (show) {
+      const span = btn.querySelector('span')!;
+      if (span.textContent !== label) span.textContent = label;
+      btn.style.setProperty('--p', progress.toFixed(3));
     }
   }
 

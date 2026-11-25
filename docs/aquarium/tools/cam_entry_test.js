@@ -21,7 +21,7 @@ async (page) => {
       const ctx = await page.context().browser().newContext({ viewport: { width: O.w ?? 960, height: O.h ?? 600 }, deviceScaleFactor: 1 });
       const p = await ctx.newPage();
       p.on('pageerror', (e) => errors.push(hn + ': ' + String(e)));
-      await p.goto(host + '/aquarium.html?' + Date.now());
+      await p.goto(host + '/aquarium.html?nosave&' + Date.now());
       await p.waitForFunction(() => window.__aqua, null, { timeout: 180000 });
       await p.evaluate(() => document.getElementById('help')?.classList.add('fade'));
       await p.evaluate(async (src) => { const t = await fetch(src).then((r) => r.text()); (0, eval)(t); }, host + '/docs/aquarium/tools/freedig_helpers.js?' + Date.now());
