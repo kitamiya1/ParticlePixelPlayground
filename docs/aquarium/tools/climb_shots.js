@@ -32,7 +32,13 @@ async (page) => {
         }
         if (st.steps) info.after = window.__ct.run({ steps: st.steps }).end;
       }
-      a.freeze = false; a.step(1); a.freeze = true;
+      if (s.pose) {
+        // 決めた視点（変更前と後で同じ。カメラの更新は止めて、描画だけ）
+        a.freeze = true;
+        a.camera.mode = 'adventure';
+        a.camera.pose.pos = s.pose.pos; a.camera.pose.target = s.pose.target; a.camera.pose.fov = s.pose.fov ?? 50;
+        a.step(1);
+      } else { a.freeze = false; a.step(1); a.freeze = true; }
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       const c = a.crab;
       return { crab: [c.x, c.y + c.radius, c.z].map((v) => +v.toFixed(2)), state: c.state, cam: a.camera.mode, end: info.end ?? null };

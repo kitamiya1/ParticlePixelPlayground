@@ -91,8 +91,8 @@ function boot() {
   const help = document.createElement('div');
   help.id = 'help';
   help.innerHTML = touch
-    ? `<b>操作</b><br>左スティック：移動　ダッシュ：押している間<br>ジャンプ：跳ぶ（水中で長押し＝遊泳。壁では離れる）<br>壁登り：岩・流木・土の壁へスティックを倒し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）<br>掘る：押している間 前の砂を掘る。押したまま指をずらすと、その向き（上・下・左右・斜め）を掘る。掘りながらスティックで好きな向きへ動ける<br>画面ドラッグ：視点回転　2 本指：ズーム<br>カメラ：冒険 / 箱庭の切り替え<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</span>`
-    : `<b>操作</b><br><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る<br><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳。壁では離れる）<br>壁登り：岩・流木・土の壁へ押し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）<br><kbd>F</kbd> 長押し：掘る（押したままマウスを動かすと上下左右・斜めを狙う。掘りながら <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で好きな向きへ動ける）<br>右ボタンを押したままドラッグ：その向きを掘る<br>ドラッグ：視点回転　ホイール：ズーム<br><kbd>V</kbd> カメラ切替　<kbd>R</kbd> スタート地点へ　<kbd>H</kbd> 説明を隠す<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</span>`;
+    ? `<b>操作</b><br>左スティック：移動　ダッシュ：押している間<br>ジャンプ：跳ぶ（水中で長押し＝遊泳。壁では離れる）<br>壁登り：岩・流木・土の壁へスティックを倒し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）<br>掘る：押している間 前の砂を掘る。押したまま指をずらすと、その向き（上・下・左右・斜め）を掘る。掘りながらスティックで好きな向きへ動ける<br>画面ドラッグ：視点回転　2 本指：ズーム<br>カメラ：冒険 / ガラス越し（水槽の外から地下の穴を観察）/ 箱庭の切り替え<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</span>`
+    : `<b>操作</b><br><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る<br><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳。壁では離れる）<br>壁登り：岩・流木・土の壁へ押し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）<br><kbd>F</kbd> 長押し：掘る（押したままマウスを動かすと上下左右・斜めを狙う。掘りながら <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で好きな向きへ動ける）<br>右ボタンを押したままドラッグ：その向きを掘る<br>ドラッグ：視点回転　ホイール：ズーム<br><kbd>V</kbd> カメラ切替（冒険 / ガラス越し / 箱庭。ガラス越しはガラス際まで掘った穴を外から観察）<kbd>R</kbd> スタート地点へ　<kbd>H</kbd> 説明を隠す<br><span class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</span>`;
   document.body.appendChild(help);
   if (touch) setTimeout(() => help.classList.add('fade'), 12000);
   const marker = document.createElement('div');
@@ -134,7 +134,7 @@ function boot() {
   }
 
   const toggleCamera = () => {
-    camera.toggle();
+    camera.toggle(crab);
     if (camera.mode === 'adventure') camera.placeBehind(crab);
   };
   input.onPress('KeyV', toggleCamera);
@@ -205,8 +205,8 @@ function boot() {
     view.render(settings, camera, crab, time, dt);
     input.consume();
 
-    // 箱庭カメラではカニの位置に印を出す
-    if (camera.mode === 'diorama') {
+    // 箱庭カメラ・ガラス越しで砂に隠れているときは、カニの位置に印を出す
+    if (camera.mode === 'diorama' || (camera.mode === 'observe' && camera.crabHidden)) {
       const p = view.project(crab.x, crab.y + 0.7, crab.z);
       marker.style.display = p ? 'block' : 'none';
       if (p) marker.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -100%)`;

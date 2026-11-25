@@ -104,7 +104,7 @@ async (page) => {
       }
       return Infinity;
     };
-    let thin = 0, rays = 0, holes = 0, backFirst = 0, miss = 0, late = 0;
+    let thin = 0, rays = 0, holes = 0, backFirst = 0, miss = 0, late = 0, glassZone = 0;
     const examples = [];
     // 計画ごとの穴の数（path の 4 番目 = 計画の番号）
     const perPlan = {};
@@ -122,6 +122,9 @@ async (page) => {
         if (!Number.isFinite(ts)) continue;
         // 水槽の外（ガラスの向こう）の砂は描かない（高さ場を水槽の縁で延ばした値なので数えない）
         if (!w.insideTank(o[0] + d[0] * ts, o[2] + d[2] * ts)) continue;
+        // ガラスの内側の面から 0.05 以内に当たった光線は別に数える（ガラス際まで掘った穴の縁。見た目の断面はガラスの面の
+        // 0.015 内側にあり、そこより薄い所の形は格子では表せない。そこに見えるのはガラス）
+        if (!w.insideTank(o[0] + d[0] * ts, o[2] + d[2] * ts, 0.05)) { glassZone++; continue; }
         // 岩・流木などが先にある向きは数えない（そちらは別のメッシュ）
         let other = false;
         for (let t = 0.05; t < ts; t += 0.1) if (w.solid(o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t) < 0) { other = true; break; }
@@ -143,7 +146,7 @@ async (page) => {
         }
       }
     }
-    return { points: pts.length, thinSkipped: thin, rays, holes, miss, backFirst, late, perPlan, prims: dig.count, chunks: fx.stats.chunks, examples };
+    return { points: pts.length, thinSkipped: thin, glassZone, rays, holes, miss, backFirst, late, perPlan, prims: dig.count, chunks: fx.stats.chunks, examples };
   }, O);
   // 不一致の光線ごとに、光線の始点から光線の向きを見た画面（画角 60°、中心 = 距離関数の壁）と、カニの体がそこを通れるか
   if (O.shotDir) {

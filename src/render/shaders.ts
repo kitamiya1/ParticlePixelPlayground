@@ -202,6 +202,11 @@ vec3 pppWorldLit(vec3 objPos, inout vec4 wp, vec3 wn, vec3 baseColor, float w, f
     float dist = length(wp.xz - uCharPos.xz);
     float dy = uCharPos.y - wp.y;
     blob = (1.0 - smoothstep(0.22, 0.5, dist)) * step(-0.35, dy) * (1.0 - smoothstep(0.8, 2.0, dy));
+#ifdef BLOB_UP
+    // 上向きの面だけに落とす（水槽：真下へ投影すると、ガラス際の断面・岩の側面に縦の帯ができる。
+    // 断面は明るく見せるため法線を (外向き, 0.8) にしている = y ≈ 0.62 なので、それより上向きの面だけ）
+    blob *= smoothstep(0.66, 0.8, wn.y);
+#endif
     sh *= 1.0 - blob * uShadowStrength;
   }
   float direct = ndl * sh;

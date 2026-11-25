@@ -137,6 +137,125 @@
     const r = run({ steps: [{ t: site.side ?? 1.0, dir: [hz, -hx] }, { t: site.along ?? 1.2, dir: [hx, hz] }, { t: site.along ?? 1.2, dir: [-hx, -hz] }, { t: 0.8, dir: null }] });
     return { site: site.name, depth, start: back.end, stats: r.stats, end: r.end, state: r.state, climbNy: r.climbNy, camJump: r.camJump, path: r.trace.filter((e, i) => i % 2 === 1).map((e) => `${e.t} ${e.p.join(',')} d=${e.depth} ${e.st}${e.cl ? ' n=' + e.n.join(',') + ' ' + e.mat : ''}`) };
   };
-  window.__ct = { run, axisFor, blocker, tunnelReclimb, tunnelLateral };
+  /**
+   * ガラス際まで掘る：site = { at: [x, z], heading（ガラスへ向かう向き）, toGlass: 秒, along?: 秒, alongSign?: ±1, observe?: true }。
+   * 照準 0（自動：地表では斜め下 → 深くなったら水平）でガラスへ向かって掘り進め、ガラスに着いても toGlass 秒まで掘り続ける
+   * （掘れない物に当たって止まったら打ち切り）→ 向きを 90°（alongSign）変えて along 秒、ガラスに沿って掘る → 全区画を作り直す。
+   * observe なら、カメラをガラス越しにして、いちばん近いガラスの正面から見る
+   */
+  const digGlass = (site) => {
+    a.view.digFx.budgetMs = 1e9;
+    const g0 = (x, z) => Math.min(x - (-18), 18 - x, z - (-10), 10 - z);
+    a.freeze = true; c.teleport(site.at[0], site.at[1]); c.heading = site.heading;
+    cam.mode = 'adventure'; cam.adventure.yaw = site.heading + Math.PI; cam.adventure.pitch = 0.3;
+    a.freeze = false; setInput({}); a.step(30);
+    const mv = inp.moveAxis;
+    const dig = (hd, secs, aim) => {
+      a.dig = false; a.digAim = null; a.step(3);
+      c.heading = hd;
+      const hx = Math.sin(hd), hz = Math.cos(hd);
+      inp.moveAxis = () => axisFor(hx, hz);
+      a.dig = true; a.digAim = { x: 0, y: aim ?? 0 };
+      a.step(Math.round(secs * 60));
+      a.dig = false; a.digAim = null;
+      inp.moveAxis = () => ({ x: 0, y: 0 });
+      a.step(3);
+    };
+    dig(site.heading, site.toGlass ?? 8, site.aim);
+    const atGlass = { pos: [r3(c.x), r3(c.y + c.radius), r3(c.z)], glassDist: r3(g0(c.x, c.z)), depth: r3(w.groundAt(c.x, c.z) - c.y - c.radius), material: c.digAim.material };
+    if (site.along) dig(site.heading + (site.alongSign ?? 1) * Math.PI / 2, site.along, site.alongAim);
+    inp.moveAxis = mv;
+    a.view.digFx.flushAll();
+    a.step(2);
+    const end = [r3(c.x), r3(c.y + c.radius), r3(c.z)];
+    if (site.observe) { cam.mode = 'observe'; cam.faceNearestGlass(c); a.step(10); }
+    return { site: site.name, atGlass, end, glassDist: r3(g0(c.x, c.z)), depth: r3(w.groundAt(c.x, c.z) - c.y - c.radius), region: c.region, prims: w.dig.count, chunks: a.view.digFx.stats.chunks, hidden: cam.crabHidden };
+  };
+  /**
+   * ガラス際の断面の検査：水槽の外からガラスへ垂直に光線を飛ばし、見えている三角形（掘った区画 + 高さ場の網・断面）の
+   * 最初の面と、当たり判定の砂（sandSolid）の最初の面を比べる。opts = { side: 'minX'|'maxX'|'minZ'|'maxZ', from, to（辺に沿った範囲）, step }。
+   * - void：砂の断面があるはずの所で三角形に当たらない（外の空間が透ける）。rim：奥の穴の壁に当たる（穴の縁の丸め）
+   * - covered：穴が開いているはずの所が三角形で塞がれている（穴が見えない）
+   * - late / back：三角形がずっと奥・裏面に先に当たる
+   */
+  const glassCheck = (opts) => {
+    const fx = a.view.digFx, dig = w.dig, terr = fx.d.terrain;
+    const T = { minX: -18, maxX: 18, minZ: -10, maxZ: 10 };
+    const S = opts.side, out = S === 'minX' ? [-1, 0] : S === 'maxX' ? [1, 0] : S === 'minZ' ? [0, -1] : [0, 1];
+    const plane = S === 'minX' ? T.minX : S === 'maxX' ? T.maxX : S === 'minZ' ? T.minZ : T.maxZ;
+    const tri = (pos, idx, i0, i1, o, d, best) => {
+      for (let i = i0; i < i1; i += 3) {
+        const ia = idx[i] * 3, ib = idx[i + 1] * 3, ic = idx[i + 2] * 3;
+        if (ia === ib) continue;
+        const ax = pos[ia], ay = pos[ia + 1], az = pos[ia + 2];
+        const e1x = pos[ib] - ax, e1y = pos[ib + 1] - ay, e1z = pos[ib + 2] - az;
+        const e2x = pos[ic] - ax, e2y = pos[ic + 1] - ay, e2z = pos[ic + 2] - az;
+        const px = d[1] * e2z - d[2] * e2y, py = d[2] * e2x - d[0] * e2z, pz = d[0] * e2y - d[1] * e2x;
+        const det = e1x * px + e1y * py + e1z * pz;
+        if (Math.abs(det) < 1e-12) continue;
+        const inv = 1 / det, tx = o[0] - ax, ty = o[1] - ay, tz = o[2] - az;
+        const u = (tx * px + ty * py + tz * pz) * inv;
+        if (u < 0 || u > 1) continue;
+        const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x;
+        const v = (d[0] * qx + d[1] * qy + d[2] * qz) * inv;
+        if (v < 0 || u + v > 1) continue;
+        const t = (e2x * qx + e2y * qy + e2z * qz) * inv;
+        if (t > 1e-4 && t < best.t) { best.t = t; best.back = det < 0; }
+      }
+    };
+    const castMesh = (o, d, maxT) => {
+      const ids = new Set();
+      for (let s = 0; s <= maxT; s += 0.2) {
+        const x = o[0] + d[0] * s, z = o[2] + d[2] * s;
+        if (!w.insideTank(x, z, -0.3)) continue;
+        for (const dx of [-0.25, 0, 0.25]) for (const dz of [-0.25, 0, 0.25]) ids.add(dig.chunkId(dig.ci(x + dx), dig.cj(z + dz)));
+      }
+      const best = { t: maxT, back: false };
+      for (const id of ids) {
+        const m = fx.meshes.get(id);
+        if (m) tri(m.geometry.getAttribute('position').array, m.geometry.getIndex().array, 0, m.geometry.getIndex().count, o, d, best);
+        else tri(terr.geo.getAttribute('position').array, terr.geo.getIndex().array, terr.chunks.start[id], terr.chunks.start[id] + terr.chunks.count[id], o, d, best);
+      }
+      return best;
+    };
+    // 砂（ガラスの内側の面で切る）の最初の面。光線は面の外 0.5 から内向き
+    const castSdf = (o, d, maxT) => {
+      let t = 0.5 + 0.03;
+      for (let i = 0; i < 400 && t < maxT; i++) {
+        const v = w.sandSolid(o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t);
+        if (v < 0.002) return t;
+        t += Math.max(v * 0.8, 0.01);
+      }
+      return Infinity;
+    };
+    const d = [-out[0], 0, -out[1]];
+    const st = { rays: 0, face: 0, open: 0, void: 0, rim: 0, covered: 0, late: 0, back: 0 };
+    const ex = [];
+    const step = opts.step ?? 0.05, maxT = 3.5;
+    for (let s = opts.from; s <= opts.to; s += step) {
+      const fxz = out[0] !== 0 ? [plane, s] : [s, plane];
+      const top = w.groundAt(fxz[0] - out[0] * 0.03, fxz[1] - out[1] * 0.03);
+      for (let y = 0.05; y < top + 0.25; y += step) {
+        const o = [fxz[0] + out[0] * 0.5, y, fxz[1] + out[1] * 0.5];
+        const o3 = [o[0], o[1], o[2]];
+        const ts = castSdf(o3, d, maxT), m = castMesh(o3, d, maxT);
+        st.rays++;
+        const faceSand = ts < 0.5 + 0.06;
+        if (faceSand) st.face++; else st.open++;
+        let bad = null;
+        if (m.back && Math.abs(m.t - ts) > 0.15) bad = 'back';
+        // 断面があるはずの所：三角形に当たらない = 外の空間が透ける（void）。奥の穴の壁に当たる = 穴の縁の丸め（rim。格子より細かい形）
+        else if (faceSand && m.t >= maxT - 1e-3) bad = 'void';
+        else if (faceSand && m.t > 0.5 + 0.15) bad = 'rim';
+        else if (!faceSand && ts < maxT && m.t < ts - 0.2) bad = 'covered';
+        else if (!faceSand && ts < maxT && m.t > ts + 0.25) bad = 'late';
+        // 例は、透ける・塞がる・裏面を優先して残す（縁の丸め・奥は 3 つまで）
+        const minor = bad === 'rim' || bad === 'late';
+        if (bad) { st[bad]++; if (ex.length < 16 && (!minor || ex.filter((e) => e.bad === bad).length < 3)) ex.push({ bad, s: +s.toFixed(2), y: +y.toFixed(2), sdf: +ts.toFixed(2), mesh: +m.t.toFixed(2), back: m.back }); }
+      }
+    }
+    return { side: S, ...st, examples: ex };
+  };
+  window.__ct = { run, axisFor, blocker, tunnelReclimb, tunnelLateral, digGlass, glassCheck };
   return 'ok';
 })();

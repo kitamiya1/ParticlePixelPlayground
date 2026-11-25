@@ -5,7 +5,8 @@
 // - 砂（底床）の距離 d に対して smax(d, −空洞, RIM_K) を取る（cut）。縁は丸く盛り上がらずに落ち込む。
 //   AquariumWorld.solid がこれを使うので、カニ・カメラ・泡・日照の当たり判定は自動で掘った形に従う。
 // - 岩・流木・ガラス・底板・管は solid / contactSolid で砂のあとに min するので削れない。
-//   さらに空洞自体を、水槽の底の少し上・ガラス際・縦の管のまわりの区画・発見物のまわりで打ち切る（clip）。
+//   さらに空洞自体を、水槽の底の少し上・ガラスの内側の面の外・縦の管のまわりの区画・発見物のまわりで打ち切る（clip）。
+//   ガラス際はガラスの内側の面まで掘れる（ガラス越しに穴の中が見える。ガラス際の断面は描画側が区画ごとに作り直す）。
 // - 見た目：水槽を 1×1 の区画（高さ場 5 マス分）に分け、空洞が触れた区画だけを「汚れた」印にする。
 //   描画側（AquariumDigFx）がその区画の高さ場の三角形を隠し、同じ関数を Surface Nets（MeshBuild）で三角形にし直す。
 // - 見た目と当たり判定を同じ瞬間に変える（2 つの版）：かき出し（stroke）が書き換えるのは「最新の形」だけ。
@@ -38,9 +39,16 @@ export const DIG = {
   reach: 1.05,
   /** 地表から斜め下へ掘るときの、足元の深さの目標（これより深くなったら水平に掘る） */
   tunnelDepth: 1.15,
-  /** 水槽の底（ガラス）の上に残す砂の厚み・ガラス際に残す幅 */
+  /**
+   * 水槽の底（ガラス）の上に残す砂の厚み・ガラス際の打ち切り（ガラスの内側の面からの距離。負 = 面の外まで空洞にしてよい）。
+   * ガラス際は内側の面の外（0.12。ガラスの厚みの中）まで空洞を作る：ガラスの内側の面まで穴が届き、外からガラス越しに穴の中が見える。
+   * 面の外の空洞の端（ガラスの裏の砂の壁）は、ガラスに押し付けたカニの体から 0.36 離れるので、壁登りで張り付けない
+   * （AquariumWorld.climbSolid はガラスの面で切らない）
+   * （アリの巣の観察ケースのように）。ガラス自体は contactSolid の当たり判定で残るので、削れず・越えられない。
+   * 面の外の空洞は見た目では断面（buildDigChunk のガラスの面）で切り、当たり判定ではガラスに隠れる
+   */
   floorClip: TANK.floorY + 0.3,
-  glassClip: 0.7,
+  glassClip: -0.12,
   /**
    * 地表と空洞のつなぎの丸み・空洞どうしのつなぎの丸み。空洞どうしの継ぎ目（砂が空洞の側へ尖った稜線）は、
    * Surface Nets（格子 0.1）では頂点が平均されて丸まるので、距離関数の側も格子に見合うだけ丸める
@@ -81,6 +89,20 @@ const SHAVE_FAR = 0.25;
  */
 function carveSand(d: number, c: number): number {
   return Math.max(smax(d, -c, DIG.rimK), (FILM + d - c) * 0.5) + SHAVE * clamp((SHAVE_FAR - c) / 0.2, 0, 1);
+}
+
+/**
+ * 空洞の端とガラスの内側の面の間に残る砂の膜の厚さの下限。ガラス際まで掘った穴の突き当たりがガラスの手前 0.1 ほどで
+ * 止まると、その間の膜は格子（0.1）より薄く、見た目（ガラスの面で切った Surface Nets）では穴がガラスまで抜けて
+ * 見えるのに、当たり判定には膜が残る。FILM と同じ考え方で、膜の厚さ（c + ガラスの面までの距離 e）が FILM_GLASS より薄ければ開ける
+ * （見た目と当たり判定の両方。ガラスの面から e > FILM_GLASS の所は何もしない。傾きは 1 以下なので距離の下限のまま）
+ */
+const FILM_GLASS = 0.12;
+
+function glassFilm(v: number, c: number, x: number, z: number): number {
+  const e = Math.min(x - TANK.minX, TANK.maxX - x, z - TANK.minZ, TANK.maxZ - z);
+  if (e > FILM_GLASS) return v;
+  return Math.max(v, (FILM_GLASS - c - Math.max(e, 0)) * 0.5);
 }
 
 export interface CarvePrim {
@@ -292,7 +314,8 @@ export class DigField {
     if (this.prims.length === 0) return d;
     const list = this.cells[this.cj(z) * this.ncx + this.ci(x)];
     if (list.length === 0) return d;
-    return carveSand(d, this.carve(x, y, z, view));
+    const c = this.carve(x, y, z, view);
+    return glassFilm(carveSand(d, c), c, x, z);
   }
 
   /**
@@ -309,7 +332,7 @@ export class DigField {
     if (list.length === 0) return d;
     const c = this.carve(x, y, z, view);
     if (c >= PAD && d < -0.6) return d;
-    return carveSand(d, c);
+    return glassFilm(carveSand(d, c), c, x, z);
   }
 
   /** 掘った空洞の中で、元の地表より下（トンネルの中）か。カメラの寄せ方に使う */

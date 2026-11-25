@@ -5,8 +5,9 @@
 // - C 側（法線を向いた不透明な円盤。SurfelRenderer にそのまま渡せる SplatPointSet）：
 //   水草（テープ状の葉・有茎草・前景の絨毯草）・流木と岩の苔・陸地の苔・シダ・葉の広い草・汀線の細い草。
 // 色は頂点 / 円盤ごとに持ち、照明の当たり（日照）は AquariumWorld.sunVisibility を粗い格子に焼いて写す。
-// 穴掘り：底床の三角形は 1×1 の区画（DIG.chunk）ごとに並べて範囲を記録し（terrainChunks）、掘った区画は描画側で隠して
-// buildDigChunk（掘った後の砂の SDF を Surface Nets で三角形にしたもの）に差し替える。小石の範囲（pebbleList）と
+// 穴掘り：底床の三角形（ガラス際の断面の帯も、接する区画へ）は 1×1 の区画（DIG.chunk）ごとに並べて範囲を記録し
+// （terrainChunks）、掘った区画は描画側で隠して buildDigChunk（掘った後の砂の SDF を Surface Nets で三角形にしたもの。
+// ガラスに接する区画は断面も）に差し替える。小石の範囲（pebbleList）と
 // 植物の円盤の根元（anchors）も記録し、根元の砂が無くなったものを描画側で消す。
 
 import { clamp, fbm2, hash2, hex, lerp, mixRGB, mulberry32, noise2, noise3, smoothstep, type RGB, type Rng } from '../core/math';
@@ -182,25 +183,12 @@ function buildTerrain(world: AquariumWorld, light: LightGrid): { mesh: TriMesh; 
     // 格子のままの三角形の外積は +step²（上から見て同じ回り方）。押し出し後に同じ向きで 2% 以上残るものだけ張る
     return area > 0.02 * step * step;
   };
-  // 区画（穴掘りの単位）ごとにまとめて並べ、範囲を記録する（掘った区画だけ隠せるように）
+  // ガラス際の断面（地表から水槽の底まで。ガラス越しに層が見える）：4 辺の頂点の列を先に作り、隣の列とつなぐ帯を
+  // その帯の真ん中が入る区画（ガラスに接する区画）へ割り当てる。区画の範囲に断面も入るので、掘った区画を隠すと
+  // そこの断面も隠れ、buildDigChunk が作るガラスの面（穴の開いた断面）に置き換わる
   const CH = Math.round(DIG.chunk / step);
   const ncx = Math.ceil((nx - 1) / CH), ncz = Math.ceil((nz - 1) / CH);
-  const chunks: TerrainChunks = { ncx, ncz, start: new Uint32Array(ncx * ncz), count: new Uint32Array(ncx * ncz) };
-  for (let cj = 0; cj < ncz; cj++) for (let ci = 0; ci < ncx; ci++) {
-    const s0 = mb.indexCount;
-    for (let j = cj * CH; j < Math.min((cj + 1) * CH, nz - 1); j++) {
-      for (let i = ci * CH; i < Math.min((ci + 1) * CH, nx - 1); i++) {
-        const ia = j * nx + i, ib = ia + 1, ic = ia + nx, id = ic + 1;
-        const a = ids[ia], b = ids[ib], c = ids[ic], d = ids[id];
-        if (holeTri(ia, ib, id)) mb.tri(a, b, d, 0, 1, 0);
-        if (holeTri(ia, id, ic)) mb.tri(a, d, c, 0, 1, 0);
-      }
-    }
-    chunks.start[cj * ncx + ci] = s0;
-    chunks.count[cj * ncx + ci] = mb.indexCount - s0;
-  }
-  // ガラス際の断面（地表から水槽の底まで。ガラス越しに層が見える）
-  const wall = (pts: [number, number][], nxo: number, nzo: number) => {
+  const wallCols = (pts: [number, number][], nxo: number, nzo: number) => {
     const cols: number[][] = [];
     for (const [x, z] of pts) {
       const top = world.groundAt(x, z);
@@ -213,16 +201,7 @@ function buildTerrain(world: AquariumWorld, light: LightGrid): { mesh: TriMesh; 
       }
       cols.push(col);
     }
-    for (let a = 0; a < cols.length - 1; a++) {
-      const A = cols[a], B = cols[a + 1];
-      const K = Math.max(A.length, B.length) - 1;
-      for (let q = 0; q < K; q++) {
-        const a0 = A[Math.min(q, A.length - 1)], a1 = A[Math.min(q + 1, A.length - 1)];
-        const b0 = B[Math.min(q, B.length - 1)], b1 = B[Math.min(q + 1, B.length - 1)];
-        mb.tri(a0, a1, b1, nxo, 0, nzo);
-        mb.tri(a0, b1, b0, nxo, 0, nzo);
-      }
-    }
+    return { cols, nxo, nzo };
   };
   const xs: [number, number][] = [], xs2: [number, number][] = [], zs: [number, number][] = [], zs2: [number, number][] = [];
   for (let i = 0; i < nx; i++) {
@@ -235,12 +214,57 @@ function buildTerrain(world: AquariumWorld, light: LightGrid): { mesh: TriMesh; 
     zs.push([TANK.maxX, z]);
     zs2.push([TANK.minX, z]);
   }
-  wall(xs, 0, 1);
-  wall(xs2, 0, -1);
-  wall(zs, 1, 0);
-  wall(zs2, -1, 0);
+  // 辺ごとの列と、帯 a（列 a と a + 1 の間）が入る区画の番号
+  const sides = [
+    { ...wallCols(xs, 0, 1), chunkOf: (a: number) => (ncz - 1) * ncx + Math.floor(a / CH) },
+    { ...wallCols(xs2, 0, -1), chunkOf: (a: number) => Math.floor(a / CH) },
+    { ...wallCols(zs, 1, 0), chunkOf: (a: number) => Math.floor(a / CH) * ncx + ncx - 1 },
+    { ...wallCols(zs2, -1, 0), chunkOf: (a: number) => Math.floor(a / CH) * ncx },
+  ];
+  const wallBands = new Map<number, [number, number][]>();
+  sides.forEach((S, si) => {
+    for (let a = 0; a < S.cols.length - 1; a++) {
+      const id = S.chunkOf(a);
+      let l = wallBands.get(id);
+      if (!l) wallBands.set(id, (l = []));
+      l.push([si, a]);
+    }
+  });
+  const band = (si: number, a: number) => {
+    const { cols, nxo, nzo } = sides[si];
+    const A = cols[a], B = cols[a + 1];
+    const K = Math.max(A.length, B.length) - 1;
+    for (let q = 0; q < K; q++) {
+      const a0 = A[Math.min(q, A.length - 1)], a1 = A[Math.min(q + 1, A.length - 1)];
+      const b0 = B[Math.min(q, B.length - 1)], b1 = B[Math.min(q + 1, B.length - 1)];
+      mb.tri(a0, a1, b1, nxo, 0, nzo);
+      mb.tri(a0, b1, b0, nxo, 0, nzo);
+    }
+  };
+  // 区画（穴掘りの単位）ごとにまとめて並べ、範囲を記録する（掘った区画だけ隠せるように）。ガラスに接する区画は断面の帯も
+  const chunks: TerrainChunks = { ncx, ncz, start: new Uint32Array(ncx * ncz), count: new Uint32Array(ncx * ncz) };
+  for (let cj = 0; cj < ncz; cj++) for (let ci = 0; ci < ncx; ci++) {
+    const s0 = mb.indexCount;
+    for (let j = cj * CH; j < Math.min((cj + 1) * CH, nz - 1); j++) {
+      for (let i = ci * CH; i < Math.min((ci + 1) * CH, nx - 1); i++) {
+        const ia = j * nx + i, ib = ia + 1, ic = ia + nx, id = ic + 1;
+        const a = ids[ia], b = ids[ib], c = ids[ic], d = ids[id];
+        if (holeTri(ia, ib, id)) mb.tri(a, b, d, 0, 1, 0);
+        if (holeTri(ia, id, ic)) mb.tri(a, d, c, 0, 1, 0);
+      }
+    }
+    for (const [si, a] of wallBands.get(cj * ncx + ci) ?? []) band(si, a);
+    chunks.start[cj * ncx + ci] = s0;
+    chunks.count[cj * ncx + ci] = mb.indexCount - s0;
+  }
   return { mesh: mb.finish(), chunks };
 }
+
+/**
+ * 掘った区画の断面（ガラスの面）を置く所：ガラスの内側の面から内側へこの距離。高さ場の網の断面（ガラスの内側の面ちょうど）より
+ * わずかに奥なので、隣の掘っていない区画と重なる半マスでは網の断面が手前に描かれる（重なりのちらつきが出ない）
+ */
+const GLASS_FACE = 0.015;
 
 /**
  * 掘った区画（i, j）の砂を三角形にする：高さ場 − 空洞（AquariumWorld.sandSolid と同じ値）を Surface Nets（格子 DIG.cell）で。
@@ -248,6 +272,9 @@ function buildTerrain(world: AquariumWorld, light: LightGrid): { mesh: TriMesh; 
  *   標本の位置は水槽全体で共通の格子に揃える（隣の掘った区画と重なる所の頂点が同じ位置になる）。
  * - 縦の範囲は、区画の地表のいちばん低い所・空洞のいちばん低い所の少し下から、地表のいちばん高い所の少し上まで。
  *   下端の標本はすべて砂の中・上端はすべて水（空気）の中なので、箱の上下に余計な面はできない。
+ * - ガラスに接する区画（水槽の縁の区画）は、砂をガラスの内側の面（GLASS_FACE）で切り、水槽の底の少し下から作る：
+ *   高さ場の網の断面（buildTerrain が同じ区画の範囲に入れている）の代わりに、穴の開いた断面がこの区画の三角形になる
+ *   （ガラス際まで掘った穴を外から見られる）。断面の頂点は網の断面と同じ色・向き・明るさ。
  * - 色：掘っていない地表は高さ場の網と同じ色・法線・日照（継ぎ目で色が変わらない）。掘った面は断面と同じ地層の色にして、
  *   元の地表より深いほど暗く・日が当たらなくする（トンネルの中は薄暗いが、環境光で見える）。
  * - 空洞の形は view の版（作り直し中は 'snap'。AquariumDigFx が全区画を同時に差し替えてから当たり判定へ commit する）。
@@ -259,6 +286,10 @@ export function buildDigChunk(world: AquariumWorld, light: LightGrid, i: number,
   const per = Math.round(DIG.chunk / h);
   const I0 = i * per - 1, K0 = j * per - 1;
   const n = per + 3;
+  // ガラスに接する区画：砂をガラスの内側の面（の GLASS_FACE 内側）で切り、断面（ガラスの面）も同じ Surface Nets で作る。
+  // 穴がガラスまで届いた所は面に穴が開き、その周りには地層の断面が残る。断面は水槽の底の少し下まで（底板に隠れる）
+  const edge = i === 0 || j === 0 || i === dig.ncx - 1 || j === dig.ncz - 1;
+  const glassIn = (x: number, z: number) => Math.min(x - TANK.minX, TANK.maxX - x, z - TANK.minZ, TANK.maxZ - z);
   const ox = TANK.minX + I0 * h, oz = TANK.minZ + K0 * h;
   // 標本の列ごとの地表の高さと法線の y（solid と同じ式）
   const H = new Float32Array(n * n), NY = new Float32Array(n * n);
@@ -271,7 +302,11 @@ export function buildDigChunk(world: AquariumWorld, light: LightGrid, i: number,
     gMin = Math.min(gMin, g);
     gMax = Math.max(gMax, g);
   }
-  const lo = Math.max(TANK.floorY, Math.min(gMin, dig.chunkMinY(dig.chunkId(i, j), view)) - 0.3);
+  const cMin = dig.chunkMinY(dig.chunkId(i, j), view);
+  const lo = edge ? TANK.floorY - 0.25 : Math.max(TANK.floorY, Math.min(gMin, cMin) - 0.3);
+  // ガラスに接する区画の、空洞のいちばん低い所より十分下（空洞の値が必ず下限 PAD になる所）：空洞を調べずに砂と面だけで決める
+  // （断面は水槽の底まであるので、その大半を占める空洞の下の部分を安くする。符号と面の近くの値は空洞を調べたときと同じ）
+  const deepY = cMin - 0.6;
   const y0 = TANK.floorY + Math.floor((lo - TANK.floorY) / h) * h;
   const ny = Math.ceil((gMax + 0.3 - y0) / h) + 1;
   const box: Box3Like = { min: [ox, y0, oz], max: [ox + (n - 1 - 1e-3) * h, y0 + (ny - 1 - 1e-3) * h, oz + (n - 1 - 1e-3) * h] };
@@ -287,12 +322,28 @@ export function buildDigChunk(world: AquariumWorld, light: LightGrid, i: number,
       g = world.groundAt(x, z);
       nyv = world.groundNormal(x, z)[1];
     }
-    return dig.meshValue((y - g) * nyv, x, y, z, view);
+    if (edge && y < deepY) return Math.max((y - g) * nyv, GLASS_FACE - glassIn(x, z));
+    const v = dig.meshValue((y - g) * nyv, x, y, z, view);
+    return edge ? Math.max(v, GLASS_FACE - glassIn(x, z)) : v;
   };
   const wl = TANK.waterY;
   surfaceNets(sdf, box, h, mb, (x, y, z, nx, nyy, nz) => {
     const g = world.groundAt(x, z);
     const depth = g - y;
+    if (edge) {
+      // ガラスの面（断面）：高さ場の網の断面（buildTerrain）と同じ色・向き・明るさ。面の外向き（ガラスの側）を向いた頂点だけ
+      // （ガラスに接するトンネルの床・壁の頂点は、下の掘った面の色にする）
+      const e = glassIn(x, z);
+      if (e < GLASS_FACE + 0.06) {
+        const ox = x - TANK.minX === e ? -1 : TANK.maxX - x === e ? 1 : 0;
+        const oz = ox !== 0 ? 0 : z - TANK.minZ === e ? -1 : 1;
+        const l = Math.hypot(nx, nyy, nz) || 1;
+        if ((nx * ox + nz * oz) / l > 0.7) {
+          const c = strataColor(x, Math.min(y, g), z, g);
+          return mb.vertex(x, y, z, ox, 0.8, oz, u8(c[0]), u8(c[1]), u8(c[2]), 0.9, 0.6);
+        }
+      }
+    }
     const cv = dig.carve(x, y, z, view);
     if (depth < 0.05 && cv > 0.2) {
       // 掘っていない地表：高さ場の網と同じ

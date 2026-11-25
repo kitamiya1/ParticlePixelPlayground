@@ -268,15 +268,18 @@ void main() {
 `;
 const glassFragment = /* glsl */ `
 uniform float uWaterY;
+uniform float uGlassClear;
 varying vec3 vWorld;
 varying vec3 vNormal;
 void main() {
   vec3 V = normalize(cameraPosition - vWorld);
   float fres = pow(1.0 - abs(dot(normalize(vNormal), V)), 4.0);
-  float a = 0.05 + fres * 0.4;
+  // ガラス越しに観察している間（uGlassClear = 1）は、映り込み（フレネル・斜めの帯）を弱めて中を見やすくする
+  float refl = 1.0 - 0.75 * uGlassClear;
+  float a = 0.05 * refl + fres * 0.4 * refl;
   vec3 col = vec3(0.78, 0.9, 0.88);
   float s = vWorld.x * 0.3 + vWorld.z * 0.3 + vWorld.y * 0.55;
-  a += smoothstep(0.93, 1.0, sin(s * 0.9)) * 0.12 + smoothstep(0.97, 1.0, sin(s * 2.6 + 1.0)) * 0.07;
+  a += (smoothstep(0.93, 1.0, sin(s * 0.9)) * 0.12 + smoothstep(0.97, 1.0, sin(s * 2.6 + 1.0)) * 0.07) * refl;
   if (vWorld.y < uWaterY) {
     col = mix(col, vec3(0.32, 0.62, 0.6), 0.55);
     a += 0.05;
@@ -360,6 +363,8 @@ export class AquariumRenderer {
   private readonly lift = { uCharLift: { value: 0.22 } };
   /** カニを透かす量（AquaCamera.crabFade。x = 体・脚, y = 鋏） */
   private readonly crabFadeU = { value: new THREE.Vector2() };
+  /** ガラスの映り込みを弱める量（ガラス越しのカメラで 1。なめらかに切り替える） */
+  private readonly glassClearU = { value: 0 };
   private readonly waterMat: THREE.ShaderMaterial;
   private readonly fallMat: THREE.ShaderMaterial;
   private readonly shaftMat: THREE.ShaderMaterial;
@@ -526,7 +531,7 @@ export class AquariumRenderer {
     water.position.set((TANK.minX + TANK.maxX) / 2, TANK.waterY, (TANK.minZ + TANK.maxZ) / 2);
     water.renderOrder = 2;
     this.alphaScene.add(water);
-    const glassMat = new THREE.ShaderMaterial({ vertexShader: glassVertex, fragmentShader: glassFragment, uniforms: { uWaterY: u.uWaterY }, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+    const glassMat = new THREE.ShaderMaterial({ vertexShader: glassVertex, fragmentShader: glassFragment, uniforms: { uWaterY: u.uWaterY, uGlassClear: this.glassClearU }, transparent: true, depthWrite: false, side: THREE.DoubleSide });
     const H = TANK.topY - TANK.floorY + 0.35, cy = (TANK.topY + TANK.floorY - 0.35) / 2, g = TANK.glass * 0.5;
     const W = TANK.maxX - TANK.minX, D = TANK.maxZ - TANK.minZ;
     for (const [w, x, z, ry] of [[W, 0, TANK.maxZ + g, 0], [W, 0, TANK.minZ - g, 0], [D, TANK.maxX + g, 0, Math.PI / 2], [D, TANK.minX - g, 0, Math.PI / 2]] as const) {
@@ -562,7 +567,8 @@ export class AquariumRenderer {
   private meshMaterial(bones: boolean, extra: Record<string, string> = {}): THREE.ShaderMaterial {
     // 共有ユニフォームは同じオブジェクトを参照させる（方式 A〜F のマテリアルと同じ作り）
     const uniforms: Record<string, THREE.IUniform> = { ...this.uniforms, ...this.lift, ...this.beamU, ...this.cutU, uReceiveBlob: { value: bones ? 0 : 1 } };
-    const defines: Record<string, string> = { PPP_WATER: '', USE_BEAMS: '', ...extra };
+    // BLOB_UP：カニの接地影は上向きの面だけ（ガラス際の断面・壁に縦の帯を落とさない）
+    const defines: Record<string, string> = { PPP_WATER: '', USE_BEAMS: '', BLOB_UP: '', ...extra };
     if (bones) {
       uniforms.uBones = { value: this.rig.bones };
       uniforms.uCrabFade = this.crabFadeU;
@@ -923,6 +929,8 @@ export class AquariumRenderer {
     this.plumbing.boost.value = cam.mode === 'diorama' ? 1 : 0;
     const fade = cam.mode === 'adventure' ? cam.crabFade : 0;
     this.crabFadeU.value.set(fade, fade * 0.45);
+    const clear = cam.mode === 'observe' && crab.region === 'tank' ? 1 : 0;
+    this.glassClearU.value += (clear - this.glassClearU.value) * (dt > 0 ? 1 - Math.exp(-dt * 6) : 1);
 
     // カメラ（低解像度ターゲットの大きさ = キャンバス + 余白。透視投影なので画素スナップのずれは 0）
     const c = this.camera;
@@ -932,7 +940,7 @@ export class AquariumRenderer {
     const wide = 1.3;
     c.fov = aspect >= wide ? pose.fov : Math.min(cam.mode === 'diorama' ? 84 : 72,(2 * Math.atan((Math.tan((pose.fov * Math.PI) / 360) * wide) / aspect) * 180) / Math.PI);
     c.aspect = p.lowW / p.lowH;
-    c.near = cam.mode === 'adventure' ? 0.05 : 1;
+    c.near = cam.mode === 'diorama' ? 1 : 0.05;
     c.far = 320;
     c.updateProjectionMatrix();
     c.position.set(...pose.pos);
