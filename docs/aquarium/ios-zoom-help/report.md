@@ -1,0 +1,164 @@
+# iPhone の画面全体の拡大・操作説明の改善 — 報告
+
+ブランチ：`fix/aquarium-ios-zoom-help`（`main` = `2aa185d` から）。検証は Chromium（Playwright）のスマホの模擬（390×844・タッチ・
+isMobile）と PC（1280×800）。**iOS Safari（WebKit）の実機では試していない**ので、最後の「実機で確かめること」を必ず行う。
+
+## 1. 画面の拡大：ページの拡大とゲーム内カメラのズームを分けて測った
+
+測った値（`docs/aquarium/tools/zoom_test.js`。修正前 = `before_*`、修正後 = `after_*`）：
+`visualViewport.scale`・幅・高さ・offset、`innerWidth/Height`、レイアウトの幅（`documentElement.clientWidth/Height`）、
+Canvas の実寸と描画の画素数、スティック・ジャンプ・掘る・カメラ・メニュー・説明の `getBoundingClientRect()`、ゲーム内カメラの zoom、
+押しているポインターの数。
+
+### 1.1 確かめられた事実
+
+| # | 事実 | 根拠 |
+|---|---|---|
+| 1 | ページ自体が拡大されると（倍率 2.2）、見えている範囲は 177×384 になる。レイアウト（390×844）・Canvas・ボタンの座標は**変わらない**ので、ボタンは見えている範囲の外（ジャンプは y 718〜814）に出る。**報告の「ボタンが画面外にはみ出す」はこの状態と一致** | `before_zoomed_symptom.jpg`、F の行 |
+| 2 | その状態で Canvas の上を 2 本指でつまむと、**ゲーム内カメラだけが引き（zoom 1.40 → 3.84）、ページの倍率は 2.2 のまま**。Canvas は `touch-action: none` でブラウザのピンチを止め、指をカメラのズームに使うため、ページを縮める手段がゲームの中に無い。**報告の「2 本指で縮小してもカメラが引くだけ・戻らない」と一致** | `before_zoomed_after_pinch.jpg`、F2 の行 |
+| 3 | 拡大されていても、指の座標（`clientX/Y`）とボタンの位置（`getBoundingClientRect`）はどちらもレイアウトの座標なので、**ゲームが受け取る位置とボタンの位置の対応はずれない**（スティック・掘るの計算は正しいまま）。「ずれ」に見えるのは、ボタンや指の位置が見えている範囲から外れることによる | 同上（rect が変わらない） |
+| 4 | 修正前のコードには、ページのピンチを止める仕組みが CSS の `touch-action: none`（html・body・Canvas・ボタン）**だけ**だった。`touch-action` は「中でスクロールする要素」で区切られ（WebKit・Chromium とも、スクロールする要素の中では先祖の `none` が効かない）、**セーブの欄（`#save-panel`）は `overflow-y: auto` + `touch-action: manipulation`。manipulation はピンチでの拡大を許す値**。セーブの欄を開いたままその上で 2 本指を広げると、iOS ではページが拡大されうる | `aquarium.css`（修正前の 107 行目）、仕様（Pointer Events の touch-action の決め方）、WebKit の実装（スクロールする要素で touch-action を初期値に戻してから重ねる） |
+| 5 | iOS Safari は `user-scalable=no` / `maximum-scale` をふつうは無視する（iOS 10 以降）。ページのピンチの拡大は WebKit 独自の `gesturestart` / `gesturechange` の通知で始まり、修正前のコードはこれを止めていなかった | `aquarium.html` の viewport の設定、コード全体の検索（`gesture` の扱い無し） |
+| 6 | 修正前、横画面では長い説明が画面の上にはみ出していた（説明の上端 y −76） | `before_landscape.jpg`、G の行 |
+
+### 1.2 原因として特定できなかった部分
+
+- **iPhone で実際にどの指の動きが拡大を起こしたかは特定できていない**。Chromium の模擬では、セーブの欄の上のピンチでもページは
+  拡大しなかった（Chromium と WebKit で、スクロールする要素と touch-action の扱いの細部が違う）。iOS で起こりうる経路として次を
+  考えたが、どれが当たりかは実機の `?diag` で確かめる必要がある：
+  1. セーブの欄を開いた状態で、その上から始めたピンチ（1.1 の 4）
+  2. 画面の端（ホームバーの辺り・横画面のノッチの辺り）や、ツールバーが縮んだ直後に、どの要素にも当たらない所から始めた指
+     （WebKit が touch-action の領域を描画の層ごとに持つため、要素の無い所はふつうの拡大になりうる）
+  3. 回転の直後など、touch-action の領域が更新される前の一瞬に始めたピンチ
+- **ダブルタップでの拡大**は、模擬では Canvas・左上の表示・説明・セーブの欄のどこでも起きなかった。iOS での有無は未確認。
+
+## 2. 実装した対策
+
+| 対策 | 内容 | 場所 |
+|---|---|---|
+| ピンチの拡大を止める（iOS） | `gesturestart` / `gesturechange` の既定の動作を止める（WebKit だけにある通知。ポインターの通知には影響しない） | `src/aquarium/AquaViewport.ts` |
+| 欄の上から始めた 2 本指を止める | 2 本以上の指の `touchmove` で、どれかの指がゲームの面（Canvas・操作のボタン）の外（説明・セーブの欄など）から始まったときだけ既定の動作を止める。1 本指のスクロールは止めない。ゲームの面の上だけの指は触らない（touch-action: none で十分。止めると合成のピンチで pointermove が届かなくなる例があった） | 同上 |
+| スクロールする欄の touch-action | セーブの欄を `manipulation` → `pan-y`（1 本指のスクロールだけ許し、ピンチの拡大は許さない）。新しい説明の欄も `pan-y` | `aquarium.css` |
+| 拡大に気づいて知らせる | `visualViewport` の resize / scroll・回転・復帰のたびに倍率を調べ、指を離してからも 1.02 倍を超えていれば知らせを出す。知らせは**拡大されていても見える位置・大きさ**に出す（見えている範囲いっぱいに置き、拡大の分だけ縮める） | 同上 |
+| 戻す | 知らせの「元に戻す」：viewport の設定を一瞬だけ `maximum-scale=1` にして戻す（Chromium では倍率 1 に戻った）。戻らなければ文で「この暗い部分を 2 本指でつまむように縮めて」と案内（知らせを出している間はピンチを止めず、html / body の touch-action を `manipulation` にし、知らせが Canvas を覆うのでゲームの指にもならない）。「保存して読み込み直す」：保存（`AutoSaver.flush`）してから読み込み直す | 同上 |
+| 押しっぱなしを防ぐ | 知らせを出したとき・回転したときに押している物をすべて終わらせる（`Input.releaseAll`） | 同上 |
+| 回転・復帰 | `orientationchange`・`screen.orientation` の change・`pageshow`・見えるようになったとき：0 / 250 / 700 ms に大きさを測り直す（iOS は回転の直後に古い大きさを返すことがある）。倍率 1 でページがずれていれば (0, 0) に戻す | 同上 |
+| 実機の診断 | `aquarium.html?diag`：倍率・visualViewport（大きさ・offset・page）・inner / レイアウトの大きさ・スクロール・向き・Canvas の実寸と画素数・ボタンの位置・カメラのズーム・押している指・pointer / touch / gesture の通知の数・最後の指の座標（ポインターとタッチの両方）・最近の通知 8 件を画面に出す（指は受けない） | 同上、`after_diag.jpg` |
+
+アクセシビリティ：viewport に `user-scalable=no` / `maximum-scale` は付けない（「元に戻す」を押した一瞬だけ）。端末の「ズーム機能」
+（画面全体の拡大鏡）と Safari の「ページの拡大／縮小（aA）」は止めない（どちらもページの倍率 `visualViewport.scale` とは別で、
+操作もずれない）。止めるのは、ゲームの操作（2 本指 = カメラのズーム）と取り合いになるページのピンチだけ。
+
+**ブラウザの制約**：iOS Safari は viewport の設定でピンチの拡大を禁止できず、ページの倍率をスクリプトで直接戻す API も無い。
+「元に戻す」の仕掛け（maximum-scale を一瞬だけ付ける）が iOS で効くかは未確認。効かない場合の手段は、知らせの上でつまんで縮める
+・保存して読み込み直す（Safari が読み込み直しで倍率を戻すかも実機で確かめる）。
+
+## 3. 操作の説明の改善
+
+| 仕様 | 実装 |
+|---|---|
+| 初回の案内を短く | スマホの初回は 2 文の短い案内（移動・ジャンプ・掘る・視点・ズーム、「？」の案内）と「詳しい説明を見る」。PC の初回は従来どおり詳しい説明 |
+| 右上の「×」 | 欄の右上（44×40 px）。押すとすぐ閉じる |
+| 「？」で再表示 | 右上のメニュー（セーブの隣・縦長の画面では下）の「？」。閉じていれば詳しい説明を開き、開いていれば閉じる |
+| 閉じたことを覚える | `localStorage` の `ppp-aquarium:help` = `closed`。次の起動では自動で出さない（セーブのデータとは別。`?nosave` でも覚える） |
+| 欄の中でスクロール | 本文（`.help-body`）が `overflow-y: auto`・`touch-action: pan-y`・`overscroll-behavior: contain` |
+| 縦横の画面に収まる | 詳しい説明：上から、縦は下の操作のボタンを隠さない高さ（100dvh − 250px）、横は画面の高さ − 24px まで。短い案内はスティックの上で、横画面でも収まる高さ |
+| 欄の上の指をゲームに渡さない | 欄は指を受ける（`pointer-events: auto`）。ゲームの指は Canvas と操作のボタンだけが受けるので、欄の上の指は視点・移動にならない。欄の上の pointerdown / touchstart / wheel は欄の外へ伝えない |
+| 12 秒で消える | やめた（短い案内は「×」で閉じるまで出す） |
+| PC の H キー | 維持（詳しい説明の表示 / 非表示。閉じたら覚える） |
+
+場所：`src/aquarium/AquaHelp.ts`（新規）、`main.ts`（説明の文・作る順序・H キー）、`aquarium.css`。
+
+## 4. 修正前後の画面
+
+| | 修正前 | 修正後 |
+|---|---|---|
+| 縦・起動直後 | `before_portrait_start.jpg`（長い説明が画面の中央を覆う） | `after_help_portrait_brief.jpg`（短い案内と「×」・右上の「？」） |
+| 縦・詳しい説明 | — | `after_help_portrait_full.jpg` |
+| 縦・閉じた後 | — | `after_help_portrait_closed.jpg` |
+| 横・起動直後 | `before_landscape.jpg`（説明が上にはみ出し、左上の表示と重なる） | `after_help_landscape_brief.jpg` |
+| 横・詳しい説明 | — | `after_help_landscape_full.jpg`、背の低い横画面でスクロール：`after_help_se_landscape_scrolled.jpg` |
+| PC | — | `after_help_pc_full.jpg` |
+| ページが 2.2 倍に拡大された | `before_zoomed_symptom.jpg`（操作のボタンが見えない） | `after_zoomed_symptom.jpg`（拡大されていても読める大きさの知らせ） |
+| 拡大された状態で Canvas をつまむ | `before_zoomed_after_pinch.jpg`（カメラが引くだけ） | `after_zoomed_after_pinch.jpg`（知らせが Canvas を覆い、ゲームの指にならない） |
+| 「元に戻す」の後 | — | `after_zoomfix_after_reset.jpg`（倍率 1） |
+| ?diag | — | `after_diag.jpg` |
+
+## 5. 検証の結果（Chromium の模擬）
+
+| 操作 | 結果 | 道具 |
+|---|---|---|
+| 1 本指の視点回転 | OK（`touch_test` 7b：yaw −0.48） | `touch_test.js` |
+| 2 本指のカメラズーム | OK：Canvas のピンチでカメラだけ 3.20 → 1.40 → 3.14、ページの倍率は 1 のまま | `zoom_test.js` A / A2 |
+| ダブルタップ（Canvas・左上の表示・説明・セーブの欄） | ページの倍率 1 のまま | `zoom_test.js` B1〜B3 / D2 |
+| 説明・セーブの欄の上のピンチ | ページもカメラも拡大しない | `zoom_test.js` C / D、`help_test.js` |
+| スティック + 視点回転の同時 | OK（`touch_test` 2） | `touch_test.js` |
+| スティック + 掘る（+ ジャンプ）の同時 | OK（`touch_test` 3・13、`touch_dig_test` 2・3、`touch_independence_test`） | 各道具 |
+| 3 本以上の指 | OK：3 本指で広げてもページの倍率 1、離すと指の数 0（`zoom_test` E、`touch_test` 3・4） | |
+| ポインターの中断・復帰（取り消し・離した通知が失われる・捕捉が外れる） | `touch_test` 15 件すべて OK（修正前と同じ） | `touch_test.js` |
+| 縦と横 | 横 844×390・縦に戻す：ボタン・説明が画面の中、Canvas は 844×390（画素 1688×780）に測り直し | `zoom_test.js` G |
+| ページの非表示と復帰 | 押していたスティックが離れた状態に戻る | `zoom_test.js` H、`touch_test` 10 |
+| 説明：初回・×・覚える・？・H・スクロール・ゲームに渡らない | 19 件すべて OK（背の低い横画面 667×320 で欄が 59 px スクロールし、視点・カニは動かない。スティックを押したまま欄をスクロールしてもスティックが効く） | `help_test.js` |
+| ?nosave で通常のセーブが変わらない | OK：同じブラウザに通常のセーブを作り、?nosave の検証の前後で current / backup の rev・savedAt・saveId と localStorage の控えが同じ | `zoom_test.js` S |
+
+### 全体の回帰
+
+| 項目 | 結果 |
+|---|---|
+| カニの移動・ジャンプ・遊泳・壁登り | `climb_test`：地表まで掘れた 7 地点で 7 / 7 登り直し（ほかの 3 地点は岩・岩・流木で上を掘れない。前回と同じ）、岩・流木・水中の岩・洞窟の場面で張り付き・登り・止まる |
+| 穴掘りと 8 方向の照準 | `touch_dig_test`：8 方向の照準・印・離すと 0 に戻る、スティックと同時 |
+| スナモグリの引っこ抜き | ?nosave で読み直して 2 回：どちらも調べる → 長押しで抜ける（37 フレーム）→ 同行。タッチの「調べる / 引っこ抜く」ボタンでも抜ける（`after_touch_pull.jpg`） |
+| 仲間の同行・自由生活 | 同行で 14 秒歩かせて：固体の中 0・ガラスの外 0・水の外 0・瞬間移動 0（`buddy_helpers.js` の route） |
+| ガラス越しの巣穴観察 | `glass_burrow_test`：カメラはガラスの外・地表へ戻れる・ガラスへ戻れる、エラー無し |
+| セーブ・復元・複数タブの競合 | `save_conflict_test` A〜H：競合の知らせ・書かない・控えからの復元・使わなかった進捗・容量不足の再試行が前回と同じふるまい |
+| PC・スマホの操作 UI | 上の表 |
+| 描画方式比較ページ A〜F | 6 方式とも描画できる（同じビルド同士で画素の差 0。比較ページが使う `style.css`・`Input.ts`・`TouchControls.ts` は変更していない） |
+| 型チェック・本番ビルド | `npm run build`（`tsc --noEmit` + `vite build`）成功 |
+
+## 6. iPhone の実機で確かめること
+
+`https://…/aquarium.html?diag&nosave`（診断の表示・保存しない）と、ふつうの `aquarium.html` の両方で：
+
+1. 以前に拡大が起きた遊び方を数分続け、`?diag` の「倍率」が 1.000 のままか。拡大したら、そのときの「最後」の行（どの要素の上の
+   指か）・gesture の数・向きを控える（原因の経路の特定）
+2. Canvas の上の 2 本指：カメラだけズームし、ページは拡大しない（`gesture` の数は増えても倍率は 1）
+3. セーブの欄・説明の欄を開いて、その上で 2 本指を広げる：ページが拡大しない。1 本指で欄がスクロールする
+4. 画面の下の端（ホームバーの辺り）・横画面の左右の端から始めたピンチ・ダブルタップ
+5. スティック + 視点、スティック + 掘る、スティック + 掘る + ジャンプ、3〜4 本指
+6. 縦 ↔ 横の回転を数回、アプリの切り替え・ロックからの復帰のあと、ボタンの位置・Canvas の大きさが正しいか（`?diag` の canvas と
+   inner / layout が一致するか）
+7. 拡大されてしまったとき：知らせが読めるか、「元に戻す」で倍率が 1 に戻るか（戻らなければ、知らせの上でつまんで戻るか、
+   「保存して読み込み直す」で戻り進捗が残るか）
+8. 説明：初回の短い案内、「×」ですぐ閉じる、読み込み直しても出ない、「？」で開く、詳しい説明が縦横で画面に収まりスクロールできる、
+   欄を触ってもカニ・視点が動かない
+9. Safari の「aA」のページの拡大／縮小（文字の大きさ）を変えても操作がずれないか
+10. ホーム画面に追加したアプリとして開いた場合（standalone）も同じか
+
+## 7. 文書とコードの食い違い（気づいたもの）
+
+- `aquarium.css` の修正前の注釈は「html / body の `touch-action: none` で、HUD や説明の上から始めた指でページが拡大されない」と
+  していたが、中でスクロールする欄（セーブの欄）では先祖の `none` が効かず、しかも `manipulation` はピンチの拡大を許す値だった
+  （1.1 の 4）。今回、セーブの欄を `pan-y` にし、注釈も直した。
+- 依頼の文面の「12 秒後に自動で消える」は、コードでは `opacity: 0` にするだけで、要素は残っていた（`#help.fade`。`pointer-events: none`
+  なので操作の妨げにはなっていなかった）。今回、説明の欄は閉じると `display: none` になる。
+- `compare_regression.js` は基準と修正後の 2 つのホストを前提にしている（1 つだけ渡すと止まる）。今回は同じホストを 2 回渡して、
+  描画できることだけを確かめた。
+
+## 8. 残る問題
+
+- 拡大の原因の経路は実機で特定できていない（1.2）。対策は「起こりうる経路をまとめて塞ぐ + 起きたら気づいて戻す」で、iOS での効果は未確認。
+- 「元に戻す」（viewport の設定を一瞬変える）が iOS Safari で効くかは未確認。
+- Chromium の模擬では、知らせの上の 2 本指でページの倍率を戻す操作を確かめられなかった（倍率の上書き `Emulation.setPageScaleFactor`
+  の間はつまんでも変わらない）。
+- 横画面で詳しい説明を開くと、スティックの上に重なる（読んでいる間は操作できない。閉じれば戻る）。
+- 短い案内・詳しい説明は左上の表示（HUD）に重なる（「×」で閉じるまで）。
+
+## 9. 道具
+
+- `docs/aquarium/tools/zoom_test.js`：ページの拡大とカメラのズームを分けて測る（A〜H と、通常のセーブが変わらないかの S）
+- `docs/aquarium/tools/help_test.js`：説明の欄（スマホの縦・横・背の低い横、PC）
+
+どちらも `browser_run_code_unsafe` で `fetch(url).then(eval)` し、`globalThis.__over = { dir, tag }` で画像の保存先を指定する
+（同じ名前の画像があれば止まる。`overwrite: true` で上書き）。ページは `?nosave` で開く。
+
+外部の生き物モデルの調査は `docs/aquarium/external-creature-models.md`。
