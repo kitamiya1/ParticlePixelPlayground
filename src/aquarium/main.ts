@@ -304,9 +304,12 @@ async function boot() {
   const viewport = new ViewportGuard({
     input,
     relayout: resize,
-    saveAndReload: async () => {
-      await saver.flush().catch(() => false);
-      location.reload();
+    // 「保存して読み込み直す」は保存できたときだけ読み込み直す（失敗・競合・?nosave では読み込み直さず、書き出しを勧める）
+    save: {
+      info: () => ({ state: saver.state, lastSavedAt: saver.lastSavedAt, unsavedFor: saver.unsavedFor, error: saver.store.stats.lastError, noSave }),
+      flush: () => saver.flush(),
+      exportFile: () => saveMenu.exportFile(saver.store.conflict ? '-このタブ' : ''),
+      reload: () => location.reload(),
     },
     diag: new URLSearchParams(location.search).has('diag'),
     camInfo: () => `${camera.mode} zoom ${camera[camera.mode].zoom.toFixed(2)}`,

@@ -341,7 +341,8 @@ export class SaveMenu {
     } else persist.hidden = true;
   }
 
-  private exportFile(tag = '') {
+  /** 書き出す（ページの拡大の知らせからも使う。tag はファイル名の印） */
+  exportFile(tag = '') {
     // 書き出す前に今の状態を集めて保存（ファイルと保存先を同じ内容にする。競合中は保存せずファイルだけ）
     if (!this.d.saver.store.conflict) void this.d.saver.flush();
     const data = this.d.saver.gather();

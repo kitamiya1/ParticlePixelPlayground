@@ -233,6 +233,12 @@ body.aqua #view, body.aqua #touch-ui, body.aqua #touch-ui *, body.aqua #hud, bod
 #zoom-fix .t { font-weight: 700; color: #ffe08a; font-size: 16px; }
 #zoom-fix .btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 6px; }
 #zoom-fix .btns button { min-height: 44px; padding: 6px 14px; border-radius: 8px; font-size: 14px; background: #2e5e5a; color: #fff; border: 1px solid rgba(255, 255, 255, 0.3); }
+#zoom-fix .btns button.danger { background: #7a3a32; }
+#zoom-fix .btns button:disabled { opacity: 0.6; }
+#zoom-fix .sv { font-size: 13px; color: #b9ece0; margin: 2px 0 6px; }
+#zoom-fix .sv[data-state="pending"] { color: #ffd27a; }
+#zoom-fix .sv[data-state="error"], #zoom-fix .sv[data-state="conflict"] { color: #ff8a7a; }
+#zoom-fix .sv[data-state="off"] { color: #c9d3d0; }
 #zoom-fix .s { font-size: 12px; color: #b9ece0; }
 html.aqua-zoomfix:has(body.aqua), html.aqua-zoomfix body.aqua { touch-action: manipulation; }
 /* ?diag：倍率・指の座標などの表示（指は受けない） */

@@ -11,6 +11,9 @@
 // - 戻す：知らせの「元に戻す」で、viewport の設定を一瞬だけ maximum-scale=1 にして戻す（Chromium では倍率が 1 に
 //   戻る。iOS Safari で戻るかは実機で確かめる）。戻らなければ、知らせの暗い部分を 2 本指でつまんで縮めてもらう
 //   （知らせを出している間はピンチを止めない）か、保存してから読み込み直す。
+// - 保存：知らせには実際の保存の状態（保存済み・未保存の変化あり・保存できていない・別のタブと競合・保存しない）を出す。
+//   「保存して読み込み直す」は保存できたときだけ読み込み直す。保存できない（失敗した・競合・?nosave）ときは読み込み直さず、
+//   「進捗を書き出す（ファイル）」を勧め、もう一度押して確かめたときだけ保存せずに読み込み直す。
 // - 端末の回転・裏からの復帰：押している指を終わらせ、少し遅れて大きさを測り直す（iOS は回転の直後に古い大きさを返す
 //   ことがある）。ページが横にずれていれば (0, 0) に戻す。
 // - ?diag：倍率・visualViewport・innerWidth/Height・Canvas の実寸・ボタンの位置・カメラのズーム・指の座標と通知を
@@ -21,25 +24,55 @@
 // 止めるのは、ゲームの操作（2 本指 = カメラのズーム）と取り合いになるページのピンチ・ダブルタップだけ。
 
 import type { Input } from '../game/Input';
+import type { SaveState } from './AquaSaveUi';
 
 /** これより大きい倍率を「ページが拡大されている」とみなす（端数のずれは無視） */
 const ZOOMED = 1.02;
 /** 拡大に気づいてから知らせを出すまで（ms。ピンチの途中の一瞬の変化では出さない） */
 const NOTICE_DELAY = 500;
+/** 「保存して読み込み直す」で保存を待つ上限（ms） */
+const FLUSH_TIMEOUT = 8000;
+
+/** 知らせに出す保存の状態（AutoSaver・SaveStore から） */
+export interface SaveInfo {
+  state: SaveState;
+  /** このタブで最後に保存できた時刻（0 = このタブではまだ保存していない） */
+  lastSavedAt: number;
+  /** 変化があってから保存できていない秒数（変化が無ければ負） */
+  unsavedFor: number;
+  /** 最後に保存できなかった理由 */
+  error: string;
+  /** ?nosave で開いた（保存しないのは意図どおり） */
+  noSave: boolean;
+}
+
+/** 知らせの「保存して読み込み直す」「進捗を書き出す」に使う保存の操作 */
+export interface ViewportSave {
+  info: () => SaveInfo;
+  /** 今すぐ保存する（保存できたら true。失敗・競合・保存しないなら false） */
+  flush: () => Promise<boolean>;
+  /** いまの進捗をファイルに書き出す（競合中・保存しないときも書き出せる） */
+  exportFile: () => void;
+  /** ページを読み込み直す */
+  reload: () => void;
+}
+
+/** 知らせに出す区分（saved でも変化があれば pending として扱う） */
+type NoticeSave = 'saved' | 'pending' | 'error' | 'conflict' | 'off';
 
 export interface ViewportGuardDeps {
   input: Input;
   /** Canvas の大きさを測り直す */
   relayout: () => void;
-  /** 進捗を保存してから読み込み直す */
-  saveAndReload: () => Promise<void>;
+  /** 保存の状態と操作（知らせの説明とボタン） */
+  save: ViewportSave;
   /** ?diag の表示に出すカメラの状態 */
   camInfo?: () => string;
   diag?: boolean;
 }
 
 export class ViewportGuard {
-  readonly stats = { gestureBlocked: 0, touchmoveBlocked: 0, zoomNotices: 0, resetTried: 0, resetOk: 0, scrollFixed: 0, relayouts: 0, orientation: 0, maxScale: 1 };
+  readonly stats = { gestureBlocked: 0, touchmoveBlocked: 0, zoomNotices: 0, resetTried: 0, resetOk: 0, scrollFixed: 0, relayouts: 0, orientation: 0, maxScale: 1, reloadSaved: 0, reloadHeld: 0, reloadUnsaved: 0, exports: 0 };
   /** いまの倍率（visualViewport.scale） */
   scale = 1;
   /** 知らせを出している間（ピンチを止めない） */
@@ -48,6 +81,16 @@ export class ViewportGuard {
   private touchesDown = 0;
   private readonly notice: HTMLElement;
   private readonly msg: HTMLElement;
+  private readonly saveEl: HTMLElement;
+  private readonly reloadBtn: HTMLButtonElement;
+  /** 保存して読み込み直す途中（保存を待っている） */
+  private saving = false;
+  /** 保存できない状態で「読み込み直す」を 1 回押した（その状態のまま、もう一度押すと保存せずに読み込み直す） */
+  private armedFor: NoticeSave | null = null;
+  /** 「保存して読み込み直す」で保存できなかった（読み込み直さなかった） */
+  private heldReason = '';
+  private exportedAt = 0;
+  private saveTimer = 0;
   private diagEl: HTMLElement | null = null;
   /** ?diag：通知の数と最後の位置 */
   readonly log: string[] = [];
@@ -113,15 +156,21 @@ export class ViewportGuard {
     this.notice.innerHTML = `<div class="card" role="alertdialog" aria-labelledby="zoom-fix-t">
         <div class="t" id="zoom-fix-t">画面が拡大されています</div>
         <div class="m" data-k="msg"></div>
-        <div class="btns"><button type="button" data-k="reset">元に戻す</button><button type="button" data-k="reload">保存して読み込み直す</button></div>
-        <div class="s">進捗は自動で保存されています。戻らないときは、この暗い部分を 2 本指でつまむように縮めてください。</div>
+        <div class="btns"><button type="button" data-k="reset">元に戻す</button><button type="button" data-k="reload">保存して読み込み直す</button><button type="button" data-k="export">進捗を書き出す（ファイル）</button></div>
+        <div class="sv" data-k="save"></div>
+        <div class="s">戻らないときは、この暗い部分を 2 本指でつまむように縮めてください。</div>
       </div>`;
     document.body.appendChild(this.notice);
     this.msg = this.notice.querySelector<HTMLElement>('[data-k="msg"]')!;
+    this.saveEl = this.notice.querySelector<HTMLElement>('[data-k="save"]')!;
+    this.reloadBtn = this.notice.querySelector<HTMLButtonElement>('[data-k="reload"]')!;
     this.notice.querySelector('[data-k="reset"]')!.addEventListener('click', () => void this.tryReset());
-    this.notice.querySelector('[data-k="reload"]')!.addEventListener('click', () => {
-      this.msg.textContent = '保存しています…';
-      void this.d.saveAndReload();
+    this.reloadBtn.addEventListener('click', () => void this.reload());
+    this.notice.querySelector('[data-k="export"]')!.addEventListener('click', () => {
+      this.d.save.exportFile();
+      this.stats.exports++;
+      this.exportedAt = Date.now();
+      this.renderSave();
     });
 
     if (d.diag) this.startDiag();
@@ -170,11 +219,19 @@ export class ViewportGuard {
     this.msg.textContent = 'ブラウザのページ自体が拡大され、ボタンが画面の外に出たり、指の位置がずれたりしています（ゲームのカメラのズームとは別です）。';
     document.documentElement.classList.add('aqua-zoomfix');
     this.notice.classList.add('show');
+    this.armedFor = null;
+    this.heldReason = '';
+    this.renderSave();
+    // 出している間も保存の状態は変わる（自動保存・失敗・競合）ので、説明を合わせ続ける
+    clearInterval(this.saveTimer);
+    this.saveTimer = window.setInterval(() => this.renderSave(), 500);
     this.place();
   }
 
   private hideNotice() {
     this.recovering = false;
+    clearInterval(this.saveTimer);
+    this.saveTimer = 0;
     document.documentElement.classList.remove('aqua-zoomfix');
     this.notice.classList.remove('show');
     this.d.relayout();
@@ -200,8 +257,108 @@ export class ViewportGuard {
     this.check();
     const ok = (window.visualViewport?.scale ?? 1) <= ZOOMED;
     if (ok) this.stats.resetOk++;
-    else this.msg.textContent = '自動では戻せませんでした。この暗い部分を 2 本指でつまむように縮めるか、「保存して読み込み直す」を押してください。';
+    else this.msg.textContent = '自動では戻せませんでした。この暗い部分を 2 本指でつまむように縮めるか、下の保存の状態を確かめてから読み込み直してください。';
     return ok;
+  }
+
+  // ---------------- 保存の状態・読み込み直す ----------------
+
+  /** 知らせに出す保存の区分 */
+  private saveKind(i: SaveInfo): NoticeSave {
+    if (i.state === 'off' || i.state === 'conflict' || i.state === 'error') return i.state;
+    // 'saved' でも、変化があってまだ書いていなければ未保存（AutoSaver は 6 秒たつまで 'saved' のまま）
+    if (i.state === 'pending' || i.state === 'saving' || i.unsavedFor >= 0) return 'pending';
+    return 'saved';
+  }
+
+  /** 知らせの保存の説明と「読み込み直す」のボタンを、いまの保存の状態に合わせる */
+  renderSave() {
+    const i = this.d.save.info();
+    const k = this.saveKind(i);
+    // 確かめた後に、保存できた（ふつうに保存して読み込み直せる）・新しく競合になった（このタブの進捗を捨てることになる）：
+    // 確かめ直す。書き出しに伴う保存の途中（pending）・その失敗（error）では確かめたままにする
+    if (this.armedFor && this.armedFor !== k && (k === 'saved' || k === 'conflict')) {
+      this.armedFor = null;
+      this.heldReason = '';
+    }
+    const at = i.lastSavedAt ? `最後の保存 ${new Date(i.lastSavedAt).toLocaleTimeString()}` : 'このタブではまだ保存していません';
+    const lost = i.lastSavedAt ? `最後の保存（${new Date(i.lastSavedAt).toLocaleTimeString()}）より後の進捗` : 'このタブを開いてからの進捗';
+    let text: string;
+    let label: string;
+    switch (k) {
+      case 'saved':
+        text = `保存済み（${at}）。`;
+        label = '保存して読み込み直す';
+        break;
+      case 'pending':
+        text = `まだ保存していない変化があります（${at}）。「保存して読み込み直す」は、保存できたときだけ読み込み直します。`;
+        label = '保存して読み込み直す';
+        break;
+      case 'error':
+        text = `保存できていません（${i.error || '不明な理由'}）。このまま読み込み直すと、${lost}が消えるおそれがあります。先に「進捗を書き出す」でファイルに残してください。`;
+        label = this.armedFor ? '保存せずに読み込み直す' : 'もう一度保存して読み込み直す';
+        break;
+      case 'conflict':
+        text = '別のタブ（ウィンドウ）と保存が競合しているため、このタブからは保存していません。読み込み直すと別のタブの進捗に替わり、このタブの進捗は消えます。残したいときは先に「進捗を書き出す」でファイルに残してください。';
+        label = this.armedFor ? 'このタブの進捗を捨てて読み込み直す' : '読み込み直す…';
+        break;
+      default:
+        text = i.noSave
+          ? 'このタブは保存していません（?nosave で開いています）。読み込み直すと、このタブの進捗は消えます。'
+          : 'このブラウザでは保存できません（保存先が使えません）。読み込み直すと、このタブの進捗は消えます。残したいときは先に「進捗を書き出す」でファイルに残してください。';
+        label = this.armedFor ? '保存せずに読み込み直す' : '読み込み直す…';
+    }
+    if (this.saving) text = '保存しています…（保存できたら読み込み直します）';
+    else if (this.heldReason) text = `${this.heldReason}${text}`;
+    if (this.armedFor) {
+      text += ' もう一度押すと、保存せずに読み込み直します。';
+      if (k === 'saved' || k === 'pending') label = '保存せずに読み込み直す';
+    }
+    if (this.exportedAt) text += `（${new Date(this.exportedAt).toLocaleTimeString()} にファイルへ書き出しました）`;
+    this.saveEl.textContent = text;
+    this.saveEl.dataset.state = k;
+    this.reloadBtn.textContent = label;
+    this.reloadBtn.classList.toggle('danger', !!this.armedFor);
+    this.reloadBtn.disabled = this.saving;
+  }
+
+  /**
+   * 「保存して読み込み直す」：保存できる状態なら保存し、保存できたときだけ読み込み直す。
+   * 保存できない（失敗した・競合・保存しない）ときは読み込み直さず、もう一度押したときだけ保存せずに読み込み直す
+   */
+  async reload() {
+    if (this.saving) return;
+    const s = this.d.save;
+    this.renderSave(); // 確かめた後に状態が変わっていれば、ここで確かめ直しになる
+    const k = this.saveKind(s.info());
+    if (this.armedFor) {
+      this.stats.reloadUnsaved++;
+      s.reload();
+      return;
+    }
+    if (k === 'saved' || k === 'pending' || k === 'error') {
+      this.saving = true;
+      this.renderSave();
+      // 保存先が応答しないこともある（iOS の IndexedDB が止まる例）：待ちすぎたら保存できなかったとみなす
+      const r = await Promise.race([s.flush().catch(() => false), wait(FLUSH_TIMEOUT).then(() => 'timeout' as const)]);
+      this.saving = false;
+      if (r === true) {
+        this.stats.reloadSaved++;
+        s.reload();
+        return;
+      }
+      // 保存できなかった（失敗・その間に競合になった・終わらない）：読み込み直さない
+      this.stats.reloadHeld++;
+      const now = this.saveKind(s.info());
+      this.heldReason = r === 'timeout' ? '保存が終わらないため、読み込み直していません。' : '保存できなかったため、読み込み直していません。';
+      this.armedFor = now;
+      this.renderSave();
+      return;
+    }
+    // 競合・保存しない：保存はできないので、確かめてから
+    this.stats.reloadHeld++;
+    this.armedFor = k;
+    this.renderSave();
   }
 
   // ---------------- ?diag ----------------
