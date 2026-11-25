@@ -26,6 +26,7 @@ import { SurfelRenderer } from '../render/surfel/SurfelRenderer';
 import type { RenderSettings } from '../settings';
 import type { AquaCamera } from './AquaCamera';
 import type { AquaLife } from './AquaLife';
+import type { BuddySystem } from './AquaBuddy';
 import type { AquariumMeshes, LightGrid } from './AquariumBuild';
 import { AquariumDigFx } from './AquariumDigFx';
 import type { Find } from './AquariumSpots';
@@ -173,6 +174,12 @@ void main() {
   p.x += sw;
   n.x -= cos(iAnim.x - p.z * 16.0) * tail * 0.6;
 #else
+#ifdef BUDDY
+  // 触角（aMisc.x = 先ほど 1）：左右・上下にゆっくり揺らす（もがいている間は速く大きく）
+  float aw = aMisc.x * (1.0 + iAnim.y * 1.5);
+  p.x += sin(iAnim.x * 0.9 + p.z * 9.0 + sign(p.x) * 1.3) * 0.035 * aw;
+  p.y += cos(iAnim.x * 0.7 + sign(p.x) * 2.1) * 0.025 * aw;
+#endif
   float bob = sin(iAnim.x) * 0.006 * (1.0 - iAnim.y);
   p.y += bob * (0.5 + tail) - tail * tail * iAnim.y * 0.07 * (0.6 + 0.4 * sin(iAnim.x * 2.0));
   p.z += tail * iAnim.y * 0.035;
@@ -373,6 +380,9 @@ export class AquariumRenderer {
   private readonly maxBubbles = 720;
   private readonly fishMesh: THREE.InstancedMesh;
   private readonly shrimpMesh: THREE.InstancedMesh;
+  /** 最初の仲間（スナモグリ）の体（1 個のインスタンス）と、その巣穴 */
+  private readonly buddyMesh: THREE.InstancedMesh | null = null;
+  private readonly buddy: BuddySystem | null = null;
   private readonly springs: { pos: [number, number, number]; scale: number; t: number }[] = [];
   private pearlT = 0;
   private readonly m4 = new THREE.Matrix4();
@@ -402,7 +412,7 @@ export class AquariumRenderer {
     crab: TriMesh,
     plants: SplatPointSet,
     private readonly rig: CrabRig,
-    explore: { finds: Find[]; findsMesh: TriMesh; glowMesh: TriMesh; fishMesh: TriMesh; shrimpMesh: TriMesh; life: AquaLife },
+    explore: { finds: Find[]; findsMesh: TriMesh; glowMesh: TriMesh; fishMesh: TriMesh; shrimpMesh: TriMesh; life: AquaLife; buddy?: { sys: BuddySystem; mesh: TriMesh; burrowMesh: TriMesh } },
     dig: { light: LightGrid; plantAnchors: Float32Array },
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', alpha: false });
@@ -457,6 +467,14 @@ export class AquariumRenderer {
     this.fishMesh = this.creatureMesh(explore.fishMesh, explore.life.fish.length, true);
     this.shrimpMesh = this.creatureMesh(explore.shrimpMesh, explore.life.shrimp.length, false);
     this.stats.tris += explore.glowMesh.triCount + explore.fishMesh.triCount * explore.life.fish.length + explore.shrimpMesh.triCount * explore.life.shrimp.length;
+    if (explore.buddy) {
+      this.buddy = explore.buddy.sys;
+      this.buddyMesh = this.creatureMesh(explore.buddy.mesh, 1, false, { BUDDY: '' });
+      const burrow = new THREE.Mesh(triGeometry(explore.buddy.burrowMesh), worldMat);
+      burrow.frustumCulled = false;
+      this.meshScene.add(burrow);
+      this.stats.tris += explore.buddy.mesh.triCount + explore.buddy.burrowMesh.triCount;
+    }
     for (const f of explore.finds) if (f.kind === 'spring') this.springs.push({ pos: f.pos, scale: f.scale, t: Math.random() });
     this.baseTris = this.stats.tris;
 
@@ -472,6 +490,12 @@ export class AquariumRenderer {
         m.uniforms.uCutRange = this.cutU.uCutRange;
       }
     });
+    // 巣穴の口を覆う植物（絨毯の水草）の円盤を消す（穴と触角が見えるように）
+    if (this.buddy) {
+      const [bx, , bz] = this.buddy.burrow, A = dig.plantAnchors, gone: number[] = [];
+      for (let i = 0; i < A.length / 3; i++) if (Math.hypot(A[i * 3] - bx, A[i * 3 + 2] - bz) < 0.42) gone.push(i);
+      if (gone.length) this.surfel.hideWorldPoints(gone);
+    }
 
     // 穴掘り：掘った区画のメッシュ（底床と同じマテリアル）・砂粒・照準
     this.digFx = new AquariumDigFx({
@@ -577,12 +601,12 @@ export class AquariumRenderer {
     return new THREE.ShaderMaterial({ uniforms, defines, vertexShader: meshVertex, fragmentShader: meshFragment, side: THREE.FrontSide });
   }
 
-  private creatureMesh(m: TriMesh, count: number, fish: boolean): THREE.InstancedMesh {
+  private creatureMesh(m: TriMesh, count: number, fish: boolean, extra: Record<string, string> = {}): THREE.InstancedMesh {
     const g = triGeometry(m);
     g.setAttribute('iAnim', new THREE.InstancedBufferAttribute(new Float32Array(count * 2), 2).setUsage(THREE.DynamicDrawUsage));
     const mat = new THREE.ShaderMaterial({
       uniforms: { ...this.uniforms, uCharLift: { value: 0.14 }, uReceiveBlob: { value: 0 } },
-      defines: fish ? { PPP_WATER: '', USE_LIFT: '', FISH: '' } : { PPP_WATER: '', USE_LIFT: '' },
+      defines: { ...(fish ? { PPP_WATER: '', USE_LIFT: '', FISH: '' } : { PPP_WATER: '', USE_LIFT: '' }), ...extra },
       vertexShader: creatureVertex,
       fragmentShader: meshFragment,
     });
@@ -614,6 +638,29 @@ export class AquariumRenderer {
       sa.setXY(i, s.phase, s.state === 'dart' ? 1 : 0);
     });
     this.shrimpMesh.instanceMatrix.needsUpdate = sa.needsUpdate = true;
+    const B = this.buddy, bm = this.buddyMesh;
+    if (B && bm) {
+      // 体の軸（+z = 頭）を pitch だけ上へ起こし（巣穴の中は頭が上）、横に roll
+      this.e4.set(-B.pitch, B.heading, B.roll, 'YXZ');
+      this.q4.setFromEuler(this.e4);
+      this.m4.compose(this.v4.set(B.x, B.y, B.z), this.q4, this.s4);
+      bm.setMatrixAt(0, this.m4);
+      const ba = bm.geometry.getAttribute('iAnim') as THREE.InstancedBufferAttribute;
+      ba.setXY(0, B.phase, B.act);
+      bm.instanceMatrix.needsUpdate = ba.needsUpdate = true;
+    }
+  }
+
+  /**
+   * 砂煙と泡（引っこ抜いた瞬間・仲間が砂に潜って移った所）。strong = 抜けた瞬間（大きく）
+   */
+  puff(x: number, y: number, z: number, strong: boolean) {
+    const n = strong ? 3 : 1;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      this.digFx.burst({ kind: 'dig', x, y: y + 0.05, z, power: strong ? 1 : 0.5, dir: [Math.sin(a) * 0.3, 0.9, Math.cos(a) * 0.3], material: 'sand' });
+    }
+    if (y < TANK.waterY - 0.2) this.spawn(0, x, y + 0.08, z, strong ? 22 : 6, strong ? 0.3 : 0.15, 0.04, strong ? 1.6 : 0.9);
   }
 
   private buildHalos(finds: Find[]): THREE.Points {

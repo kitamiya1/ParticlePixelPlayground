@@ -1141,3 +1141,85 @@ export function buildShrimpMesh(): TriMesh {
   });
   return mb.finish();
 }
+
+/**
+ * 最初の仲間：スナモグリ（砂に巣穴を掘るエビのなかま）。エビ（buildShrimpMesh）と同じ作りで、体を太く白っぽい桃色にし、
+ * 片方（右）だけ大きな鋏・長い触角を付ける。体の軸は +z が頭。
+ * aMisc.y = 尾の側ほど大きい（creatureVertex の尾を打つ動き）、aMisc.x = 触角の先ほど大きい（BUDDY の触角の揺れ）
+ */
+export function buildBuddyMesh(): TriMesh {
+  const mb = new MeshBuilder();
+  const segs: [number, number, number, number][] = [];
+  for (let i = 0; i <= 6; i++) {
+    const t = i / 6;
+    // 頭の後ろ（t = 0）→ 尾（t = 1）。背中は低い弧、尾の先は少し下へ
+    segs.push([0, 0.05 + Math.sin(Math.PI * t * 0.8) * 0.02 - t * t * 0.03, 0.12 - t * 0.33, 0.06 - t * 0.03]);
+  }
+  const ant = [-1, 1].map((sx) => ({ a: [sx * 0.022, 0.07, 0.2] as const, b: [sx * 0.085, 0.2, 0.44] as const }));
+  const sdf: Sdf = (x, y, z) => {
+    let d = Infinity;
+    for (let i = 0; i < segs.length - 1; i++) {
+      const a = segs[i], b = segs[i + 1];
+      d = smin(d, sdCapsule(x, y, z, a[0], a[1], a[2], b[0], b[1], b[2], a[3], b[3]), 0.016);
+    }
+    d = smin(d, sdEllipsoid(x, y, z, 0, 0.055, 0.15, 0.062, 0.052, 0.085), 0.02); // 頭胸甲
+    d = smin(d, sdEllipsoid(x, y, z, 0, 0.02, -0.24, 0.07, 0.01, 0.045), 0.015); // 尾扇
+    // 大きな鋏（右 = +x）：腕 → 掌 → 指 2 本
+    d = smin(d, sdCapsule(x, y, z, 0.035, 0.035, 0.17, 0.085, 0.03, 0.25, 0.022, 0.024), 0.012);
+    d = smin(d, sdEllipsoid(x, y, z, 0.1, 0.03, 0.3, 0.048, 0.034, 0.06), 0.015);
+    d = Math.min(d, sdCapsule(x, y, z, 0.112, 0.022, 0.34, 0.104, 0.018, 0.41, 0.014, 0.009));
+    d = Math.min(d, sdCapsule(x, y, z, 0.086, 0.046, 0.34, 0.094, 0.04, 0.4, 0.012, 0.008));
+    // 小さな鋏（左）
+    d = smin(d, sdCapsule(x, y, z, -0.035, 0.035, 0.17, -0.07, 0.03, 0.24, 0.015, 0.016), 0.01);
+    d = smin(d, sdEllipsoid(x, y, z, -0.075, 0.03, 0.27, 0.026, 0.02, 0.036), 0.01);
+    // 触角（画素に残るよう太め）
+    for (const A of ant) d = Math.min(d, sdCapsule(x, y, z, A.a[0], A.a[1], A.a[2], A.b[0], A.b[1], A.b[2], 0.011, 0.007));
+    // 歩脚
+    for (let k = 0; k < 3; k++) {
+      const zz = 0.08 - k * 0.045;
+      for (const sx of [-1, 1]) d = smin(d, sdCapsule(x, y, z, sx * 0.03, 0.03, zz, sx * 0.075, -0.012, zz + 0.012, 0.01, 0.007), 0.008);
+    }
+    return d;
+  };
+  // 砂（淡い黄土色）に埋もれないよう、桃色〜橙をはっきりさせる
+  const cream = hex('#f4c2a6'), pink = hex('#e0866a'), band = hex('#b75c48'), claw = hex('#f0703c'), tip = hex('#ffd27a'), belly = hex('#d98e74');
+  surfaceNets(sdf, { min: [-0.14, -0.04, -0.3], max: [0.15, 0.23, 0.47] }, 0.011, mb, (x, y, z, nx, ny, nz) => {
+    let c: RGB = Math.sin(z * 60) > 0.6 ? band : mixRGB(cream, pink, smoothstep(0.08, -0.2, z) * 0.7);
+    if (y < 0.025 && z < 0.2) c = belly;
+    // 鋏は橙、指先は黄
+    if (z > 0.2 && Math.abs(x) > 0.045 && y < 0.07) c = z > 0.36 ? tip : claw;
+    const antenna = Math.max(0, ...ant.map((A) => (Math.hypot(x - A.a[0], z - A.a[2]) > 0.02 && y > 0.075 ? clamp((z - 0.2) / 0.24, 0, 1) : 0)));
+    if (antenna > 0) c = mixRGB(pink, tip, antenna * 0.6);
+    // 目（黒い小さな点）
+    if (z > 0.2 && z < 0.24 && Math.abs(x) > 0.02 && Math.abs(x) < 0.05 && y > 0.06 && y < 0.09) c = hex('#0c0d12');
+    return mb.vertex(x, y, z, nx, ny, nz, u8(c[0]), u8(c[1]), u8(c[2]), antenna, smoothstep(0.02, -0.22, z));
+  });
+  return mb.finish();
+}
+
+/** 巣穴の口：地表の小さな盛り上がりの輪と、中の暗い穴（地形の高さに沿わせる） */
+export function buildBurrowMesh(world: AquariumWorld, light: LightGrid, bx: number, bz: number): TriMesh {
+  const mb = new MeshBuilder();
+  const g = (x: number, z: number) => world.groundAt(x, z);
+  let gmin = Infinity, gmax = -Infinity;
+  for (let i = -3; i <= 3; i++) for (let j = -3; j <= 3; j++) {
+    const h = g(bx + i * 0.1, bz + j * 0.1);
+    gmin = Math.min(gmin, h);
+    gmax = Math.max(gmax, h);
+  }
+  const sdf: Sdf = (x, y, z) => {
+    const gy = g(x, z), r = Math.hypot(x - bx, z - bz);
+    // 縁：輪の盛り上がり（地表より下は地形に隠れる）
+    const rim = Math.hypot(r - 0.17, y - gy + 0.015) - 0.05;
+    // 穴：地表に貼り付いた暗い円板
+    const hole = Math.max(r - 0.13, Math.abs(y - gy - 0.008) - 0.01);
+    return Math.max(smin(rim, hole, 0.02), gy - 0.03 - y);
+  };
+  const sand = hex('#c4ad82'), sand2 = hex('#a8926a'), dark = hex('#1d1712'), dark2 = hex('#3a2c20');
+  surfaceNets(sdf, { min: [bx - 0.3, gmin - 0.05, bz - 0.3], max: [bx + 0.3, gmax + 0.1, bz + 0.3] }, 0.012, mb, (x, y, z, nx, ny, nz) => {
+    const r = Math.hypot(x - bx, z - bz);
+    const c = r < 0.125 ? mixRGB(dark, dark2, r / 0.125) : mixRGB(sand2, sand, clamp((y - g(x, z)) / 0.04, 0, 1));
+    return mb.vertex(x, y, z, nx, ny, nz, u8(c[0]), u8(c[1]), u8(c[2]), light.sample(x, y + 0.15, z), 0.25);
+  });
+  return mb.finish();
+}
