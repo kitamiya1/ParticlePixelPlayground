@@ -3,9 +3,10 @@
 // 付け根の位置で、届く長さを画面の大きさへ直した半径）・付け根 → 足先の線、と左上の小さな数字（接地している脚・
 // 張り付いた面に掛かっている脚・伸びの最大・速さの割合）を描く。
 // 接地主導（第 7 段階）：縁の線（橙。外向きの矢印）・縁より下の足場に掛かった足先（橙の輪）と、縁の種類・高さ・はみ出し・待った時間。
+// 第 8 段階：次の面（壁・天井・道の先）に掛かった足先（紫の輪）・次の面の点と法線（紫の線）と、床 / 壁 / 天井・移りの進み具合。
 
 import type { CrabFeet } from './CrabFeet';
-import type { Ledge } from './CrabLedge';
+import type { FaceHint, Ledge } from './CrabLedge';
 
 type Project = (x: number, y: number, z: number) => { x: number; y: number } | null;
 
@@ -23,7 +24,7 @@ export class FootDiag {
     this.g = this.cv.getContext('2d')!;
   }
 
-  draw(feet: CrabFeet | null, project: Project, active: boolean, lead: { ledge: Ledge | null } | null = null) {
+  draw(feet: CrabFeet | null, project: Project, active: boolean, lead: { ledge: Ledge | null; faceHint?: FaceHint | null; xfer?: { p: number } | null; surf?: string } | null = null) {
     const show = this.on && !!feet && active;
     if (show !== this.shown) {
       this.cv.style.display = show ? 'block' : 'none';
@@ -71,6 +72,12 @@ export class FootDiag {
         g.arc(fp.x, fp.y, 7, 0, Math.PI * 2);
         g.stroke();
       }
+      if (fp && f.onFace) {
+        g.strokeStyle = 'rgba(210,140,255,0.95)';
+        g.beginPath();
+        g.arc(fp.x, fp.y, 9, 0, Math.PI * 2);
+        g.stroke();
+      }
       if (np) {
         g.strokeStyle = 'rgba(255,230,90,0.9)';
         g.beginPath();
@@ -104,9 +111,28 @@ export class FootDiag {
       }
       g.lineWidth = 1.5;
     }
+    const FH = lead?.faceHint ?? null;
+    if (FH) {
+      const o = project(FH.p[0], FH.p[1], FH.p[2]), q = project(FH.p[0] + FH.n[0] * 0.3, FH.p[1] + FH.n[1] * 0.3, FH.p[2] + FH.n[2] * 0.3);
+      if (o && q) {
+        g.strokeStyle = 'rgba(210,140,255,0.95)';
+        g.lineWidth = 2.5;
+        g.beginPath();
+        g.moveTo(o.x, o.y);
+        g.lineTo(q.x, q.y);
+        g.stroke();
+        g.lineWidth = 1.5;
+      }
+    }
     g.font = '12px ui-monospace, Menlo, Consolas, monospace';
     g.fillStyle = 'rgba(0,0,0,0.55)';
-    g.fillRect(8, H - (lead ? 80 : 64), 330, lead ? 70 : 54);
+    g.fillRect(8, H - (lead ? 96 : 64), 330, lead ? 86 : 54);
+    if (lead) {
+      const SURF: Record<string, string> = { floor: '床', wall: '壁', ceil: '天井' };
+      const FK = { wall: '壁へ', ceil: '天井へ', mantle: '道' } as const;
+      g.fillStyle = '#e8ccff';
+      g.fillText(`面 ${SURF[lead.surf ?? 'floor'] ?? '-'}${FH ? `  ${FK[FH.kind]} ${FH.phase === 'seek' ? '脚を探す' : '移る'} ${FH.t.toFixed(1)}` : ''}${lead.xfer ? `  進み ${lead.xfer.p.toFixed(2)}` : ''}  次の面の脚 ${S.next}`, 14, H - 78);
+    }
     if (lead) {
       g.fillStyle = '#ffd9a8';
       const KIND = { step: '段差', climb: '崖', none: '足場なし' } as const;

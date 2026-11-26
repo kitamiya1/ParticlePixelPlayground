@@ -78,6 +78,60 @@ export const LEDGE = {
   climbSpeed: 0.85,
 } as const;
 
+// ---------------- 第 8 段階：接地主導の壁登り・天井への移り ----------------
+//
+// 床 → 壁・壁 → 天井（凹んだ角）・崖を降り始める道 / 縁を回り込む道で、次の面（法線 n・面の上の点 p）を脚へ知らせる。
+// 脚（CrabFeet）は、先頭の脚（理想の位置が次の面の近く）で次の面に足場を探し、掛かった脚の数を support.next で返す。
+// 胴体は、次の面に掛かった脚の数に応じた所（faceCap）までしか移りを進めない（足場が無ければ体は先へ行かない）。
+
+export type FaceKind = 'wall' | 'ceil' | 'mantle';
+
+/** 次の面の手がかり（CrabController が持ち、CrabRig → CrabFeet へ渡す。診断の表示も読む） */
+export interface FaceHint {
+  kind: FaceKind;
+  /** 次の面の法線（単位）・面の上の点・次の面の上で進む向き（脚を置く所をこちらへずらす） */
+  readonly n: [number, number, number];
+  readonly p: [number, number, number];
+  readonly up: [number, number, number];
+  /** 'seek' = 脚が次の面を探している（胴体は待つ）・'move' = 移っている（xfer / 道） */
+  phase: 'seek' | 'move';
+  /** 探し始めてからの時間 */
+  t: number;
+}
+
+export const FACE = {
+  /** 移り始める：次の面に掛かった脚の本数・接地している脚の本数の下限 */
+  needNext: 2,
+  needPlanted: 4,
+  /** 凹んだ角（壁 → 天井）とみなす、いまの面と次の面の向きの差（内積がこれより小さい = 約 40° より大きい） */
+  cornerDot: 0.77,
+  /** 次の面の手前で胴体を待たせる距離（体の中心から次の面まで、半径 + これ） */
+  holdGap: 0.05,
+  /** 壁 → 天井などの角で、これだけ探しても脚が次の面に掛からなければ、従来どおり回り込む（秒） */
+  giveUp: 0.8,
+  /** 移り（0 → 1）にかかる時間（スティックをいっぱいに倒して）・移り終えてから次の角を探さない時間 */
+  xferT: 0.4,
+  cool: 0.4,
+  /** 上限で止まったまま押し続けたら、少しずつ進める（脚が次の面を見つけられずに詰まらない）までの時間と速さ（/ 秒） */
+  creepAfter: 0.35,
+  creepRate: 0.8,
+  /** 移っている途中で接地が 2 本未満の状態が続いたら支えを失う */
+  looseT: 0.4,
+  /** 移っている途中でスティックを離したら、近い方の端へ寄せ始めるまでの時間 */
+  settleAfter: 0.4,
+  /** 体の面と脚の面の向きの差がこれより大きいと遅くする（度）・その幅・最小の割合 */
+  lagDeg: 30,
+  lagSpan: 35,
+  lagMin: 0.25,
+  /** 張り付いている間、体の面を足先の組の面からこれより先へ回さない（度） */
+  leadDeg: 28,
+} as const;
+
+/** 次の面に掛かった脚の本数 → 移りをどこまで進めてよいか（0..1） */
+export function faceCap(next: number): number {
+  return next >= 4 ? 1 : next >= 3 ? 0.8 : next >= 2 ? 0.5 : next >= 1 ? 0.2 : 0.05;
+}
+
 /** 真下へ探った最初の上面（y0 が固体の中なら y0 = 前方は壁・上り。max より深ければ y0 − max） */
 function below(w: AquariumWorld, x: number, y0: number, z: number, max: number): number {
   let py = y0;
