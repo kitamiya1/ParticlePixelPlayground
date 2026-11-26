@@ -6,6 +6,8 @@
 //   watch(sec, drive)    … sec 秒進めながら、毎フレーム仲間を調べる：固体の中（contactSolid < 0）・ガラスの外・水の外・
 //                           1 フレームの移動の最大・カニからの距離の最大 / 平均・状態の数。drive(t) でカニの移動入力 { x, z }（ワールドの向き）
 //   route(points, sec)   … カニを points（[x, z] の並び）へ順に歩かせ（走る）、watch と同じ記録を返す
+// ※ pullFlow は以前の長押しの引っこ抜き（__aqua.act）用。引っこ抜き 2.0（鋏で挟んで引っ張る）では使えない：
+//   tug_helpers.js（__tug）・tug_test.js を使う。approach / watch / route はそのまま使える。
 (() => {
   const a = window.__aqua, c = a.crab, B = a.buddy, w = a.world, cam = a.camera, inp = a.input;
   const r3 = (v) => +v.toFixed(3);

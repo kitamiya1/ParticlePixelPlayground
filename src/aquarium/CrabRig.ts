@@ -16,7 +16,7 @@
 //   閉じ具合（grip.close）で可動指を開閉し、挟んでいる間は物の厚みの分だけ少し開いたまま。
 
 import * as THREE from 'three';
-import { clamp, lerp } from '../core/math';
+import { clamp, lerp, smoothstep } from '../core/math';
 import type { CrabController } from './CrabController';
 import { BODY_HEIGHT, CLAWS, CRAB_BONE, CRAB_BONE_COUNT, LEGS, legBone, legTip } from './crabModel';
 
@@ -77,6 +77,8 @@ export interface RigGrip {
   hold: boolean;
   /** 鋏の先を伸ばす所（世界）。null = 構えの位置 */
   target: [number, number, number] | null;
+  /** 滑りそうな度合い（0..1。鋏が震える） */
+  shake: number;
 }
 
 export class CrabRig {
@@ -105,7 +107,9 @@ export class CrabRig {
   private dirX = 1;
   private dirZ = 0;
   /** 挟む（右の鋏）：AquaGrab が書く状態・構えの重み（平滑）・IK の解（前のフレームから続けて解く） */
-  readonly grip: RigGrip = { on: false, close: 0, hold: false, target: null };
+  readonly grip: RigGrip = { on: false, close: 0, hold: false, target: null, shake: 0 };
+  /** 引っ張っている生き物が引き戻す強さ（0..1。main が AquaTug.env から書く。体が前へ揺すられる） */
+  tugShake = 0;
   private gw = 0;
   private readonly ik = [HOLD.yaw, HOLD.pitch, HOLD.fold];
   /** 構えた鋏の先・いま描いている鋏の先・鋏の付け根（世界）と、鋏を目標へ伸ばしきれなかった距離 */
@@ -122,8 +126,7 @@ export class CrabRig {
     const t = this.t;
     // 状態の重み（なめらかに切り替える）
     const target: Weights = { idle: 0, walk: 0, run: 0, air: 0, swim: 0, sink: 0, dig: 0, climb: 0, pull: 0 };
-    if (c.state === 'pull') target.pull = 1;
-    else if (c.state === 'climb') target.climb = 1;
+    if (c.state === 'climb') target.climb = 1;
     else if (c.state === 'idle') target.idle = 1;
     else if (c.state === 'walk') target.walk = 1;
     else if (c.state === 'run') target.run = 1;
@@ -131,9 +134,14 @@ export class CrabRig {
     else if (c.state === 'sink') target.sink = 1;
     else if (c.state === 'dig') target.dig = 1;
     else target.air = 1;
+    // 生き物を引っ張る：ほかの状態（歩く・待機）に重ねる。強く張っているほど深く踏ん張る
+    target.pull = c.pulling ? 0.4 + 0.6 * clamp(c.pullT, 0, 1) : 0;
     const k = 1 - Math.exp(-dt * 9);
     for (const key of Object.keys(target) as (keyof Weights)[]) this.w[key] += (target[key] - this.w[key]) * k;
     const W = this.w;
+    // 引っこ抜いた反動で後ろへ転ぶ（c.tumbleT：TUMBLE_T から 0 へ）：すぐ仰向けに近く倒れ、着地してから起き上がる
+    const tp = c.tumbleT > 0 ? 1 - c.tumbleT / 0.9 : 1;
+    const tumble = c.tumbleT > 0 ? (tp < 0.3 ? smoothstep(0, 0.3, tp) : 1 - smoothstep(0.45, 1, tp)) : 0;
     const move = W.walk + W.run;
     // 穴掘り中に進んでいる分（歩行の足運びを重ねる）
     const digMove = W.dig * clamp(c.speed / 1.0, 0, 1);
@@ -180,12 +188,13 @@ export class CrabRig {
     const bob = Math.abs(Math.cos(ph)) * (0.008 * W.walk + 0.014 * W.run + 0.008 * digMove + 0.006 * climbMove) + Math.sin(t * 2.1) * 0.004 * (W.idle + 0.5 * cling) + Math.abs(Math.sin(dph)) * 0.012 * W.dig;
     // 壁では体を面へ寄せる（脚を広げて踏ん張る）
     const squat = c.landImpact * 0.06 + 0.03 * W.sink + 0.025 * W.climb + 0.03 * W.pull;
-    // 引っ張り：抜けてくるほど体を後ろへ反らし、生き物の抵抗で小刻みに揺れる
-    const pt = c.pullT, tug = Math.sin(t * 31) * 0.03 * W.pull * (1 - pt * 0.5);
-    const roll = Math.sin(ph) * (0.035 * W.walk + 0.05 * W.run) + Math.sin(c.swimPhase * 0.5) * 0.08 * W.swim + Math.sin(dph) * 0.045 * W.dig;
+    // 引っ張り：強く張っているほど体を後ろへ反らし、生き物が引き戻すたび（tugShake）に前へ揺すられる
+    const pt = clamp(c.pullT, 0, 1), sh = this.tugShake;
+    const tug = (Math.sin(t * 31) * 0.018 + Math.sin(t * 19.7) * 0.012) * W.pull * (0.35 + sh) + 0.07 * sh * W.pull;
+    const roll = Math.sin(ph) * (0.035 * W.walk + 0.05 * W.run) + Math.sin(c.swimPhase * 0.5) * 0.08 * W.swim + Math.sin(dph) * 0.045 * W.dig + Math.sin(t * 23) * 0.03 * sh * W.pull;
     // 穴掘り：掘る向きへ頭を下げる（上へ掘るときは上げる）。かき出すたびに小さく前へのめる（空振りではのめらず、少し伸び上がる）
-    const pitch = -0.12 * W.swim + clamp(c.vy * 0.03, -0.12, 0.12) * (W.air + W.swim) + W.dig * (0.14 - c.digPitch * 0.4 + Math.abs(Math.sin(dph)) * 0.06 * (1 - wh) - 0.05 * wh) - W.pull * (0.1 + 0.25 * pt) + tug;
-    this.body.makeTranslation(0, BODY_HEIGHT + bob - squat + 0.03 * W.air, 0).multiply(this.m1.makeRotationZ(roll)).multiply(this.m2.makeRotationX(pitch));
+    const pitch = -0.12 * W.swim + clamp(c.vy * 0.03, -0.12, 0.12) * (W.air + W.swim) + W.dig * (0.14 - c.digPitch * 0.4 + Math.abs(Math.sin(dph)) * 0.06 * (1 - wh) - 0.05 * wh) - W.pull * (0.06 + 0.22 * pt) + tug - 0.95 * tumble;
+    this.body.makeTranslation(0, BODY_HEIGHT + bob - squat + 0.03 * W.air + 0.06 * tumble, 0).multiply(this.m1.makeRotationZ(roll)).multiply(this.m2.makeRotationX(pitch));
     this.bones[CRAB_BONE.body].copy(this.body);
 
     // 移動方向（体の座標）
@@ -237,6 +246,11 @@ export class CrabRig {
         if (W.pull > 0.001) {
           fx += W.pull * sx * 0.035;
           fz -= W.pull * (0.04 + 0.04 * pt);
+        }
+        // 転んだ：脚を宙でばたつかせる
+        if (tumble > 0.001) {
+          fy += tumble * (0.05 + 0.03 * Math.sin(t * 17 + i * 1.7 + (sx === 1 ? 0 : 1.3)));
+          fx += tumble * sx * 0.03;
         }
         // 穴掘り：前脚で砂を後ろへ蹴る（左右交互）。他の脚は少し広げて踏ん張る
         if (W.dig > 0.001) {
@@ -337,6 +351,13 @@ export class CrabRig {
       pitchA = lerp(pitchA, this.ik[1], gw);
       fold = lerp(fold, this.ik[2], gw);
       open = lerp(open, this.grip.hold ? 0.16 : 0.62 * (1 - this.grip.close), gw);
+      // 滑りそう：鋏が小刻みに震え、少し開きかける（離せば止まる）
+      const sh = this.grip.hold ? this.grip.shake : 0;
+      if (sh > 0.01) {
+        yawA += Math.sin(this.t * 47) * 0.035 * sh;
+        pitchA += Math.cos(this.t * 53) * 0.035 * sh;
+        open += 0.12 * sh;
+      }
     }
     this.toWorld(clawTip(yawA, pitchA, fold, tilt, this.t3), this.pinch);
     this.poseClaw(GRIP_SX, GRIP_K, CRAB_BONE.armR, CRAB_BONE.handR, CRAB_BONE.fingerR, yawA, pitchA, fold, open, tilt);

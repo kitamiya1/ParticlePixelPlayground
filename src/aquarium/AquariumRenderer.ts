@@ -163,6 +163,10 @@ const creatureVertex = /* glsl */ `
 attribute vec3 aColor;
 attribute vec2 aMisc;
 attribute vec2 iAnim;
+#ifdef BUDDY
+// 引っこ抜き：x = 節の間の伸び、y = 穴の口（体の座標の z）、z = そこから後ろを真下へ曲げる角
+attribute vec3 iTug;
+#endif
 varying vec3 vColor;
 varying vec3 vWorld;
 varying vec3 vNormal;
@@ -170,6 +174,16 @@ varying vec2 vMisc;
 void main() {
   vec3 p = position, n = normal;
   float tail = aMisc.y;
+#ifdef BUDDY
+  // 節の間の伸び：頭・胸（z > 0.10）は伸びの分だけ前へ。腹の 6 節は節ごとに固いまま、継ぎ目（各節の後ろ 30%）だけが伸びる
+  // （体の一部だけが引き伸ばされない。節が離れて見える）
+  if (iTug.x > 0.0) {
+    float su = clamp((0.10 - p.z) / 0.31, 0.0, 1.0) * 6.0;
+    float sk = floor(min(su, 5.999));
+    float stair = (sk + smoothstep(0.7, 1.0, su - sk)) / 6.0;
+    p.z += iTug.x * (1.0 - stair);
+  }
+#endif
 #ifdef FISH
   float sw = sin(iAnim.x - p.z * 16.0) * (0.012 + tail * 0.05) * (0.7 + iAnim.y * 0.8);
   p.x += sw;
@@ -184,6 +198,16 @@ void main() {
   float bob = sin(iAnim.x) * 0.006 * (1.0 - iAnim.y);
   p.y += bob * (0.5 + tail) - tail * tail * iAnim.y * 0.07 * (0.6 + 0.4 * sin(iAnim.x * 2.0));
   p.z += tail * iAnim.y * 0.035;
+#endif
+#ifdef BUDDY
+  // 穴の口より後ろ（穴の中）を、腹を曲げる向き（−y）へ真下まで曲げる（口から 0.08 の間でなめらかに）。
+  // 穴の外は引く向きへ傾いていても、穴の中の体は砂から突き出さない
+  if (iTug.z > 0.001 && p.z < iTug.y) {
+    float ba = iTug.z * smoothstep(0.0, 0.08, iTug.y - p.z);
+    float bc = cos(ba), bs = sin(ba), bz = p.z - iTug.y;
+    p.yz = vec2(p.y * bc + bz * bs, -p.y * bs + bz * bc + iTug.y);
+    n.yz = vec2(n.y * bc + n.z * bs, -n.y * bs + n.z * bc);
+  }
 #endif
   vec4 wp = modelMatrix * instanceMatrix * vec4(p, 1.0);
   vWorld = wp.xyz;
@@ -474,6 +498,7 @@ export class AquariumRenderer {
     if (explore.buddy) {
       this.buddy = explore.buddy.sys;
       this.buddyMesh = this.creatureMesh(explore.buddy.mesh, 1, false, { BUDDY: '' });
+      this.buddyMesh.geometry.setAttribute('iTug', new THREE.InstancedBufferAttribute(new Float32Array(3), 3).setUsage(THREE.DynamicDrawUsage));
       const burrow = new THREE.Mesh(triGeometry(explore.buddy.burrowMesh), worldMat);
       burrow.frustumCulled = false;
       this.meshScene.add(burrow);
@@ -668,7 +693,9 @@ export class AquariumRenderer {
       bm.setMatrixAt(0, this.m4);
       const ba = bm.geometry.getAttribute('iAnim') as THREE.InstancedBufferAttribute;
       ba.setXY(0, B.phase, B.act);
-      bm.instanceMatrix.needsUpdate = ba.needsUpdate = true;
+      const bt = bm.geometry.getAttribute('iTug') as THREE.InstancedBufferAttribute;
+      bt.setXYZ(0, B.stretch, B.bendZ, B.found ? 0 : B.bendA);
+      bm.instanceMatrix.needsUpdate = ba.needsUpdate = bt.needsUpdate = true;
     }
     // 挟める物：位置・向き（四元数）・大きさ
     for (const { mesh, list } of this.propMeshes) {
@@ -692,6 +719,17 @@ export class AquariumRenderer {
       this.digFx.burst({ kind: 'dig', x, y: y + 0.05, z, power: strong ? 1 : 0.5, dir: [Math.sin(a) * 0.3, 0.9, Math.cos(a) * 0.3], material: 'sand' });
     }
     if (y < TANK.waterY - 0.2) this.spawn(0, x, y + 0.08, z, strong ? 22 : 6, strong ? 0.3 : 0.15, 0.04, strong ? 1.6 : 0.9);
+  }
+
+  /**
+   * 引っこ抜きの最中の砂粒と泡（main が段階・出来事に合わせて呼ぶ）。
+   * crumble = 穴の縁の砂が崩れる（n 粒。toward = 崩れる側）、bubble = 穴の口から泡（生き物が引き戻した）、
+   * kick = カニの足もとの砂を蹴る（踏ん張っている。dir = 蹴る向き）
+   */
+  tugFx(kind: 'crumble' | 'bubble' | 'kick', x: number, y: number, z: number, n: number, dir: readonly number[] | null = null) {
+    if (kind === 'crumble') this.digFx.crumble(x, y, z, 0.16, n, dir);
+    else if (kind === 'kick') this.digFx.burst({ kind: 'dig', x, y: y + 0.02, z, power: 0.05 * n, dir: dir ? [dir[0], 0.4, dir[1]] : [0, 1, 0], material: 'sand' });
+    else if (y < TANK.waterY - 0.2) this.spawn(0, x, y + 0.06, z, n, 0.08, 0.025, 0.8);
   }
 
   private buildHalos(finds: Find[]): THREE.Points {

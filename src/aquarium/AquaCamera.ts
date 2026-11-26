@@ -216,7 +216,21 @@ export class AquaCamera {
   /** 天井・張り出しに張り付いている度合い（0..1。平滑化。注視点をさらに面から離し、見る先をカニへ寄せる） */
   ceilW = 0;
 
+  /** 軽い反動（引っこ抜いた瞬間・生き物が引き戻したとき）：見る先のずれ（世界）とその速さ。ばねで戻る */
+  private readonly kickP: V3 = [0, 0, 0];
+  private readonly kickV: V3 = [0, 0, 0];
+  /** 引っこ抜きで見せたい所（挟んでいる触角。main が書く。null = ふだん）と、その寄せ具合（平滑化） */
+  focus: V3 | null = null;
+  private focusW = 0;
+
   constructor(private readonly world: AquariumWorld) {}
+
+  /** 見る先を (x, y, z) の速さで少し揺らす（冒険カメラだけ。位置は動かさないので壁・砂へは入らない） */
+  kick(x: number, y: number, z: number) {
+    this.kickV[0] += x;
+    this.kickV[1] += y;
+    this.kickV[2] += z;
+  }
 
   /** カニの背中側（体の後ろ）から見る向きにする */
   placeBehind(c: CrabController) {
@@ -337,9 +351,13 @@ export class AquaCamera {
     this.ceilW += ((c.climbing ? smoothstep(0.1, -0.7, n[1]) : 0) - this.ceilW) * (1 - Math.exp(-dt * 4));
     let lift = CLIMB_LIFT * this.climbW;
     if (this.ceilW > 1e-3) lift = this.freeAlong(c, n, lift + CEIL_LIFT * this.ceilW, lift);
-    this.target.x += (c.x + n[0] * lift - this.target.x) * kf;
-    this.target.y += (c.y + 0.3 + n[1] * lift - this.target.y) * kf;
-    this.target.z += (c.z + n[2] * lift - this.target.z) * kf;
+    // 引っこ抜き：注視点をカニと巣穴の間へ寄せて少し上げる（後ろから見てもカニの体の向こうの生き物が見える）
+    this.focusW += ((this.focus ? 1 : 0) - this.focusW) * (1 - Math.exp(-dt * 3));
+    const F = this.focus, fw = F ? this.focusW : 0;
+    const fx = F ? (F[0] - c.x) * 0.55 * fw : 0, fz = F ? (F[2] - c.z) * 0.55 * fw : 0, fy = 0.22 * fw;
+    this.target.x += (c.x + n[0] * lift + fx - this.target.x) * kf;
+    this.target.y += (c.y + 0.3 + n[1] * lift + fy - this.target.y) * kf;
+    this.target.z += (c.z + n[2] * lift + fz - this.target.z) * kf;
     // 掘ったトンネルの中にいる度合い：体の中心が空洞の中で元の地表より下（深さ 0.05〜0.4 で 0→1）× 頭の上の砂の天井
     // （上が開いた溝・地表へ抜けた出口では 0）。入るときは少し速く、出るときはゆっくり変える（境目で急に変わらない）
     const cy = c.y + c.radius;
@@ -417,6 +435,13 @@ export class AquaCamera {
     if (this.lookUp > 1e-3) aim = tiltUp(next, aim, this.lookUp * 0.85);
     // 見晴らしで眺めの先が決まっている場所（部屋から水槽を見上げる等）は、注視点をそちらへ寄せる
     if (this.aimW > 0.01 && v?.aim) aim = [aim[0] + (v.aim[0] - aim[0]) * this.aimW, aim[1] + (v.aim[1] - aim[1]) * this.aimW, aim[2] + (v.aim[2] - aim[2]) * this.aimW];
+    // 軽い反動：見る先のずれをばね（減衰あり）で戻す
+    const kp = this.kickP, kv = this.kickV;
+    for (let i = 0; i < 3; i++) {
+      kv[i] += (-90 * kp[i] - 11 * kv[i]) * dt;
+      kp[i] = clamp(kp[i] + kv[i] * dt, -0.25, 0.25);
+    }
+    aim = [aim[0] + kp[0], aim[1] + kp[1], aim[2] + kp[2]];
     this.pose.target = aim;
     // 天井で止まったカメラは、それ以上上へ回した分だけ見下ろす
     if (this.lookDown > 1e-3) aim = tiltUp(next, aim, -this.lookDown * 0.85);
@@ -677,7 +702,8 @@ export class AquaCamera {
     const T: V3 = [this.target.x, this.target.y, this.target.z];
     const Z = Math.min(o.zoom, ZOOM_MAX[region]);
     const yaw = o.yaw;
-    const op = o.pitch;
+    // 引っこ抜き：少し上から見下ろす（カニの体の向こうの穴と生き物が見える。床・天井の調べはこの仰角で行う）
+    const op = Math.min(o.maxPitch, o.pitch + 0.22 * this.focusW);
 
     // 1. 床：いまの仰角で最初に当たるのが床なら、床に当たらない最小の仰角を探す（その分は見上げる）。
     //    天井：最初に当たるのが越えられない天井で、そこで大きく縮むなら、当たらない最大の仰角を探す（その分は見下ろす）
