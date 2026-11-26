@@ -16,8 +16,13 @@ export interface TouchControlsOptions {
   jump?: boolean;
   /** カメラ切り替えボタン（押したときに呼ぶ。onCameraHold があるときは、短く押して離したときに呼ぶ） */
   onCamera?: () => void;
-  /** カメラのボタンを長押ししたとき（水槽ゲーム：肩越し・一人称 ↔ 三人称） */
+  /** カメラのボタンを長押ししたとき（水槽ゲーム：視点の一覧を開く） */
   onCameraHold?: () => void;
+  /**
+   * 長押しで onCameraHold を呼んだ後、押したまま指を動かした・離した（水槽ゲーム：指を滑らせて一覧の視点を選ぶ）。
+   * x, y = 指の画面の座標（CSS px）、end = 離した
+   */
+  onCameraDrag?: (x: number, y: number, end: boolean) => void;
   /**
    * 掘るボタン（押している間 Input.touchDig = true）。押したまま指をずらすと、押した位置からのずれが掘る向きの照準
    * （Input.touchDigAim：上へずらす = 上を掘る、左右 = 左右、斜めも可。指がボタンの外へ出ても続く）
@@ -45,19 +50,45 @@ const CAMERA_HOLD_MS = 420;
 /** 挟むボタンを押したまま指をずらしたとき、視点の回転に使い始めるずれ（CSS px） */
 const GRAB_LOOK_DEAD = 10;
 
-/** 印（24 × 24 の線画。色は文字の色） */
+/**
+ * 印（24 × 24 の線画。色は文字の色。class="dot" の円は塗る：砂粒など）。
+ * 第 6 段階（iPhone の確認から）：抽象的な記号から、動きが分かる絵へ：
+ * ジャンプ = 地面から真上へ跳ぶ矢印、ダッシュ = 横へ流れる線と二重の矢印、掘る = 地面のくぼみへ下がる矢印と飛び散る砂粒、
+ * 盛る = 砂山へ降り積もる矢印と砂粒、挟む = 開いた / 閉じたカニのハサミ（掌と 2 本の指）、ちぎる = 茎を切る、抜く = 根ごと上へ、
+ * カメラ = いまの視点の絵（三人称・肩越し・自由追従・ガラス越し・箱庭・従来）
+ */
 export const TOUCH_ICONS = {
-  jump: '<path d="M6 14l6-6 6 6"/><path d="M6 19h12"/>',
-  run: '<path d="M5 6l6 6-6 6"/><path d="M12 6l6 6-6 6"/>',
-  dig: '<path d="M12 3v9"/><path d="M8.5 8.5L12 12l3.5-3.5"/><path d="M3 14.5c2.5 6 15.5 6 18 0"/>',
-  fill: '<path d="M12 3v8"/><path d="M8.5 7.5L12 11l3.5-3.5"/><path d="M3 20.5c3-6.5 15-6.5 18 0"/>',
+  jump: '<path d="M3.5 21h17"/><path d="M12 17.5V4.5"/><path d="M7 9.5l5-5 5 5"/><path d="M6.5 18.5L5 17M17.5 18.5L19 17"/>',
+  run: '<path d="M2.5 8.5h5M1.5 12h6M2.5 15.5h5"/><path d="M10 6.5l5.5 5.5-5.5 5.5"/><path d="M15 6.5l5.5 5.5-5.5 5.5"/>',
+  dig: '<path d="M2 14h4.2c1.4 4.6 10.2 4.6 11.6 0H22"/><path d="M12 3.5v8"/><path d="M8.8 8.6L12 11.8l3.2-3.2"/><circle class="dot" cx="4.6" cy="9.6" r="1.25"/><circle class="dot" cx="19.6" cy="8.4" r="1.25"/><circle class="dot" cx="18.2" cy="11.6" r="0.95"/>',
+  fill: '<path d="M2 21h20"/><path d="M4 21c1.6-5 4.4-7.4 8-7.4s6.4 2.4 8 7.4"/><path d="M8.6 18.2h6.8"/><path d="M12 2.5v7"/><path d="M8.9 6.6L12 9.7l3.1-3.1"/><circle class="dot" cx="6.4" cy="9" r="1.1"/><circle class="dot" cx="17.8" cy="7.4" r="1.1"/>',
   cam: '<rect x="3" y="7.5" width="18" height="12" rx="2.5"/><circle cx="12" cy="13.5" r="3.2"/><path d="M8.5 7.5l1.6-2.6h3.8l1.6 2.6"/>',
-  clawOpen: '<path d="M12 21v-5.5"/><path d="M12 15.5C7.5 15.5 5 12 5.5 4.5"/><path d="M12 15.5c3.8 0 6.2-2.6 6.2-8"/>',
-  clawShut: '<path d="M12 21v-5.5"/><path d="M12 15.5c-4 0-6.4-3-5.6-8.4 2.2-2.4 5.2-2 6.1 1.4"/><path d="M12 15.5c4 0 6.4-3 5.6-8.4-2.2-2.4-5.2-2-6.1 1.4"/>',
+  // カニのハサミ：掌（楕円）・動かない指（下）・動く指（上）。開くと指の間が空き、閉じると指先が合わさる
+  // （塗りのシルエット：小さくしても形が読める。掌は斜め、動かない指は右上へ、動く指は上へ。閉じると指先が合わさる）
+  clawOpen: '<ellipse class="dot" cx="8.6" cy="16.2" rx="5.6" ry="4.6" transform="rotate(-24 8.6 16.2)"/><path class="dot" d="M11.6 12.4C15 11.4 18.4 8.8 20.6 4.6c.6 4.8-1.6 9.4-6.6 11.6z"/><path class="dot" d="M6.2 12.2C5.4 8.2 6.8 4.6 10.4 2.2c.6 3.8-.2 7.4-2 10.4z"/><path d="M1.5 22.5l2.6-2.4"/>',
+  clawShut: '<ellipse class="dot" cx="8.6" cy="16.2" rx="5.6" ry="4.6" transform="rotate(-24 8.6 16.2)"/><path class="dot" d="M11.6 12.4C15 11.4 18.4 8.8 20.6 4.6c.6 4.8-1.6 9.4-6.6 11.6z"/><path class="dot" d="M5.8 11.4C7.6 6.6 12.6 3.4 19.8 3.6c-2.4 2.6-5.6 4.2-9.6 5.2z"/><path d="M15.4 9.2l.3 1.4M12.6 10.4l.3 1.4"/><path d="M1.5 22.5l2.6-2.4"/>',
+  // ちぎる（挟んだ茎を切る）：葉の付いた茎の途中を、左からハサミの指先が挟んで切る（切れ目の右にはじける線）
+  snip: '<path d="M12 22v-6.2"/><path d="M12 10.2V5"/><path class="dot" d="M12 7.2c1.4-3 4-4.4 7-3.8-1.2 3-3.8 4.4-7 3.8z"/><path class="dot" d="M2 11.2c3-1.6 6.4-1.6 9.4-.2-3.2.6-6.2.8-9.4.2z"/><path class="dot" d="M2 15c3 1.4 6.4 1.2 9.4-.4-3.2-.4-6.2-.4-9.4.4z"/><path d="M15 11.2l2.2-1.2M15.2 14.6l2.2 1.1M15.6 12.9h2.6"/>',
+  // 抜く：根の付いた草と、上への矢印（地面の線は茎の所で切れている）
+  uproot: '<path d="M3 17h6M15 17h6"/><path d="M12 15.5V6"/><path d="M12 9.5C9 9.2 7.2 7.4 7 4.6c2.8.2 4.6 2 5 4.9z"/><path d="M12 15.5l-2.6 3.8M12 15.5l2.6 3.8M12 15.5v5"/><path d="M19.5 12V3.5"/><path d="M17 6l2.5-2.5L22 6"/>',
+  // 視点：三人称 = 後ろのカメラからカニを見る線
+  camTps: '<path class="dot" d="M10 10.6c0-3.4 2.9-5.6 6.5-5.6S23 7.2 23 10.6z"/><path d="M11.2 10.6l-1.8 2.6M21.8 10.6l1.6 2.4M13.6 10.6l-.8 2.8M19.4 10.6l.8 2.8"/><rect class="dot" x="1" y="15.6" width="8" height="5.8" rx="1.4"/><path d="M9.6 15.2l2.6-2" stroke-dasharray="1.4 1.6"/>',
+  // 肩越し = 手前に大きくカニの背中と 2 本の眼、その先へ広がる見る範囲
+  camClose: '<path class="dot" d="M2 23c0-4.8 4.4-7.8 10-7.8s10 3 10 7.8z"/><path d="M9 15.4v-3.6M15 15.4v-3.6"/><circle class="dot" cx="9" cy="10.4" r="1.7"/><circle class="dot" cx="15" cy="10.4" r="1.7"/><path d="M8 7.6L3.6 2.4M16 7.6l4.4-5.2"/>',
+  // 自由追従 = 岩を通り抜けて回る点線の輪
+  camFree: '<circle cx="12" cy="12" r="8.2" stroke-dasharray="2.2 2.2"/><rect x="14.5" y="2.5" width="7" height="6.5" rx="1"/><circle class="dot" cx="12" cy="12" r="2.2"/><path d="M3.2 15.4l2.2-1 .5 2.4"/>',
+  // ガラス越し = ガラスの板と外から覗く眼
+  camObserve: '<rect x="12.5" y="2.5" width="9" height="19" rx="1"/><path d="M15 7l3-3M15 11l5-5"/><path d="M1.5 12c1.4-2.4 3.1-3.6 4.8-3.6S9.7 9.6 11 12c-1.3 2.4-3 3.6-4.7 3.6S2.9 14.4 1.5 12z"/><circle class="dot" cx="6.3" cy="12" r="1.3"/>',
+  // 箱庭 = 水槽を斜め上から見た箱
+  camDiorama: '<path d="M12 3l8.5 4.6v8.8L12 21l-8.5-4.6V7.6z"/><path d="M3.5 7.6L12 12.2l8.5-4.6"/><path d="M12 12.2V21"/><path d="M5.5 14.4c1.6-.9 3-.9 4.4 0"/>',
+  // 従来 = カメラと回り込む矢印
+  camClassic: '<rect x="4" y="9" width="16" height="10.5" rx="2.2"/><circle cx="12" cy="14.2" r="2.8"/><path d="M8 9l1.4-2.2h5.2L16 9"/><path d="M3 5.5c2.4-2.6 5.6-3.6 9-3.2"/><path d="M10.2 1l1.8 1.3-1.3 1.8"/>',
 } as const;
 
+export type TouchIconName = keyof typeof TOUCH_ICONS;
+
 /** 印の SVG（class は表示の切り替え用） */
-export function touchIcon(name: keyof typeof TOUCH_ICONS, cls = ''): string {
+export function touchIcon(name: TouchIconName, cls = ''): string {
   return `<svg viewBox="0 0 24 24" aria-hidden="true"${cls ? ` class="${cls}"` : ''}>${TOUCH_ICONS[name]}</svg>`;
 }
 
@@ -82,12 +113,12 @@ export class TouchControls {
       this.root.classList.add('icons');
       this.root.innerHTML = `
       <div class="stick"><i class="ring"></i><div class="knob"></div></div>
-      <button class="tb run" type="button" aria-label="${opts.runLabel ?? '走る'}">${f(touchIcon('run'))}</button>${opts.jump ? `
-      <button class="tb jump" type="button" aria-label="ジャンプ">${f(touchIcon('jump'))}</button>` : ''}${opts.dig ? `
-      <button class="tb dig" type="button" aria-label="掘る">${f(`<i class="aim"></i>${touchIcon('dig', 'i-dig')}${touchIcon('fill', 'i-fill')}`)}</button>` : ''}${opts.onCamera ? `
-      <button class="tb cam" type="button" aria-label="カメラの切り替え">${f(touchIcon('cam'))}</button>` : ''}${opts.act ? `
+      <button class="tb run" type="button" aria-label="${opts.runLabel ?? '走る'}" data-label="${opts.runLabel ?? '走る'}">${f(touchIcon('run'))}</button>${opts.jump ? `
+      <button class="tb jump" type="button" aria-label="ジャンプ" data-label="ジャンプ">${f(touchIcon('jump'))}</button>` : ''}${opts.dig ? `
+      <button class="tb dig" type="button" aria-label="掘る" data-label="掘る">${f(`<i class="aim"></i>${touchIcon('dig', 'i-dig')}${touchIcon('fill', 'i-fill')}${touchIcon('snip', 'i-snip')}${touchIcon('uproot', 'i-uproot')}`)}</button>` : ''}${opts.onCamera ? `
+      <button class="tb cam" type="button" aria-label="視点の切り替え（長押しで一覧）" data-label="視点">${f(touchIcon('camTps', 'i-view'))}</button>` : ''}${opts.act ? `
       <button class="act" type="button"><i class="ring"></i><span></span></button>` : ''}${opts.grab ? `
-      <button class="tb grab" type="button" aria-pressed="false" aria-label="挟む">${f(`${touchIcon('clawOpen', 'i-open')}${touchIcon('clawShut', 'i-shut')}`)}</button>` : ''}`;
+      <button class="tb grab" type="button" aria-pressed="false" aria-label="挟む" data-label="挟む">${f(`${touchIcon('clawOpen', 'i-open')}${touchIcon('clawShut', 'i-shut')}`)}</button>` : ''}`;
     } else {
       this.root.innerHTML = `
       <div class="stick"><div class="knob"></div></div>
@@ -119,8 +150,10 @@ export class TouchControls {
           fn();
         });
       } else {
-        // 長押し（CAMERA_HOLD_MS）で onCameraHold、それより短く離したら onCamera（離したときに切り替える）
-        let id = -1, timer = 0, fired = false;
+        // 長押し（CAMERA_HOLD_MS）で onCameraHold、それより短く離したら onCamera（離したときに切り替える）。
+        // 長押しの後は、押したまま指を動かす・離すを onCameraDrag へ（一覧の視点を指を滑らせて選ぶ）
+        const drag = opts.onCameraDrag;
+        let id = -1, timer = 0, fired = false, lx = 0, ly = 0;
         cam.addEventListener('pointerdown', (e) => {
           e.preventDefault();
           if (id !== -1) this.input.release(id);
@@ -136,13 +169,22 @@ export class TouchControls {
             cam.classList.add('held');
             hold();
           }, CAMERA_HOLD_MS);
+          lx = e.clientX;
+          ly = e.clientY;
           this.input.claim(e, {
+            move: (ev) => {
+              if (id !== mine) return;
+              lx = ev.clientX;
+              ly = ev.clientY;
+              if (fired) drag?.(lx, ly, false);
+            },
             end: () => {
               if (id !== mine) return;
               id = -1;
               clearTimeout(timer);
               cam.classList.remove('on', 'held');
               if (!fired) fn();
+              else drag?.(lx, ly, true);
             },
           });
         });
@@ -153,6 +195,42 @@ export class TouchControls {
         });
       }
       cam.addEventListener('contextmenu', (e) => e.preventDefault());
+    }
+    // 押したときの反応：印のボタンは押した瞬間に輪が広がって消える（.tap。押している間の縮み・明るさは .on / .press）
+    if (this.icons) {
+      this.root.addEventListener('pointerdown', (e) => {
+        const b = (e.target as Element | null)?.closest?.('.tb');
+        if (!b) return;
+        b.classList.remove('tap');
+        void (b as HTMLElement).offsetWidth;
+        b.classList.add('tap');
+        this.taps++;
+      }, true);
+    }
+  }
+
+  /** 押した回数（印のボタン。自動検証用） */
+  taps = 0;
+
+  /** ボタン名を印の下に出す（設定の「ボタンの名前」・初回の案内） */
+  setLabels(on: boolean) {
+    this.root.classList.toggle('labels', on);
+  }
+
+  /** ボタンの印と名前を替える（cls = ボタンの class。name = 印、label = 名前・読み上げ） */
+  setButton(cls: string, name: TouchIconName | null, label?: string) {
+    const b = this.root.querySelector<HTMLElement>(`.tb.${cls}`);
+    if (!b) return;
+    if (name) {
+      const svg = b.querySelector('.i-view');
+      if (svg && svg.getAttribute('data-n') !== name) {
+        svg.setAttribute('data-n', name);
+        svg.innerHTML = TOUCH_ICONS[name];
+      }
+    }
+    if (label !== undefined && b.dataset.label !== label) {
+      b.dataset.label = label;
+      if (!b.classList.contains('grab')) b.setAttribute('aria-label', label);
     }
   }
 
@@ -340,6 +418,7 @@ export class TouchControls {
     // 印のボタンは閉じた / 開いたハサミの印を CSS で切り替える（文字は読み上げ用の名前だけ）
     if (this.icons) {
       if (btn.getAttribute('aria-label') !== label) btn.setAttribute('aria-label', label);
+      if (btn.dataset.label !== label) btn.dataset.label = label;
       return;
     }
     const span = btn.querySelector('span');

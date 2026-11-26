@@ -426,3 +426,62 @@ body.aqua:not(.aqua-guides) #climb-cue, body.aqua:not(.aqua-guides) #act-prompt,
   color: #f2fff9; border: 1px solid rgba(255, 255, 255, 0.2); }
 #audio-panel .seg button.on { background: #2e8079; border-color: rgba(255, 255, 255, 0.6); font-weight: 700; }
 #audio-panel label.row { line-height: 1.4; }
+
+/* ---------------- 第 6 段階：操作の絵・押したときの反応・ボタンの名前・視点の切り替え ----------------
+   絵は動きが分かる線画（TouchControls の TOUCH_ICONS）。背景は以前どおり半透明のまま、絵の線を少し太く・白く・
+   縁取り（暗い影を 2 重）して、明るい砂・水草の上でも読めるようにする。押した瞬間は円が縮んで明るくなり、輪が広がって消える */
+body.aqua #touch-ui .tb svg { stroke-width: 2.15; opacity: 1; color: #fff;
+  filter: drop-shadow(0 0 0.8px rgba(0, 0, 0, 0.95)) drop-shadow(0 1px 1.6px rgba(0, 0, 0, 0.7)); }
+body.aqua #touch-ui .tb svg .dot { fill: currentColor; stroke: none; }
+body.aqua #touch-ui .tb .face::before { content: ''; position: absolute; inset: -2px; border-radius: inherit; border: 2px solid rgba(255, 255, 255, 0.9);
+  opacity: 0; pointer-events: none; }
+body.aqua #touch-ui .tb.tap .face::before { animation: tb-ripple 0.34s ease-out; }
+@keyframes tb-ripple { from { opacity: 0.9; transform: scale(0.92); } to { opacity: 0; transform: scale(1.32); } }
+body.aqua #touch-ui .tb.on .face, body.aqua #touch-ui .tb.press .face { background: rgba(var(--c), max(var(--ae), 0.46)); border-color: rgba(255, 255, 255, 0.95); transform: scale(0.88); }
+body.aqua #touch-ui .grab.on .face { transform: none; background: rgba(var(--c), max(var(--ae), 0.4)); }
+body.aqua #touch-ui .grab.on.press .face { transform: scale(0.88); }
+/* 掘るボタン：水草を挟んでいる間は「ちぎる」「抜く」の絵（色も変える） */
+body.aqua #touch-ui .tb .i-snip, body.aqua #touch-ui .tb .i-uproot { display: none; }
+body.aqua #touch-ui .dig.snip .i-dig, body.aqua #touch-ui .dig.snip .i-fill, body.aqua #touch-ui .dig.uproot .i-dig, body.aqua #touch-ui .dig.uproot .i-fill { display: none; }
+body.aqua #touch-ui .dig.snip .i-snip, body.aqua #touch-ui .dig.uproot .i-uproot { display: block; }
+body.aqua #touch-ui .dig.snip, body.aqua #touch-ui .dig.uproot { --c: 70, 128, 72; }
+/* ボタンの名前（設定の「ボタンの名前を表示」・初回）：円の下に小さく */
+body.aqua #touch-ui .tb::after { content: attr(data-label); position: absolute; left: 50%; top: calc(100% - var(--pad) + 1px); transform: translateX(-50%);
+  font-size: 11px; line-height: 1.2; font-weight: 700; color: #fff; white-space: nowrap; pointer-events: none; display: none;
+  text-shadow: 0 0 2px #000, 0 1px 2px #000; }
+body.aqua #touch-ui.labels .tb::after { display: block; }
+body.aqua #touch-ui.labels .tool::after { top: auto; bottom: calc(100% - var(--pad) + 1px); }
+
+/* 視点を切り替えたときだけ出す、視点の絵と名前（画面の上の中ほど。短く出して消える） */
+#view-toast { position: fixed; left: 50%; top: calc(58px + env(safe-area-inset-top)); transform: translate(-50%, -6px); opacity: 0; z-index: 5;
+  display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 10px; border-radius: 20px; background: rgba(12, 20, 28, 0.72); color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.25); pointer-events: none; transition: opacity 0.18s, transform 0.18s; font-size: 15px; white-space: nowrap; }
+#view-toast.show { opacity: 1; transform: translate(-50%, 0); }
+#view-toast svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#view-toast svg .dot { fill: currentColor; stroke: none; }
+#view-toast small { font-size: 11px; color: #b9d6d0; margin-left: 4px; }
+
+/* 視点の一覧（カメラのボタン・V の長押し）。いまの視点に印（.on）、指を滑らせている所（.hot） */
+#view-picker { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translate(-50%, 8px); opacity: 0; pointer-events: none; z-index: 6;
+  display: flex; flex-direction: column; gap: 3px; padding: 8px; border-radius: 12px; background: rgba(10, 18, 26, 0.9); border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #fff; transition: opacity 0.12s, transform 0.12s; min-width: 250px; touch-action: none; }
+#view-picker.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+#view-picker.touch { left: auto; right: calc(24px + env(safe-area-inset-right)); bottom: calc(200px + env(safe-area-inset-bottom)); transform: translate(0, 8px); }
+#view-picker.touch.show { transform: none; }
+#view-picker .vp-head { font-size: 12px; color: #9fe3d4; font-weight: 700; padding: 0 4px 2px; }
+#view-picker button { display: grid; grid-template-columns: 30px auto 1fr auto; align-items: center; gap: 8px; min-height: 42px; padding: 3px 8px;
+  border-radius: 8px; border: 1px solid transparent; background: rgba(255, 255, 255, 0.04); color: #fff; text-align: left; font-size: 15px; }
+#view-picker button svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#view-picker button svg .dot { fill: currentColor; stroke: none; }
+#view-picker button .ds { font-size: 11px; color: #a9c2bd; }
+#view-picker button kbd { font-size: 11px; color: #cfe; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 4px; padding: 0 5px; }
+#view-picker button.on { background: rgba(46, 128, 121, 0.75); border-color: rgba(255, 255, 255, 0.7); font-weight: 700; }
+#view-picker button.on .nm::after { content: ' ✓'; }
+#view-picker button.hot { border-color: #ffe9a0; background: rgba(255, 233, 160, 0.18); }
+@media (orientation: landscape) and (max-height: 500px) {
+  #view-picker { display: grid; grid-template-columns: 1fr 1fr; min-width: 0; }
+  #view-picker .vp-head { grid-column: 1 / -1; }
+  #view-picker.touch { bottom: calc(12px + env(safe-area-inset-bottom)); right: calc(230px + env(safe-area-inset-right)); }
+  #view-picker button .ds { display: none; }
+  #view-picker button { grid-template-columns: 28px 1fr; min-height: 38px; }
+}

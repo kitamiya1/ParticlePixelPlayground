@@ -72,8 +72,15 @@ export class PlantField {
   readonly removed: Uint8Array;
   /** ちぎった植物の、残った根元の側の高さ（それより上の円盤は無い） */
   readonly cutH: Float32Array;
-  /** ハサミで挟んでいる植物：押された量の目標（根元に対する水平のずれ）と挟んだ高さの割合（第 5 段階） */
-  held: { i: number; dx: number; dz: number; fc: number } | null = null;
+  /**
+   * ハサミで挟んでいる植物：押された量の目標（根元に対する水平のずれ）・挟んだ高さの割合（第 5 段階）・
+   * 挟んでいる間の曲がりの上限（cap。ふだんの上限より大きくしなる）・張っている震え（fl）
+   */
+  held: { i: number; dx: number; dz: number; fc: number; cap?: number; fl?: number } | null = null;
+  /** 押す球で押さない植物（第 6 段階：「挟む」を押している間、鋏で狙っている植物。main が毎フレーム決める） */
+  nopush: number[] = [];
+  /** 植物ごとの、いまの曲がりの上限（挟んで大きくしならせた後は、ゆっくりふだんの上限へ戻す：離した瞬間に急に縮めない） */
+  private readonly capH: Float32Array;
   private discs: Map<number, number[]> | null = null;
 
   constructor(readonly table: PlantTable) {
@@ -102,6 +109,8 @@ export class PlantField {
     this.touched = new Uint8Array(n);
     this.removed = new Uint8Array(n);
     this.cutH = new Float32Array(table.height);
+    this.capH = new Float32Array(n);
+    this.boingT = new Float32Array(n);
     this.uniforms = {
       uPlantInfo: { value: infoTex },
       uPlantBend: { value: this.bendTex },
@@ -269,7 +278,7 @@ export class PlantField {
       for (let s = 0; s <= nS; s++) {
         const f = s / nS;
         this.near({ x: a[0] + (b[0] - a[0]) * f, y: 0, z: a[2] + (b[2] - a[2]) * f, r: sight.r, vx: 0, vy: 0, vz: 0 }, (i) => {
-          if (seen.has(i)) return;
+          if (seen.has(i) || this.nopush.includes(i) || this.boingT[i] > 0.5) return;
           seen.add(i);
           const p = this.sightOf(i, sight);
           if (!p) return;
@@ -280,6 +289,9 @@ export class PlantField {
     }
     for (const P of pushers) {
       this.near(P, (i) => {
+        // ハサミで狙っている植物は体で押しのけない（太い株が体に押されて鋏の届かない所へ逃げない）
+        // 離した直後に跳ね返っている植物も（引き戻されて根元のそばにいるカニの体が、ビヨーンと戻る動きを押さえ込まない）
+        if (this.nopush.includes(i) || this.boingT[i] > 0.5) return;
         const p = this.pushOf(i, P);
         if (!p) return;
         const q = tgt.get(i);
@@ -297,6 +309,9 @@ export class PlantField {
     if (Hd && !this.removed[Hd.i]) {
       tgt.set(Hd.i, [Hd.dx, Hd.dz, Hd.fc, 0]);
       this.active.add(Hd.i);
+      this.capH[Hd.i] = Math.max(this.capH[Hd.i], Hd.cap ?? 0);
+      // 張っている間の震え（強く引くほど・上へ引くほど葉が細かく震える）
+      if (Hd.fl) this.fl[Hd.i] = Math.max(this.fl[Hd.i], Hd.fl);
     }
     this.stats.touched = tgt.size;
     // 2. ばね + 減衰（押されている間は押し出した位置へ速く寄せる。離れたら種類ごとの硬さで、水の抵抗を感じる速さで戻る）
@@ -326,7 +341,8 @@ export class PlantField {
           ax = PUSH_K * (t[0] - dx) - c * vx;
           az = PUSH_K * (t[1] - dz) - c * vz;
         } else {
-          const c = 2 * Math.sqrt(kp.k) * kp.zeta;
+          // 離した直後（boingT）は減衰を弱く：ビヨーンと何度か揺れ戻る
+          const c = 2 * Math.sqrt(kp.k) * kp.zeta * (this.boingT[i] > 0 ? 0.38 : 1);
           ax = -kp.k * dx - c * vx;
           az = -kp.k * dz - c * vz;
         }
@@ -336,17 +352,22 @@ export class PlantField {
         dz += vz * h;
       }
       const l = Math.hypot(dx, dz);
-      if (l > kp.max) {
-        dx *= kp.max / l;
-        dz *= kp.max / l;
+      // 曲がりの上限：挟んで大きくしならせた植物は、離してからゆっくりふだんの上限へ戻す（ビヨーンと戻る間は縮めない）
+      const heldNow = Hd !== null && Hd.i === i;
+      if (!heldNow && this.capH[i] > 0) this.capH[i] = this.capH[i] > kp.max ? this.capH[i] * Math.exp(-dt * 1.6) : 0;
+      const cap = Math.max(kp.max, this.capH[i]);
+      if (l > cap) {
+        dx *= cap / l;
+        dz *= cap / l;
         // 上限に当たった分の速さは捨てる
         const vn = (vx * dx + vz * dz) / (l || 1);
         if (vn > 0) {
-          vx -= (dx / kp.max) * vn;
-          vz -= (dz / kp.max) * vn;
+          vx -= (dx / cap) * vn;
+          vz -= (dz / cap) * vn;
         }
       }
       this.fl[i] *= Math.exp(-dt * 2.5);
+      if (this.boingT[i] > 0) this.boingT[i] = heldNow ? 0 : Math.max(0, this.boingT[i] - dt);
       this.D[i * 2] = dx;
       this.D[i * 2 + 1] = dz;
       this.V[i * 2] = vx;
@@ -420,6 +441,23 @@ export class PlantField {
     });
     return best;
   }
+
+  /**
+   * 離した植物を跳ね返らせる（ハサミから離した・滑った）：曲がっている向きの逆へ速さ k × 曲がり（ばねの戻りに上乗せして、
+   * 根元の反対側まで振れて揺れ戻る）と震え fl
+   */
+  fling(i: number, k: number, fl: number) {
+    if (this.mode !== 'dyn' || this.removed[i]) return;
+    this.V[i * 2] -= this.D[i * 2] * k;
+    this.V[i * 2 + 1] -= this.D[i * 2 + 1] * k;
+    this.fl[i] = Math.max(this.fl[i], fl);
+    // しばらくは減衰を弱くする（何度か揺れ戻ってから落ち着く）
+    this.boingT[i] = 1.8;
+    this.active.add(i);
+  }
+
+  /** 離した直後の、減衰を弱くしている残り時間（fling） */
+  private readonly boingT: Float32Array;
 
   /** 植物 i のいまの押された量（検証用。GPU の方式では 0） */
   bendOf(i: number): [number, number] {

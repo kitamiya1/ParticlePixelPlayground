@@ -1,5 +1,5 @@
 // 操作の説明の欄。右上の「×」ですぐ閉じ、右上のメニューの「？」でいつでも開き直せる（PC は H キーでも切り替え）。
-// - 初めて（閉じたことが無い）：スマホは短い案内（brief）、PC は詳しい説明（full）を出す
+// - 初めて（閉じたことが無い）：短い案内（brief）を出す（第 6 段階で PC も短い案内に。以前は PC は詳しい説明 full）
 // - 一度閉じたら、その端末のブラウザに覚えて（localStorage）、次からは自動で出さない（「？」・H で開ける）
 // - 長い説明は欄の中でスクロールする。欄の上の指はゲームに渡さない（ゲームの指は Canvas と操作のボタンだけが受ける。
 //   欄の中でのピンチはページの拡大にもしない：AquaViewport と CSS の touch-action: pan-y）
@@ -51,7 +51,8 @@ export class HelpPanel {
     this.button.addEventListener('click', () => this.toggle());
     menu.appendChild(this.button);
 
-    this.show(readDismissed() ? 'closed' : opts.touch ? 'brief' : 'full');
+    // （第 6 段階：PC も初回は短い案内だけ。詳しい説明は「詳しい説明を見る」・？・H で）
+    this.show(readDismissed() ? 'closed' : 'brief');
   }
 
   get state(): HelpState {

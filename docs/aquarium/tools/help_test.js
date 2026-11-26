@@ -127,8 +127,9 @@ async (page) => {
   q.on('pageerror', (e) => errors.push(String(e)));
   await open(q);
   s = await st(q);
-  ok('PC 初回は詳しい説明', s.state === 'full' && inView(s), s);
-  await shot(q, 'pc_full');
+  // （第 6 段階：PC も初回は短い案内。以前は詳しい説明）
+  ok('PC 初回は短い案内', s.state === 'brief' && inView(s), s);
+  await shot(q, 'pc_brief');
   await q.keyboard.press('KeyH');
   s = await st(q);
   ok('PC：H で閉じる（覚える）', s.state === 'closed' && s.key === 'closed', s);
