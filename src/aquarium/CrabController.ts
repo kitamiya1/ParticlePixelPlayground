@@ -48,7 +48,7 @@
 import { clamp, lerp, smoothstep } from '../core/math';
 import { TANK, type AquariumWorld } from './AquariumWorld';
 import { ROOM, type Flow, type Region } from './AquariumStand';
-import { DIG, diggable, type DigMaterial } from './AquariumDig';
+import { DIG, diggable, FILL, SAND, type DigMaterial } from './AquariumDig';
 
 export type CrabState = 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'swim' | 'sink' | 'ride' | 'dig' | 'climb' | 'pull';
 
@@ -58,7 +58,7 @@ export const CRAB_STATE_LABEL: Record<CrabState, string> = {
 
 /** 見た目側（泡・水しぶき・波紋）に知らせる出来事 */
 export type CrabEvent = {
-  kind: 'jump' | 'land' | 'enterWater' | 'exitWater' | 'swimStart' | 'stroke' | 'dig' | 'digBlocked';
+  kind: 'jump' | 'land' | 'enterWater' | 'exitWater' | 'swimStart' | 'stroke' | 'dig' | 'digBlocked' | 'fill';
   x: number; y: number; z: number; power: number;
   /** 穴掘り：かき出した向き（体から掘った所へ）と、当たった物 */
   dir?: [number, number, number];
@@ -76,6 +76,24 @@ export interface DigAim {
   hit: boolean;
   /** 届く距離の少し先までに何かある（掘り進めた穴の突き当たり。無ければ空振り） */
   face: boolean;
+  /** 道具（掘る / 盛る）。盛るとき：盛れるか・盛れない理由・置く砂山の半径の目安・当たった面の法線 */
+  tool: SandTool;
+  fillOk: boolean;
+  fillWhy: FillBlock | null;
+  fillR: number;
+  n: [number, number, number];
+}
+
+/** 掘る / 盛る（PC：G キー・スマホ：掘るボタンの上の切り替えで変える。どちらも同じ「掘る」ボタン・F キーで行う） */
+export type SandTool = 'dig' | 'fill';
+/** 盛れない理由：砂が足りない・掘れない物（ガラス・管・発見物・底）・カニや仲間に近すぎる・届かない */
+export type FillBlock = 'empty' | 'glass' | 'pipe' | 'treasure' | 'bottom' | 'near' | 'far' | 'other';
+export const FILL_BLOCK_LABEL: Record<FillBlock, string> = {
+  empty: '砂が足りない', glass: 'ガラスのそば', pipe: '配管のそば', treasure: '宝物のそば', bottom: '水槽の底', near: '近すぎる', far: '届かない', other: '盛れない',
+};
+/** 砂を盛ってよい面（砂・土・岩・流木の上。ガラス・管などの上には盛らない） */
+function fillable(m: DigMaterial): boolean {
+  return m === 'sand' || m === 'soil' || m === 'rock' || m === 'wood';
 }
 
 export interface CrabInput {
@@ -96,6 +114,8 @@ export interface CrabInput {
 
 /** 引っ張るときに立つ距離（穴の中心から体の中心まで。AquaBuddy.PULL_STAND と同じ） */
 const PULL_STAND = 0.6;
+/** 掘った・盛った砂の量を測る処理に、1 フレームで使う時間の上限（ms） */
+const MEASURE_MS = 1.5;
 
 const RADIUS = 0.24;
 /** 照準を上・下いっぱいにしたときの掘る向きの仰角（上は登れる坂の限界 57° より少し急、下は −57°）と、左右の最大 */
@@ -171,7 +191,21 @@ export class CrabController {
   readonly swimDuration = 2.6;
   readonly events: CrabEvent[] = [];
   /** 穴掘り：照準・かき出しの位相（1 回で π 進む。左右の鋏が交互にかく）・掘る向きの仰角・かき出した回数 */
-  readonly digAim: DigAim = { active: false, p: [0, 0, 0], dir: [0, 0, 1], material: 'none', hit: false, face: false };
+  readonly digAim: DigAim = { active: false, p: [0, 0, 0], dir: [0, 0, 1], material: 'none', hit: false, face: false, tool: 'dig', fillOk: false, fillWhy: null, fillR: 0, n: [0, 1, 0] };
+  /** 道具（掘る / 盛る）と手持ちの砂（体積。0〜SAND.capacity） */
+  tool: SandTool = 'dig';
+  sandHeld = 0;
+  /** 砂の出入りの記録（自動検証・表示用）：掘って得た・容量を超えて捨てた・盛って使った量、空振り・盛れなかった回数 */
+  readonly sandStats = { gained: 0, overflow: 0, spent: 0, places: 0, placeFails: 0, lastGain: 0, lastSpend: 0, measureMs: 0, maxMeasureMs: 0 };
+  /** 盛った砂で埋めてはいけない物（仲間など。中心と半径）。main が決める */
+  fillBlockers: () => { x: number; y: number; z: number; r: number }[] = () => [];
+
+  /** 掘る ↔ 盛る を切り替える（掘っている・盛っている途中なら、いったん離したことにする） */
+  toggleTool(): SandTool {
+    this.tool = this.tool === 'dig' ? 'fill' : 'dig';
+    this.digT = 0;
+    return this.tool;
+  }
   digPhase = 0;
   digPitch = 0;
   digStrokes = 0;
@@ -275,6 +309,14 @@ export class CrabController {
     const h = dt / steps;
     this.clock += dt;
     for (let i = 0; i < steps; i++) this.step(h, inp, i === 0);
+    // 掘った・盛った砂の量を測る処理を少し進める（1 フレームに MEASURE_MS まで。スマホでも画面を止めない）
+    if (this.world.dig.measuring) {
+      const t0 = performance.now();
+      this.world.dig.measureStep(MEASURE_MS);
+      const ms = performance.now() - t0;
+      this.sandStats.measureMs = ms;
+      this.sandStats.maxMeasureMs = Math.max(this.sandStats.maxMeasureMs, ms);
+    }
     // 穴掘り（1 フレームに 1 回。照準を探ってから、間隔ごとにかき出す）
     if (this.digging) this.updateDig(dt, inp);
     else {
@@ -290,9 +332,11 @@ export class CrabController {
 
   private updateDig(dt: number, inp: CrabInput) {
     const w = this.world;
+    const fillMode = this.tool === 'fill';
     // 上下の向き：地表では斜め下、足元が十分深くなったら（または水槽の底の近く）水平。ジャンプで上へ、走るで急に下へ。
     // 照準を上下へずらしている間は、ずらした量で連続的に上・下へ向ける（自動の切り替えは止める：
-    // 地表へ近づいて「斜め下」に戻り、上へ掘っている向きが急に変わることがないように）
+    // 地表へ近づいて「斜め下」に戻り、上へ掘っている向きが急に変わることがないように）。
+    // 盛るときは、照準をずらしていなければ浅い斜め下（FILL.pitch。体から離れた所へ盛り、体を埋めない）
     const aimY = inp.digAim?.y ?? 0;
     const swiping = Math.abs(aimY) > 0.02;
     const depth = w.groundAt(this.x, this.z) - this.y;
@@ -301,23 +345,23 @@ export class CrabController {
       if (depth > DIG.tunnelDepth - 0.05 || nearBottom) this.digDeep = true;
       else if (depth < 0.25) this.digDeep = false;
     }
-    const base = this.digDeep ? 0 : -0.48;
+    const base = fillMode ? FILL.pitch : this.digDeep ? 0 : -0.48;
     let pitch = base;
     if (swiping) pitch = aimY > 0 ? base + (DIG_PITCH_UP - base) * aimY : base + ((nearBottom ? 0 : DIG_PITCH_DOWN) - base) * -aimY;
     else if (inp.jumpHeld) pitch = 0.75;
-    else if (inp.run && !nearBottom) pitch = -0.85;
+    else if (inp.run && !nearBottom && !fillMode) pitch = -0.85;
     this.digPitch += (pitch - this.digPitch) * (1 - Math.exp(-dt * 10));
     const cp = Math.cos(this.digPitch);
     const dir: [number, number, number] = [cp * Math.sin(this.digYaw), Math.sin(this.digPitch), cp * Math.cos(this.digYaw)];
     const o: [number, number, number] = [this.x, this.y + RADIUS, this.z];
-    // 上へ掘るときは天井・掘り口までが遠くなるので、届く距離を延ばす
-    const reach = DIG.reach + 0.45 * Math.max(0, this.digPitch);
+    // 上へ掘るときは天井・掘り口までが遠くなるので、届く距離を延ばす（盛るときは FILL.reach）
+    const reach = fillMode ? FILL.reach : DIG.reach + 0.45 * Math.max(0, this.digPitch);
     // 届く距離の少し先（FACE_AHEAD）まで探る：届く距離の中で当たればかき出す。その先で当たった（掘り進めた穴の突き当たりが
     // 少し先にある）なら、かき出さずに照準だけ出す（掘りながら進むと交互に起こるので、空振りの動きにはしない）
-    let pr = w.digProbe(o[0], o[1], o[2], dir, reach + FACE_AHEAD);
+    let pr = w.digProbe(o[0], o[1], o[2], dir, reach + (fillMode ? 0 : FACE_AHEAD));
     // 上へ掘っていて体の中心からは何も無い（地表へ抜けた）とき：足もとの少し上から水平にも探る。斜め上の穴が地表へ
     // 抜けた所には、穴の床と地表の間に足もとの段（登れない急な縁）が残るので、それを掘り取って出口を平らにする
-    if (pr.t === null && this.digPitch > 0.15 && w.groundAt(this.x, this.z) - this.y > 0.06) {
+    if (!fillMode && pr.t === null && this.digPitch > 0.15 && w.groundAt(this.x, this.z) - this.y > 0.06) {
       const flat: [number, number, number] = [Math.sin(this.digYaw), 0, Math.cos(this.digYaw)];
       const low = w.digProbe(o[0], o[1] - 0.12, o[2], flat, DIG.reach * 0.6);
       if (low.t !== null) {
@@ -328,12 +372,44 @@ export class CrabController {
     const inReach = pr.t !== null && pr.t <= reach;
     const A = this.digAim;
     A.active = true;
+    A.tool = this.tool;
     A.p = pr.t !== null ? pr.p : [o[0] + dir[0] * reach, o[1] + dir[1] * reach, o[2] + dir[2] * reach];
     A.dir = dir;
     A.material = pr.material;
     A.hit = inReach;
     A.face = pr.t !== null;
     const material: DigMaterial = inReach ? pr.material : 'none';
+    // 盛るとき：盛れるか（砂が足りる・盛ってよい面・保護する物から離れている・カニや仲間を埋めない）と、砂山の大きさの目安
+    let maxR: ((c: readonly number[], r: number) => number) | null = null;
+    if (fillMode) {
+      const blockers = [{ x: this.x, y: this.y + RADIUS, z: this.z, r: RADIUS }, ...this.fillBlockers()];
+      maxR = (c, r) => {
+        let m = r;
+        for (const b of blockers) m = Math.min(m, Math.hypot(c[0] - b.x, c[1] - b.y, c[2] - b.z) - b.r - FILL.clearance);
+        return m;
+      };
+      A.n = inReach ? w.contactNormal(pr.p[0], pr.p[1], pr.p[2]) : [0, 1, 0];
+      // 盛ってよい面かは、当たった所の本当の材質で決める（digProbe は掘れない範囲＝底・ガラス際の砂を「底」「ガラス」と返すが、
+      // 盛るのはその上でよい。保護する物から離れているかは planPlace が砂山の中心で決める）
+      if (inReach) {
+        const sm = w.surfaceMaterial(pr.p[0], pr.p[1], pr.p[2]);
+        A.material = sm === 'sand' || sm === 'soil' || sm === 'rock' || sm === 'wood' || sm === 'glass' || sm === 'pipe' ? sm : sm === 'acrylic' ? 'glass' : sm === 'deck' ? 'bottom' : pr.material;
+      }
+      let why: FillBlock | null = null;
+      if (!inReach) why = 'far';
+      else if (!fillable(A.material)) why = A.material === 'glass' || A.material === 'pipe' || A.material === 'treasure' || A.material === 'bottom' ? A.material : 'other';
+      else if (this.sandHeld < SAND.minPlace) why = 'empty';
+      let planR: number = FILL.rMin;
+      if (!why) {
+        // place と同じ判断（続けて盛っていれば、大きくする・上へ積む）
+        const pl = w.dig.planPlace(pr.p, A.n, this.clock, maxR);
+        planR = pl.r;
+        if (pl.why) why = pl.why === 'near' ? 'near' : pl.why === 'glass' || pl.why === 'pipe' || pl.why === 'treasure' || pl.why === 'bottom' ? pl.why : 'other';
+      }
+      A.fillWhy = why;
+      A.fillOk = why === null;
+      A.fillR = planR;
+    }
     // 空振り：照準の先に何も無い（水・空気・掘った穴の中）
     this.digWhiff += ((A.face ? 0 : 1) - this.digWhiff) * (1 - Math.exp(-dt * 8));
     // かき出し：左右の鋏で交互に（位相は 1 回で π）
@@ -343,6 +419,25 @@ export class CrabController {
     this.digT = Math.max(this.digT + this.digInterval, 0.02);
     this.digStrokes++;
     if (!A.face) this.digWhiffs++;
+    if (fillMode && maxR) {
+      // 盛る：盛れるときだけ。足した砂の量（測った体積）だけ手持ちから減らす
+      if (!A.fillOk) {
+        this.sandStats.placeFails++;
+        if (A.face && A.fillWhy !== 'empty') this.events.push({ kind: 'digBlocked', x: pr.p[0], y: pr.p[1], z: pr.p[2], power: 0.3, dir, material: pr.material });
+        return;
+      }
+      w.dig.beginEdit();
+      const res = w.dig.place(pr.p, A.n, this.clock, maxR);
+      // 足した砂の量は、測り終えたとき（数フレーム後）に手持ちから減らす（次に盛る・掘る前には必ず測り終える＝beginEdit）
+      if (res.changed) w.startMeasureEdit((v) => this.spendSand(Math.max(0, v)));
+      else w.dig.endEdit();
+      if (res.changed) {
+        this.sandStats.places++;
+        A.fillR = res.r;
+        this.events.push({ kind: 'fill', x: pr.p[0], y: pr.p[1], z: pr.p[2], power: res.r / FILL.rMax, dir, material: pr.material === 'soil' || pr.p[1] > TANK.waterY ? 'soil' : 'sand' });
+      } else this.sandStats.placeFails++;
+      return;
+    }
     if (material === 'none' || diggable(material)) {
       // 斜め下へ掘るときは、元の地表から tunnelDepth より深くは掘らない（走る＝急に下へ・照準を下へずらした、のときだけ深く掘れる）
       // （十分深くなって水平に掘っている間は制限しない。岸の斜面の下では地表が上がっても床を水平に保つ）
@@ -350,7 +445,12 @@ export class CrabController {
       const floorMin = down || this.digDeep ? -Infinity : w.groundAt(pr.p[0], pr.p[2]) - DIG.tunnelDepth - 0.04;
       // 届かないときも、直前に掘った空洞を太らせる（その場で掘り続けると穴が広がる）。そのときの砂粒は
       // 太らせた空洞の先（res.at）から少しだけ（空振りの鋏の先からは出さない）
+      w.dig.beginEdit();
       const res = w.dig.stroke(o, dir, diggable(material) ? pr.t : null, this.clock, floorMin, reach);
+      // 実際に取り除いた砂の量（測った体積）だけ手持ちに足す（空振り・掘った穴の中を太らせただけ・岩なら 0。容量を超えた分は捨てる）
+      // （測り終えたとき＝数フレーム後に足す）
+      if (res.changed) w.startMeasureEdit((v) => this.gainSand(Math.max(0, -v)));
+      else w.dig.endEdit();
       if (res.changed) {
         const at = diggable(material) ? pr.p : res.at;
         this.events.push({ kind: 'dig', x: at[0], y: at[1], z: at[2], power: (res.r / DIG.rMax) * (A.hit ? 1 : 0.3), dir, material: material === 'none' ? (A.face && diggable(pr.material) ? pr.material : 'sand') : material });
@@ -359,6 +459,24 @@ export class CrabController {
       w.dig.stats.blocked++;
       this.events.push({ kind: 'digBlocked', x: pr.p[0], y: pr.p[1], z: pr.p[2], power: 0.5, dir, material });
     }
+  }
+
+  /** 掘って取り除いた砂を手持ちへ（容量 SAND.capacity まで。超えた分は捨てる） */
+  private gainSand(v: number) {
+    const room = Math.max(0, SAND.capacity - this.sandHeld);
+    const take = Math.min(room, v);
+    this.sandHeld += take;
+    this.sandStats.gained += take;
+    this.sandStats.overflow += v - take;
+    this.sandStats.lastGain = v;
+  }
+
+  /** 盛って足した砂の分を手持ちから減らす（手持ちより多ければ手持ち全部） */
+  private spendSand(v: number) {
+    const spend = Math.min(this.sandHeld, v);
+    this.sandHeld -= spend;
+    this.sandStats.spent += spend;
+    this.sandStats.lastSpend = spend;
   }
 
   private step(dt: number, inp: CrabInput, first: boolean) {

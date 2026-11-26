@@ -83,7 +83,7 @@
       fx.flushAll();
       const P = dig.exportPrims();
       let ps = 0;
-      for (let i = 0; i < P.length; i++) ps += P[i] * ((i % 7) + 1);
+      for (let i = 0; i < P.length; i++) ps += P[i] * ((i % 8) + 1);
       const chunks = [];
       let triSum = 0, posSum = 0;
       for (const [id, m] of [...fx.meshes.entries()].sort((x, y) => x[0] - y[0])) {
@@ -97,7 +97,7 @@
       }
       // 空洞のまわりの当たり判定（空洞の両端と、その上下左右 0.3）
       let solidSum = 0, solidN = 0;
-      for (let i = 0; i < P.length; i += 7 * Math.max(1, Math.floor(P.length / 7 / 400))) {
+      for (let i = 0; i < P.length; i += 8 * Math.max(1, Math.floor(P.length / 8 / 400))) {
         for (const o of [0, 3]) for (const [dx, dy, dz] of [[0, 0, 0], [0.3, 0, 0], [-0.3, 0, 0], [0, 0.3, 0], [0, -0.3, 0], [0, 0, 0.3], [0, 0, -0.3]]) {
           solidSum += w.solid(P[i + o] + dx, P[i + o + 1] + dy, P[i + o + 2] + dz);
           solidN++;

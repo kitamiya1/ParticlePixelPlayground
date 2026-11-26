@@ -15,8 +15,8 @@ import { AquariumRenderer } from './AquariumRenderer';
 import { buildSpots, DiscoveryTracker, type Spot } from './AquariumSpots';
 import { AquariumWorld } from './AquariumWorld';
 import { REGION_LABEL, SUMP } from './AquariumStand';
-import { CRAB_STATE_LABEL, CrabController } from './CrabController';
-import { DIG, DIG_MATERIAL_LABEL, diggable } from './AquariumDig';
+import { CRAB_STATE_LABEL, CrabController, FILL_BLOCK_LABEL } from './CrabController';
+import { DIG, DIG_MATERIAL_LABEL, diggable, SAND } from './AquariumDig';
 import { CrabRig } from './CrabRig';
 import { ROOM } from './AquariumStand';
 import { TANK } from './aquaConst';
@@ -107,6 +107,7 @@ async function boot() {
       <div class="row"><span class="tag" id="h-zone">水中</span><span class="tag cam" id="h-cam"></span><span id="h-state"></span><span class="tag dig off" id="h-dig"></span></div>
       <div class="row"><span class="sub">発見</span><span id="h-found"></span></div>
       <div class="row"><span class="sub">遊泳</span><span class="bar"><i id="h-swim"></i></span></div>
+      <div class="row"><span class="sub">砂</span><span class="bar sand"><i id="h-sand"></i></span><span class="sandn" id="h-sandn"></span><span class="tag tool" id="h-tool"></span></div>
       <div class="sub" id="h-perf"></div>
       <div class="sub" id="h-digperf"></div>
       <div class="sub"><a href="./index.html">描画方式の比較へ</a></div>
@@ -116,8 +117,8 @@ async function boot() {
   // 操作の説明（右上の「？」で開く。初回だけ自動で出し、「×」で閉じたら次からは出さない）。欄は右上のメニューを作った後に作る
   const helpBrief = `<p>左のスティックで移動、右の「ジャンプ」で跳ぶ・「掘る」で砂を掘る。画面をドラッグで視点を回し、2 本指でズーム。</p><p class="hint">詳しい操作は、右上の「？」でいつでも見られます。</p>`;
   const helpFull = touch
-    ? `<ul><li>左スティック：移動。ダッシュ：押している間</li><li>ジャンプ：跳ぶ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へスティックを倒し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（跳んで・泳いで天井に触れても張り付く。ジャンプで離れる）</li><li>掘る：押している間 前の砂を掘る。押したまま指をずらすと、その向き（上・下・左右・斜め）を掘る。掘りながらスティックで好きな向きへ動ける</li><li>画面ドラッグ：視点の回転。2 本指：カメラのズーム</li><li>カメラ：冒険 / ガラス越し（水槽の外から地下の穴を観察）/ 箱庭の切り替え</li><li>調べる / 引っこ抜く：穴のそばで出るボタン（引っこ抜くは長押し。離すとやめる）</li><li>仲間：右上のボタンで「呼ぶ（同行）/ 自由に暮らす」を切り替え</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li>右上の「？」：この説明</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`
-    : `<ul><li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る</li><li><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へ押し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（跳んで・泳いで天井に触れても張り付く。<kbd>Space</kbd> で離れる）</li><li><kbd>F</kbd> 長押し：掘る（押したままマウスを動かすと上下左右・斜めを狙う。掘りながら <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で好きな向きへ動ける）</li><li>右ボタンを押したままドラッグ：その向きを掘る</li><li>ドラッグ：視点回転　ホイール：ズーム</li><li><kbd>V</kbd> カメラ切替（冒険 / ガラス越し / 箱庭。ガラス越しはガラス際まで掘った穴を外から観察）　<kbd>R</kbd> スタート地点へ</li><li><kbd>E</kbd> 調べる（穴のそばで）・長押しで引っこ抜く（離すとやめる）　<kbd>Q</kbd> 仲間を呼ぶ / 自由に暮らす（右上のボタンでも）</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li><kbd>H</kbd> または右上の「？」：この説明の表示 / 非表示</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`;
+    ? `<ul><li>左スティック：移動。ダッシュ：押している間</li><li>ジャンプ：跳ぶ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へスティックを倒し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（跳んで・泳いで天井に触れても張り付く。ジャンプで離れる）</li><li>掘る：押している間 前の砂を掘る。押したまま指をずらすと、その向き（上・下・左右・斜め）を掘る。掘りながらスティックで好きな向きへ動ける</li><li>盛る：「掘る」ボタンの上の切り替えで「盛る」にすると、同じボタンで手持ちの砂を置ける（押している間 少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>画面ドラッグ：視点の回転。2 本指：カメラのズーム</li><li>カメラ：冒険 / ガラス越し（水槽の外から地下の穴を観察）/ 箱庭の切り替え</li><li>調べる / 引っこ抜く：穴のそばで出るボタン（引っこ抜くは長押し。離すとやめる）</li><li>仲間：右上のボタンで「呼ぶ（同行）/ 自由に暮らす」を切り替え</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li>右上の「？」：この説明</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`
+    : `<ul><li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る</li><li><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へ押し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（跳んで・泳いで天井に触れても張り付く。<kbd>Space</kbd> で離れる）</li><li><kbd>F</kbd> 長押し：掘る（押したままマウスを動かすと上下左右・斜めを狙う。掘りながら <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で好きな向きへ動ける）</li><li>右ボタンを押したままドラッグ：その向きを掘る</li><li><kbd>G</kbd> 掘る ↔ 盛る の切り替え。盛るのときは <kbd>F</kbd> 長押しで手持ちの砂を置く（少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>ドラッグ：視点回転　ホイール：ズーム</li><li><kbd>V</kbd> カメラ切替（冒険 / ガラス越し / 箱庭。ガラス越しはガラス際まで掘った穴を外から観察）　<kbd>R</kbd> スタート地点へ</li><li><kbd>E</kbd> 調べる（穴のそばで）・長押しで引っこ抜く（離すとやめる）　<kbd>Q</kbd> 仲間を呼ぶ / 自由に暮らす（右上のボタンでも）</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li><kbd>H</kbd> または右上の「？」：この説明の表示 / 非表示</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`;
   let help: HelpPanel | null = null;
   const marker = document.createElement('div');
   marker.id = 'crab-marker';
@@ -194,6 +195,36 @@ async function boot() {
     touchUi = new TouchControls(input, { runLabel: 'ダッシュ', jump: true, dig: true, onCamera: toggleCamera, act: true });
     document.body.classList.add('touch');
   }
+  // 掘る ↔ 盛る：PC は G キー、スマホは掘るボタンの上の小さな切り替え（掘るボタン・F キーはどちらでも共用）
+  const toolBtn = document.createElement('button');
+  toolBtn.type = 'button';
+  toolBtn.className = 'tool';
+  const showTool = () => {
+    const fill = crab.tool === 'fill';
+    toolBtn.innerHTML = `<b class="${fill ? '' : 'on'}">掘る</b><b class="${fill ? 'on' : ''}">盛る</b>`;
+    toolBtn.classList.toggle('fill', fill);
+    const dl = touchUi?.root.querySelector<HTMLElement>('.dig span');
+    if (dl) dl.textContent = fill ? '盛る' : '掘る';
+    touchUi?.root.querySelector('.dig')?.classList.toggle('fill', fill);
+    document.body.classList.toggle('tool-fill', fill);
+  };
+  const toggleTool = () => {
+    crab.toggleTool();
+    showTool();
+    toast(crab.tool === 'fill' ? `盛る：手持ちの砂を置く（${touch ? '「盛る」ボタン' : 'F キー'}を押している間）` : '掘る：砂を掘って集める');
+  };
+  if (touchUi) {
+    touchUi.root.appendChild(toolBtn);
+    toolBtn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleTool();
+    });
+    toolBtn.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+  input.onPress('KeyG', () => toggleTool());
+  // 盛った砂で仲間を埋めない（仲間の体のまわりには盛らない）
+  crab.fillBlockers = () => (buddy.found || buddy.examined ? [{ x: buddy.x, y: buddy.y + 0.15, z: buddy.z, r: 0.3 }] : []);
 
   const resize = () => {
     const r = canvas.getBoundingClientRect();
@@ -225,6 +256,7 @@ async function boot() {
     tankIds: new Set([HOME_TANK]),
     maxPrims: DIG.maxPrims,
     maxR: DIG.rMax,
+    sandCap: SAND.capacity,
     tankBox: { min: [TANK.minX - M, TANK.floorY - M, TANK.minZ - M], max: [TANK.maxX + M, TANK.topY + M, TANK.maxZ + M] },
     worldBox: { min: [ROOM.minX, ROOM.floorY - 1, ROOM.minZ], max: [ROOM.maxX, ROOM.ceilY, ROOM.maxZ] },
   };
@@ -251,6 +283,9 @@ async function boot() {
     const tr = performance.now();
     const tank = d.tanks[HOME_TANK];
     if (tank) restoreInfo.prims = world.dig.restore(tank.dig.prims);
+    // 手持ちの砂と道具（版 1 のデータは migrate で 0・掘る）
+    crab.sandHeld = d.player.sand;
+    crab.tool = d.player.tool;
     const tf = performance.now();
     await view.digFx.flushAllAsync((done, total) => (loading.textContent = `掘った穴を復元しています… ${done} / ${total} 区画`));
     restoreInfo.flushMs = performance.now() - tf;
@@ -272,6 +307,7 @@ async function boot() {
     camera.placeBehind(crab);
     for (let i = 0; i < 3 && camera.mode !== P.camera; i++) camera.toggle(crab);
   }
+  showTool();
   const bootNote =
     loaded.status === 'recovered' ? `保存データが壊れていたため、1 つ前のデータから再開しました（${loaded.error}）。壊れたデータは別に残しています。`
     : loaded.status === 'corrupt' ? `保存データを読み込めなかったため、初期状態で始めました（${loaded.error}）。読めなかったデータは別に残しています。`
@@ -282,7 +318,8 @@ async function boot() {
   // 知らせは利用者が気にすべきときだけ（控えから戻したのは、再読み込み・タブを閉じたときのふつうの流れなので出さない）
   const bootToast = loaded.status === 'recovered' ? '保存データを 1 つ前から復元しました' : loaded.status === 'corrupt' ? '保存データを読めず、初期状態で始めました' : store.info.orphan ? '使わなかった進捗があります（セーブのメニュー）' : null;
   if (bootToast && !noSave) setTimeout(() => toast(bootToast), 600);
-  const gather = (): SaveData => ({
+  // 掘った・盛った砂の量を測っている途中なら測り終えてから集める（保存する地形と手持ちの砂が食い違わない）
+  const gather = (): SaveData => (world.dig.measureStep(Infinity), {
     format: SAVE_FORMAT,
     version: SAVE_VERSION,
     created,
@@ -291,7 +328,7 @@ async function boot() {
     // 世代と識別子は SaveStore が書くときに付ける
     rev: 0,
     saveId: '',
-    player: { tank: HOME_TANK, x: crab.x, y: crab.y, z: crab.z, heading: crab.heading, camera: camera.mode },
+    player: { tank: HOME_TANK, x: crab.x, y: crab.y, z: crab.z, heading: crab.heading, camera: camera.mode, sand: crab.sandHeld, tool: crab.tool },
     progress: { visited: [...tracker.visited], flags: { ...flags, [FLAG_EXAMINED]: buddy.examined } },
     tanks: { [HOME_TANK]: { dig: { prims: world.dig.exportPrims() } } },
     buddies: [buddy.toSave()],
@@ -390,7 +427,7 @@ async function boot() {
   };
 
   // 自動保存の印：掘った（かき出しの回数）・初めての場所・動いた
-  let lastCarves = world.dig.stats.carves;
+  let lastCarves = world.dig.stats.carves + world.dig.stats.fills;
   let lastPos = { x: crab.x, y: crab.y, z: crab.z };
 
   // ---------------- ループ ----------------
@@ -421,8 +458,8 @@ async function boot() {
       }
       camera.setVista(tracker.current?.vista ?? null);
       playTime += dt;
-      if (world.dig.stats.carves !== lastCarves) {
-        lastCarves = world.dig.stats.carves;
+      if (world.dig.stats.carves + world.dig.stats.fills !== lastCarves) {
+        lastCarves = world.dig.stats.carves + world.dig.stats.fills;
         saver.markDirty();
       }
       if (Math.hypot(crab.x - lastPos.x, crab.y - lastPos.y, crab.z - lastPos.z) > 0.5) {
@@ -483,13 +520,28 @@ async function boot() {
       // 穴掘り：照準の先の物（掘れる / 掘れない）と、掘った量・作り直しの時間
       // （照準の先に何も無いときは文字を出さない。カニが空振りする動きで分かる）
       const A = crab.digAim, dg = $('h-dig');
-      dg.classList.toggle('off', !A.active || !A.face);
-      if (A.active && A.face) {
+      // 盛るときは届かない・砂が足りないも出す（盛れない理由が分かるように）
+      const showFill = A.active && A.tool === 'fill' && (A.face || A.fillWhy === 'empty');
+      dg.classList.toggle('off', !(A.active && A.face) && !showFill);
+      if (showFill) {
+        dg.textContent = A.fillOk ? `盛れる：${DIG_MATERIAL_LABEL[A.material]}の上` : `盛れない：${FILL_BLOCK_LABEL[A.fillWhy ?? 'other']}`;
+        dg.classList.toggle('ng', !A.fillOk);
+      } else if (A.active && A.face) {
         dg.textContent = diggable(A.material) ? `掘れる：${DIG_MATERIAL_LABEL[A.material]}` : `掘れない：${DIG_MATERIAL_LABEL[A.material]}`;
         dg.classList.toggle('ng', !diggable(A.material));
       }
+      // 手持ちの砂（1 杯 = SAND.unit）。いっぱいなら印
+      const cups = Math.floor(crab.sandHeld / SAND.unit + 1e-6), capCups = Math.round(SAND.capacity / SAND.unit);
+      ($('h-sand') as HTMLElement).style.width = `${Math.round((crab.sandHeld / SAND.capacity) * 100)}%`;
+      $('h-sandn').textContent = `${cups} / ${capCups}${cups >= capCups ? ' 満杯' : ''}`;
+      $('h-tool').textContent = crab.tool === 'fill' ? '盛る' : '掘る';
+      $('h-tool').classList.toggle('fill', crab.tool === 'fill');
+      toolBtn.style.setProperty('--sand', (crab.sandHeld / SAND.capacity).toFixed(3));
+      // 道具がほかの道（保存データの復元・自動検証）で変わったときも、切り替えとボタンの文字を合わせる
+      if (toolBtn.classList.contains('fill') !== (crab.tool === 'fill')) showTool();
       const fs = view.digFx.stats;
-      $('h-digperf').textContent = world.dig.count ? `穴 ${world.dig.count} 個 ・ 区画 ${fs.chunks} ・ 作り直し ${fs.lastMs.toFixed(1)} ms（最大 ${fs.maxMs.toFixed(1)}）・ 待ち ${fs.pending}` : '';
+      const nf = world.dig.fillCount;
+      $('h-digperf').textContent = world.dig.count ? `穴 ${world.dig.count - nf} 個${nf ? `・砂山 ${nf} 個` : ''} ・ 区画 ${fs.chunks} ・ 作り直し ${fs.lastMs.toFixed(1)} ms（最大 ${fs.maxMs.toFixed(1)}）・ 待ち ${fs.pending}` : '';
     }
   };
   debug.step = (n: number, dt = 1 / 60) => {

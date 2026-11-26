@@ -244,3 +244,21 @@ html.aqua-zoomfix:has(body.aqua), html.aqua-zoomfix body.aqua { touch-action: ma
 /* ?diag：倍率・指の座標などの表示（指は受けない） */
 #vp-diag { position: fixed; left: 0; top: 0; transform-origin: 0 0; z-index: 19; pointer-events: none; white-space: pre; max-width: 100vw; overflow: hidden;
   font: 10px/1.35 ui-monospace, Menlo, Consolas, monospace; color: #d8fff4; background: rgba(0, 0, 0, 0.62); padding: 4px 6px; }
+
+/* 掘る ↔ 盛る（M2）：タッチの切り替え（掘るボタンの上。ジャンプ・ダッシュ・カメラ・調べるのボタンと重ならない位置）。
+   下の細い帯が手持ちの砂の量。盛るのときは掘るボタンを緑寄りにして「盛る」と出す。HUD の「砂」の帯と数（1 杯 = 0.05） */
+body.aqua #touch-ui .tool { position: fixed; right: calc(126px + env(safe-area-inset-right)); bottom: calc(194px + env(safe-area-inset-bottom));
+  width: 88px; height: 32px; padding: 0 4px 3px; border-radius: 16px; display: flex; align-items: center; gap: 2px; font-size: 12px;
+  color: #fff6e0; background: rgba(48, 38, 24, 0.82); border: 2px solid rgba(255, 236, 190, 0.45); overflow: hidden;
+  touch-action: none; user-select: none; -webkit-user-select: none; z-index: 3; }
+body.aqua #touch-ui .tool b { flex: 1; text-align: center; font-weight: 700; opacity: 0.45; pointer-events: none; }
+body.aqua #touch-ui .tool b.on { opacity: 1; color: #ffe2a8; }
+body.aqua #touch-ui .tool.fill b.on { color: #c8ff9a; }
+body.aqua #touch-ui .tool::after { content: ''; position: absolute; left: 6px; bottom: 2px; height: 3px; border-radius: 2px;
+  width: calc((100% - 12px) * var(--sand, 0)); background: #e2c07a; pointer-events: none; }
+body.aqua #touch-ui .dig.fill { background: rgba(104, 136, 58, 0.82); border-color: rgba(220, 255, 190, 0.55); }
+body.aqua #touch-ui .dig.fill.on { background: rgba(200, 255, 154, 0.92); color: #1c2a10; }
+#hud .bar.sand i { background: #e2c07a; }
+#hud .sandn { font-size: 11px; color: #f2e2b8; margin-left: 6px; white-space: nowrap; }
+#hud .tag.tool { background: #7a5a2e; margin-left: 6px; }
+#hud .tag.tool.fill { background: #5a7a2e; }

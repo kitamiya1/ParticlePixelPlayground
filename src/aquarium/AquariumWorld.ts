@@ -14,7 +14,7 @@ import { clamp, fbm2, lerp, noise3, smoothstep } from '../core/math';
 import { sdCapsule, sdEllipsoid, smin, type Box3Like, type Sdf } from '../visual/sdf/sdf';
 import { LAMP_DIR, TANK } from './aquaConst';
 import { AquaStand, DECK, ROOM, type Flow, type Region } from './AquariumStand';
-import { DigField, type DigMaterial } from './AquariumDig';
+import { DigField, type DigMaterial, type DigView } from './AquariumDig';
 
 export { TANK, LAMP_DIR };
 
@@ -412,9 +412,33 @@ export class AquariumWorld {
 
   // ---------------- 穴掘り ----------------
 
-  /** 掘った後の砂（高さ場 − 空洞）の距離 */
-  sandSolid(x: number, y: number, z: number): number {
-    return this.dig.cut((y - this.groundAt(x, z)) * this.groundNormal(x, z)[1], x, y, z);
+  /** 掘った・盛った後の砂（高さ場 − 空洞 + 盛った砂）の距離 */
+  sandSolid(x: number, y: number, z: number, view: DigView = 'live'): number {
+    return this.dig.cut((y - this.groundAt(x, z)) * this.groundNormal(x, z)[1], x, y, z, view);
+  }
+
+  /**
+   * 直前の編集（dig.beginEdit から）で取り除いた（負）・足した（正）砂の体積を測り始める（格子 0.12 の点で前後の砂を比べる。
+   * 高さ場の砂の距離は列ごとに使い回す）。DigField.measureStep でフレームに分けて進み、終わったら done(体積)
+   */
+  startMeasureEdit(done: (v: number) => void) {
+    let cx = NaN, cz = NaN, g = 0, ny = 1;
+    this.dig.startMeasure((x, y, z, view) => {
+      if (x !== cx || z !== cz) {
+        cx = x; cz = z;
+        g = this.groundAt(x, z);
+        ny = this.groundNormal(x, z)[1];
+      }
+      return this.dig.cut((y - g) * ny, x, y, z, view);
+    }, done);
+  }
+
+  /** 直前の編集の量をすぐ測る（自動検証用） */
+  measureEdit(): number {
+    let v = 0;
+    this.startMeasureEdit((r) => (v = r));
+    this.dig.measureStep(Infinity);
+    return v;
   }
 
   /**

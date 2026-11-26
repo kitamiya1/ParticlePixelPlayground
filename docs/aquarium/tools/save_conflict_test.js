@@ -24,7 +24,7 @@ async (page) => {
     o.onsuccess = () => {
       const st = o.result.transaction('saves', 'readonly').objectStore('saves');
       const out = {};
-      const sum = (v) => (v === undefined ? null : typeof v !== 'object' || v === null ? { bad: String(v).slice(0, 20) } : { rev: v.rev ?? null, id: (v.saveId ?? '').slice(0, 8), prims: v.tanks?.home?.dig?.prims ? v.tanks.home.dig.prims.length / 7 : null });
+      const sum = (v) => (v === undefined ? null : typeof v !== 'object' || v === null ? { bad: String(v).slice(0, 20) } : { rev: v.rev ?? null, id: (v.saveId ?? '').slice(0, 8), prims: v.tanks?.home?.dig?.prims ? v.tanks.home.dig.prims.length / 8 : null });
       const g1 = st.get('current'), g2 = st.get('backup'), g3 = st.getAllKeys();
       g3.onsuccess = () => {
         out.current = sum(g1.result);
