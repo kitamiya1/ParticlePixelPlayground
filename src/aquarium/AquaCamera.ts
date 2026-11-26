@@ -85,8 +85,9 @@ const CLOSE_SPEED = 3.5;
  * カニが見えている間は SMOOTH.see、砂に隠れている間は SMOOTH.hidden（早く追いつく）。視点を操作している間は制限しない
  */
 const SMOOTH = { see: 4.5, hidden: 9 };
-/** 壁登り中に注視点を面の外向きへ離す距離 */
+/** 壁登り中に注視点を面の外向きへ離す距離・天井（真逆さ）で足す距離（空いている所まで） */
 const CLIMB_LIFT = 0.3;
+const CEIL_LIFT = 0.55;
 /** 越えて抜いていた物を越えられなくなったとき、その物の向こうのカメラが手前へ抜ける速さ（1 秒あたり） */
 const TRAVERSE_SPEED = 8;
 
@@ -212,6 +213,8 @@ export class AquaCamera {
   traverses = 0;
   /** 壁登り中の度合い（0..1。平滑化。注視点を面から離す） */
   private climbW = 0;
+  /** 天井・張り出しに張り付いている度合い（0..1。平滑化。注視点をさらに面から離し、見る先をカニへ寄せる） */
+  ceilW = 0;
 
   constructor(private readonly world: AquariumWorld) {}
 
@@ -328,7 +331,12 @@ export class AquaCamera {
     // 壁登り：注視点を面から離す（体の中心から面の外向きへ CLIMB_LIFT。腕が面のすぐそばから始まって壁へ食い込み、
     // カメラがカニに寄りすぎて壁しか見えなくなるのを防ぐ）。張り付く・離れるときはなめらかに
     this.climbW += ((c.climbing ? 1 : 0) - this.climbW) * (1 - Math.exp(-dt * 5));
-    const lift = CLIMB_LIFT * this.climbW, n = c.climbN;
+    const n = c.climbN;
+    // 天井・張り出し（法線が下向き）：注視点（腕の付け根）を面からさらに CEIL_LIFT 離す（空いている所まで）。カメラはカニの下・
+    // 横から見上げる位置になり、見る先はカニへ寄せる（下の aim）。カメラは傾けない（画面の上下は反転しない）
+    this.ceilW += ((c.climbing ? smoothstep(0.1, -0.7, n[1]) : 0) - this.ceilW) * (1 - Math.exp(-dt * 4));
+    let lift = CLIMB_LIFT * this.climbW;
+    if (this.ceilW > 1e-3) lift = this.freeAlong(c, n, lift + CEIL_LIFT * this.ceilW, lift);
     this.target.x += (c.x + n[0] * lift - this.target.x) * kf;
     this.target.y += (c.y + 0.3 + n[1] * lift - this.target.y) * kf;
     this.target.z += (c.z + n[2] * lift - this.target.z) * kf;
@@ -383,6 +391,11 @@ export class AquaCamera {
       next = this.returnPose(o, c);
       aim = [c.x, c.y + c.radius, c.z];
     } else next = this.orbitPose(o, c, dt);
+    // 天井に張り付いている：見る先を注視点（面から離した所）からカニの体へ寄せる（カニが画面の上の端へ逃げない）
+    if (this.ceilW > 0.01) {
+      const k = 0.75 * this.ceilW, cyc = c.y + c.radius;
+      aim = [aim[0] + (c.x - aim[0]) * k, aim[1] + (cyc - aim[1]) * k, aim[2] + (c.z - aim[2]) * k];
+    }
     if (c.region === 'drain' || c.region === 'return') {
       this.lookUp = this.lookDown = 0;
       this.cut.on = 0;
@@ -411,7 +424,9 @@ export class AquaCamera {
     const fov = 55 + 20 * smoothstep(0.05, 0.9, this.lookUp) + this.closeFov;
     this.pose.fov = fov + (v?.fov ? (v.fov - fov) * Math.min(1, this.aimW / 0.62) : 0);
     // 地下：三人称の姿勢を近い視点（または肩越し）へ寄せる
-    const e = this.tunnelCam === 'orbit' || this.region !== 'tank' ? 0 : smoothstep(0, 1, this.tunnel);
+    // （天井に張り付いている間は弱める：近い視点は「頭の上」＝天井の側に寄り、逆さのカニが画面の上の端へ逃げる。
+    // 代わりに面から離した注視点の三人称で、下から見上げる）
+    const e = this.tunnelCam === 'orbit' || this.region !== 'tank' ? 0 : smoothstep(0, 1, this.tunnel) * (1 - 0.85 * this.ceilW);
     if (e > 1e-3) this.blendTunnel(o, c, e, dt);
     else this.nearDist = 0;
     this.smoothPose(c, dt, touched);
@@ -419,6 +434,20 @@ export class AquaCamera {
     const P = this.pose.pos;
     this.crabFade = 0.75 * smoothstep(1.0, 0.35, Math.hypot(P[0] - c.x, P[1] - cy, P[2] - c.z));
     this.sanitize(c);
+  }
+
+  /**
+   * カニの体の中心から面の外向き n へ、カメラの球が入る空き（cameraSolid ≥ CAM_R）が続く所まで（最大 want、最小 min）。
+   * 天井に張り付いたときの注視点を、狭いトンネルの床・反対側の壁に埋めない
+   */
+  private freeAlong(c: CrabController, n: readonly number[], want: number, min: number): number {
+    const w = this.world, cy = c.y + c.radius;
+    let t = min;
+    for (let s = min + 0.05; s <= want + 1e-6; s += 0.05) {
+      if (w.cameraSolid(c.x + n[0] * s, cy + n[1] * s, c.z + n[2] * s, c.region) < CAM_R) break;
+      t = s;
+    }
+    return t;
   }
 
   /** 掘ったトンネルの中にいる度合いの目標（0..1）：空洞の中で元の地表より下にいる深さ × 頭の上の砂の天井 */

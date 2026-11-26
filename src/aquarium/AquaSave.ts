@@ -9,26 +9,31 @@
 //   書き込みは「current が正常と分かっているときだけ」current を backup へ写してから current を書く（1 つのトランザクション）。
 //   読み込みで current が壊れていたら、current は消さずに隔離し、backup を試す。どちらも読めなければ初期状態で始める
 //   （壊れたデータは隔離に残るので、自動保存が上書きしても失われない）。
-// - 形式：format = 'ppp-aquarium-save'、version（いまは 1）。読み込みは migrate → validate の順で、validate を通った
+// - 形式：format = 'ppp-aquarium-save'、version（いまは 2。版 1 は migrate で 2 へ直して読む）。読み込みは migrate → validate の順で、validate を通った
 //   データだけをゲームへ渡す。未知の場所・仲間の id は捨てる（警告）。形が合わない・数が有限でない・範囲外は全体を拒否する。
 // - 書き出し・読み込み（ファイル）：JSON。Float64Array は base64（リトルエンディアン）の文字列にする。
-// - 拡張：水槽ごとの tanks[id]（いまは dig だけ。砂の山・植物・繁殖個体は同じ所へ足す）、仲間の traits（遺伝的特徴）、
+// - 拡張：水槽ごとの tanks[id]（いまは dig だけ。掘った空洞と盛った砂を編集の順に 1 つの並びで持つ。植物・繁殖個体は同じ所へ足す）、仲間の traits（遺伝的特徴）、
 //   progress.flags（イベントの進み具合）。足すときは version を上げて migrate に変換を書く。
 
 export const SAVE_FORMAT = 'ppp-aquarium-save';
-export const SAVE_VERSION = 1;
-/** 掘った空洞 1 個の数の並び（a.xyz, b.xyz, r） */
-export const PRIM_STRIDE = 7;
+export const SAVE_VERSION = 2;
+/** 編集 1 個の数の並び（a.xyz, b.xyz, r, 種類 0 = 掘った / 1 = 盛った）。版 1 は種類なしの 7 個（PRIM_STRIDE_V1） */
+export const PRIM_STRIDE = 8;
+export const PRIM_STRIDE_V1 = 7;
 
 export type BuddyMode = 'free' | 'follow';
 export type SaveCameraMode = 'adventure' | 'observe' | 'diorama';
+export type SaveTool = 'dig' | 'fill';
 
 export interface DigSave {
-  /** 空洞（PRIM_STRIDE 個ずつ）。掘った順 */
+  /**
+   * 掘った空洞と盛った砂（PRIM_STRIDE 個ずつ）。編集した順（順序が地形の合成の順序：後の編集が勝つ。
+   * 先に掘った穴へ盛った砂・盛った砂を掘った穴が、読み込み直しても同じ形になる）
+   */
   prims: Float64Array;
 }
 
-/** 水槽 1 つ分の状態（将来：砂の山 sand・植物 plants・生き物 creatures を足す） */
+/** 水槽 1 つ分の状態（将来：植物 plants・生き物 creatures を足す） */
 export interface TankSave {
   dig: DigSave;
 }
@@ -40,6 +45,9 @@ export interface PlayerSave {
   z: number;
   heading: number;
   camera: SaveCameraMode;
+  /** 手持ちの砂（体積。0〜SaveContext.sandCap）と、いまの道具（版 2 から） */
+  sand: number;
+  tool: SaveTool;
 }
 
 export interface BuddySave {
@@ -88,9 +96,10 @@ export interface SaveContext {
   spotIds: ReadonlySet<string>;
   buddyIds: ReadonlySet<string>;
   tankIds: ReadonlySet<string>;
-  /** 空洞の上限・半径の上限・水槽の範囲（x, y, z の min / max。少し余白を含む） */
+  /** 編集（空洞・盛った砂）の上限・半径の上限・手持ちの砂の上限・水槽の範囲（x, y, z の min / max。少し余白を含む） */
   maxPrims: number;
   maxR: number;
+  sandCap: number;
   tankBox: { min: [number, number, number]; max: [number, number, number] };
   /** プレイヤーが居てよい範囲（部屋全体） */
   worldBox: { min: [number, number, number]; max: [number, number, number] };
@@ -146,16 +155,48 @@ function readPrims(v: unknown, ctx: SaveContext): Float64Array {
     if (!inBox(out[o], out[o + 1], out[o + 2], B) || !inBox(out[o + 3], out[o + 4], out[o + 5], B)) fail(`掘った穴 ${i} が水槽の外にあります`);
     const r = out[o + 6];
     if (!(r > 0.01 && r <= ctx.maxR + 1e-4)) fail(`掘った穴 ${i} の太さが範囲外です（${r}）`);
+    if (out[o + 7] !== 0 && out[o + 7] !== 1) fail(`掘った穴 ${i} の種類が違います（${out[o + 7]}）`);
   }
   return out;
 }
 
-/** 旧い版のデータを今の版へ変換する（いまは版 1 だけ。版を上げたらここに変換を足す） */
+/** 版 1 の空洞の並び（7 個ずつ）を版 2（8 個ずつ・種類 0 = 掘った）へ。形が違えば null（検証で拒否される） */
+function primsV1toV2(v: unknown): Float64Array | null {
+  let src: ArrayLike<unknown>;
+  if (v instanceof Float64Array || v instanceof Float32Array || Array.isArray(v)) src = v as ArrayLike<unknown>;
+  else return null;
+  if (src.length % PRIM_STRIDE_V1 !== 0) return null;
+  const n = src.length / PRIM_STRIDE_V1;
+  const out = new Float64Array(n * PRIM_STRIDE);
+  for (let i = 0; i < n; i++) {
+    for (let k = 0; k < PRIM_STRIDE_V1; k++) {
+      const x = src[i * PRIM_STRIDE_V1 + k];
+      out[i * PRIM_STRIDE + k] = typeof x === 'number' ? x : NaN;
+    }
+    out[i * PRIM_STRIDE + 7] = 0;
+  }
+  return out;
+}
+
+/**
+ * 旧い版のデータを今の版へ変換する（元のデータは書き換えず、変換した写しを返す）。
+ * - 版 1 → 2：空洞の並びに種類（0 = 掘った）を足して 8 個ずつにする。プレイヤーに手持ちの砂 0・道具「掘る」を足す。
+ *   掘った穴・仲間・訪れた場所・進み具合はそのまま。版 1 には盛った砂が無いので、合成の順序は掘った順のまま（同じ形）
+ * 形が違う所は直さずに残す（validateSave が拒否する）
+ */
 export function migrate(raw: unknown): unknown {
   if (!isObj(raw)) return raw;
-  const v = raw.version;
-  if (v === SAVE_VERSION) return raw;
-  return raw;
+  let d: Record<string, unknown> = raw;
+  if (d.version === 1) {
+    const tanks: Record<string, unknown> = {};
+    if (isObj(d.tanks)) {
+      for (const [id, t] of Object.entries(d.tanks)) {
+        tanks[id] = isObj(t) && isObj(t.dig) ? { ...t, dig: { ...t.dig, prims: primsV1toV2(t.dig.prims) } } : t;
+      }
+    }
+    d = { ...d, version: 2, tanks: isObj(d.tanks) ? tanks : d.tanks, player: isObj(d.player) ? { ...d.player, sand: 0, tool: 'dig' } : d.player };
+  }
+  return d;
 }
 
 /** 保存データを検証して、ゲームへ渡せる形にする（知らない id は捨てて警告にする。形が違えば拒否） */
@@ -182,6 +223,9 @@ export function validateSave(input: unknown, ctx: SaveContext): ValidateResult {
     if (!inBox(px, py, pz, ctx.worldBox)) fail('プレイヤーの位置が範囲外です');
     const heading = num(P.heading, 'player.heading', -100, 100);
     const camera: SaveCameraMode = P.camera === 'observe' || P.camera === 'diorama' ? P.camera : 'adventure';
+    // 手持ちの砂：容量を少し超える程度は容量に丸める（容量を変えた後の版でも読める）。負・数でないものは拒否
+    const sand = Math.min(num(P.sand, 'player.sand', 0, ctx.sandCap * 4), ctx.sandCap);
+    const tool: SaveTool = P.tool === 'fill' ? 'fill' : 'dig';
 
     const G = raw.progress;
     if (!isObj(G)) fail('進捗の情報がありません');
@@ -233,7 +277,7 @@ export function validateSave(input: unknown, ctx: SaveContext): ValidateResult {
       buddies.push({ id, species: str(b.species, 'buddy.species'), found: b.found, mode: b.mode === 'follow' ? 'follow' : 'free', tank: btank, x: bx, y: by, z: bz, home, traits });
     }
 
-    return { ok: true, warnings, data: { format: SAVE_FORMAT, version, created, savedAt, playTime, rev, saveId, player: { tank, x: px, y: py, z: pz, heading, camera }, progress: { visited, flags }, tanks, buddies } };
+    return { ok: true, warnings, data: { format: SAVE_FORMAT, version, created, savedAt, playTime, rev, saveId, player: { tank, x: px, y: py, z: pz, heading, camera, sand, tool }, progress: { visited, flags }, tanks, buddies } };
   } catch (e) {
     if (e instanceof SaveError) return { ok: false, error: e.message };
     return { ok: false, error: `読み込めませんでした（${(e as Error).message}）` };

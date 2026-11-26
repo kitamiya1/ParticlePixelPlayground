@@ -103,7 +103,7 @@ export interface AquariumMeshes {
   emissive: TriMesh;
 }
 
-const SAND = { light: hex('#dccba0'), mid: hex('#c5b085'), dark: hex('#a48f6a'), gravel: hex('#8a7b62'), wet: hex('#8c7656'), wetDark: hex('#66533e') };
+const SAND = { light: hex('#dccba0'), mid: hex('#c5b085'), dark: hex('#a48f6a'), gravel: hex('#8a7b62'), wet: hex('#8c7656'), wetDark: hex('#66533e'), fresh: hex('#d8c494'), freshDry: hex('#8a6f4e') };
 const SOIL = { top: hex('#4a3a2a'), moss: hex('#3b5529'), deep: hex('#5b4431'), gravel: hex('#3a322b') };
 
 /** 地表の色（高さと場所から。水中の砂・汀線の濡れた砂・陸地の土） */
@@ -324,7 +324,10 @@ export function buildDigChunk(world: AquariumWorld, light: LightGrid, i: number,
     if (cut < 4) cut = 0;
   }
   const yb = y0 + cut * h;
-  const box: Box3Like = { min: [ox, yb, oz], max: [ox + (n - 1 - 1e-3) * h, y0 + (ny - 1 - 1e-3) * h, oz + (n - 1 - 1e-3) * h] };
+  // 盛った砂が地表より高く積もっている区画：上端をその上まで延ばす（上端の標本は必ず砂の外）
+  const fTop = dig.chunkMaxY(dig.chunkId(i, j), view);
+  const nyTop = Math.max(ny, Math.ceil((fTop + 0.35 - y0) / h) + 1);
+  const box: Box3Like = { min: [ox, yb, oz], max: [ox + (n - 1 - 1e-3) * h, y0 + (nyTop - 1 - 1e-3) * h, oz + (n - 1 - 1e-3) * h] };
   const sdf: Sdf = (x, y, z) => {
     const fq = (x - ox) / h, fk = (z - oz) / h;
     const q = Math.round(fq), k = Math.round(fk);
@@ -359,13 +362,16 @@ export function buildDigChunk(world: AquariumWorld, light: LightGrid, i: number,
         const oz = ox !== 0 ? 0 : z - TANK.minZ === e ? -1 : 1;
         const l = Math.hypot(nx, nyy, nz) || 1;
         if ((nx * ox + nz * oz) / l > 0.7) {
-          const c = strataColor(x, Math.min(y, g), z, g);
+          // 元の地表より上（盛った砂の断面）は、盛りたての砂の色（層は無い）
+          const c = y > g + 0.02 ? mixRGB(strataColor(x, g, z, g), g < wl ? SAND.fresh : SAND.freshDry, 0.55) : strataColor(x, Math.min(y, g), z, g);
           return mb.vertex(x, y, z, ox, 0.8, oz, u8(c[0]), u8(c[1]), u8(c[2]), 0.9, 0.6);
         }
       }
     }
     const cv = dig.carve(x, y, z, view);
-    if (depth < 0.05 && cv > 0.2) {
+    // 盛った砂のそば（なじませの範囲）：頂点を高さ場へ寄せない
+    const fv = dig.fillDist(x, y, z, view);
+    if (depth < 0.05 && cv > 0.2 && fv > 0.3) {
       // 掘っていない地表：高さ場の網と同じ
       const [gx, gy, gz] = world.groundNormal(x, z);
       const c = groundColor(world, x, z, g);
@@ -374,6 +380,16 @@ export function buildDigChunk(world: AquariumWorld, light: LightGrid, i: number,
     }
     const l = Math.hypot(nx, nyy, nz) || 1;
     const nn = [nx / l, nyy / l, nz / l];
+    if (depth < 0.05 && cv > 0.2) {
+      // 盛った砂の面（元の地表より上・地表の高さ）：その場所の地表の色を、盛りたての明るい砂へ寄せる（高く積もるほど）。
+      // 日照・遮蔽は面の少し外で測る（盛った砂は焼き込んだ光の格子に無いので、元の地表と同じ明るさの考え方）
+      const top = groundColor(world, x, z, g);
+      const fresh = g < wl ? SAND.fresh : SAND.freshDry;
+      const c = mixRGB(top, fresh, 0.25 + 0.35 * smoothstep(0.0, 0.5, -depth));
+      const ao = 0.7 + 0.3 * smoothstep(0.0, 0.35, world.solid(x + nn[0] * 0.35, y + nn[1] * 0.35, z + nn[2] * 0.35));
+      const sun = light.sample(x + nn[0] * 0.2, y + nn[1] * 0.2, z + nn[2] * 0.2);
+      return mb.vertex(x, y, z, nx, nyy, nz, u8(c[0] * ao), u8(c[1] * ao), u8(c[2] * ao), sun, g < wl ? 0.75 : 0.5);
+    }
     // 掘った面：地層の色（縁の近くは地表の色へなじませる）。湿って少し暗い
     const top = groundColor(world, x, z, g);
     const st = strataColor(x, Math.min(y, g - 0.13), z, g);

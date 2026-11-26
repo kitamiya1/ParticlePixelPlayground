@@ -6,7 +6,8 @@
 // - 穴掘り：体を掘る向きへ傾け、左右の鋏で交互に砂をすくっては後ろへかき出す（位相は CrabController.digPhase）。
 //   前脚も交互に砂を後ろへ蹴り、進んでいるときは歩行と同じ足運びを重ねる。照準の先に何も無いとき（digWhiff）は
 //   すくわずに、鋏を掘る向きへ伸ばして宙で振る（空振り）。
-// - 壁登り：体は張り付いた面の向き（groundN = CrabController.climbN）へ傾け、根を球の中心から面の側へ半径だけ下げた所に置く。
+// - 壁登り・天井歩き：体は張り付いた面の向き（groundN = CrabController.climbN）と体の前（bodyF）の座標軸で向け
+//   （逆さでも向きが飛ばない）、根を球の中心から面の側へ半径だけ下げた所に置く。
 //   進んでいる間は面に沿った歩行の足運び（体の座標の速度は面を床に起こして計算済み）、止まっている間は脚を広げて
 //   足先を面へ押し付け、ゆっくり踏ん張り直す。鋏は前へ伸ばして面をつかむ。
 
@@ -39,6 +40,11 @@ export class CrabRig {
   private readonly qTmp = new THREE.Quaternion();
   private readonly qYaw = new THREE.Quaternion();
   private readonly vTmp = new THREE.Vector3();
+  private readonly vF = new THREE.Vector3();
+  private readonly vL = new THREE.Vector3();
+  /** 体の座標軸から作った向き（平滑化）と、前のフレームでそれを使ったか */
+  private readonly qFrame = new THREE.Quaternion();
+  private wasFrame = false;
   private readonly m1 = new THREE.Matrix4();
   private readonly m2 = new THREE.Matrix4();
   private readonly body = new THREE.Matrix4();
@@ -81,13 +87,33 @@ export class CrabRig {
     // 根：位置 + 向き + 地面の傾き（なめらかに追従）。壁では傾きが大きいので、根は球の中心から「体の上」の逆へ
     // 半径だけ下げた所（面に接する所）に置く（平らな床では従来と同じ、足元 = 中心の真下）
     this.qYaw.setFromAxisAngle(UP, c.heading);
-    this.vTmp.set(c.groundN[0], c.groundN[1], c.groundN[2]).normalize();
-    this.qTmp.setFromUnitVectors(UP, this.vTmp);
-    // 張り付いた直後・離れた直後は傾きが大きく変わるので、壁登りの間は少し速く追う
-    this.tilt.slerp(this.qTmp, 1 - Math.exp(-dt * (8 + 4 * W.climb)));
-    this.vTmp.set(0, 1, 0).applyQuaternion(this.tilt);
     const R = c.radius;
-    this.root.makeRotationFromQuaternion(this.qTmp.copy(this.tilt).multiply(this.qYaw)).setPosition(c.x - this.vTmp.x * R, c.y + R - this.vTmp.y * R, c.z - this.vTmp.z * R);
+    if (c.frameMode) {
+      // 張り付いている・逆さから起き上がっている途中：体の向きは 体の上 = groundN・前 = bodyF の座標軸から作る
+      // （「上 → 法線」の最小の回転 + 方位では、真逆さの近くで回転の軸が決まらず体が急に回る）
+      if (!this.wasFrame) this.qFrame.copy(this.tilt).multiply(this.qYaw);
+      const n = this.vTmp.set(c.groundN[0], c.groundN[1], c.groundN[2]).normalize();
+      const f = this.vF.set(c.bodyF[0], c.bodyF[1], c.bodyF[2]);
+      const l = this.vL.crossVectors(n, f).normalize();
+      f.crossVectors(l, n);
+      this.m1.makeBasis(l, n, f);
+      this.qTmp.setFromRotationMatrix(this.m1);
+      this.qFrame.slerp(this.qTmp, 1 - Math.exp(-dt * 14));
+      this.root.makeRotationFromQuaternion(this.qFrame);
+      this.vTmp.set(0, 1, 0).applyQuaternion(this.qFrame);
+      this.wasFrame = true;
+    } else {
+      // 従来：傾き（上 → groundN の最小の回転、平滑化）× 方位。体の座標軸の向きから戻ったときは、いまの向きから続ける
+      if (this.wasFrame) this.tilt.copy(this.qFrame).multiply(this.qTmp.copy(this.qYaw).invert());
+      this.wasFrame = false;
+      this.vTmp.set(c.groundN[0], c.groundN[1], c.groundN[2]).normalize();
+      this.qTmp.setFromUnitVectors(UP, this.vTmp);
+      // 張り付いた直後・離れた直後は傾きが大きく変わるので、壁登りの間は少し速く追う
+      this.tilt.slerp(this.qTmp, 1 - Math.exp(-dt * (8 + 4 * W.climb)));
+      this.vTmp.set(0, 1, 0).applyQuaternion(this.tilt);
+      this.root.makeRotationFromQuaternion(this.qTmp.copy(this.tilt).multiply(this.qYaw));
+    }
+    this.root.setPosition(c.x - this.vTmp.x * R, c.y + R - this.vTmp.y * R, c.z - this.vTmp.z * R);
 
     // 体：歩行の上下・左右の揺れ、呼吸、着地の沈み込み、遊泳の前傾
     const ph = c.stridePhase;

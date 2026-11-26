@@ -52,7 +52,7 @@ interface Grain {
 const SANDS = [hex('#dccba0'), hex('#c5b085'), hex('#a48f6a'), hex('#8c7656')];
 const SOILS = [hex('#4a3a2a'), hex('#5b4431'), hex('#3b5529'), hex('#6e5139')];
 const STONE = [hex('#8f8981'), hex('#655f59'), hex('#a39c92')];
-const CURSOR_OK = hex('#ffe08a'), CURSOR_NG = hex('#e07a5f'), CURSOR_FAR = hex('#9fc7c0');
+const CURSOR_OK = hex('#ffe08a'), CURSOR_NG = hex('#e07a5f'), CURSOR_FAR = hex('#9fc7c0'), CURSOR_FILL = hex('#b6f07a');
 const RING = 14, DOTS = 6, EXT = 4;
 
 export class AquariumDigFx {
@@ -218,7 +218,8 @@ export class AquariumDigFx {
     if (plants) {
       const gone: number[] = [];
       for (const g of plants) {
-        if (g.done || w.sandSolid(g.x, g.y - 0.04, g.z) <= 0) continue;
+        // 根元の砂が残っていて、盛った砂に埋まってもいない（根元の 0.15 上が砂の外）株は残す
+        if (g.done || (w.sandSolid(g.x, g.y - 0.04, g.z) <= 0 && w.sandSolid(g.x, g.y + 0.15, g.z) > 0)) continue;
         g.done = true;
         for (const i of g.idx) gone.push(i);
       }
@@ -323,6 +324,16 @@ export class AquariumDigFx {
       return;
     }
     const pal = soil ? SOILS : SANDS;
+    if (e.kind === 'fill') {
+      // 盛る：盛る所の少し上から、砂粒がこぼれ落ちて積もる（水中は砂煙も少し）
+      const n = Math.round(10 + e.power * 8);
+      for (let i = 0; i < n; i++) {
+        const c = mixRGB(pal[Math.floor(Math.random() * pal.length)], pal[0], 0.2 + Math.random() * 0.3);
+        this.add(e.x + rs(0.3), e.y + 0.25 + Math.random() * 0.25, e.z + rs(0.3), dir[0] * 0.3 + rs(0.3), -0.3 - Math.random() * 0.6, dir[2] * 0.3 + rs(0.3), under ? 1.2 + Math.random() * 0.6 : 0.6 + Math.random() * 0.3, 0.03 + Math.random() * 0.03, 0, c);
+      }
+      if (under) for (let i = 0; i < 2; i++) this.add(e.x + rs(0.2), e.y + 0.08, e.z + rs(0.2), rs(0.3), 0.1 + Math.random() * 0.2, rs(0.3), 1.0 + Math.random() * 0.6, 0.08 + Math.random() * 0.04, 1, mixRGB(pal[1], hex('#9fb8a0'), 0.35));
+      return;
+    }
     // 砂粒：掘った所から、カニの後ろ（手前）と上へ跳ね上がる
     const n = Math.round(12 + e.power * 10);
     for (let i = 0; i < n; i++) {
@@ -416,17 +427,19 @@ export class AquariumDigFx {
     const col = this.cursorGeo.getAttribute('aColor') as THREE.BufferAttribute;
     const size = this.cursorGeo.getAttribute('aSize') as THREE.BufferAttribute;
     const m: DigMaterial = A.material;
-    const ok = A.face && diggable(m);
-    const c = !A.face ? CURSOR_FAR : ok ? CURSOR_OK : CURSOR_NG;
+    const fillMode = A.tool === 'fill';
+    // 盛る：盛れる所なら砂色の輪を面の上へ寝かせて（置く砂山の大きさ）、盛れなければ赤い小さな輪
+    const ok = fillMode ? A.fillOk : A.face && diggable(m);
+    const c = !A.face ? CURSOR_FAR : ok ? (fillMode ? CURSOR_FILL : CURSOR_OK) : CURSOR_NG;
     const d = A.dir;
-    // 輪の面：掘れる = 掘る向きに垂直、掘れない = 当たった面の法線に垂直
-    const n = ok || !A.face ? [-d[0], -d[1], -d[2]] : this.d.world.contactNormal(A.p[0], A.p[1], A.p[2]);
+    // 輪の面：掘れる = 掘る向きに垂直、掘れない・盛る = 当たった面の法線に垂直
+    const n = fillMode && A.face ? A.n : ok || !A.face ? [-d[0], -d[1], -d[2]] : this.d.world.contactNormal(A.p[0], A.p[1], A.p[2]);
     const ref = Math.abs(n[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0];
     const t1 = norm(cross(ref, n)), t2 = cross(n, t1);
     const pulse = 0.5 + 0.5 * Math.sin(this.cursorT * 9);
     // 掘れる輪は穴の断面より少し細く（穴の縁に重なって見えるように）。体からの距離で太さが変わらないよう固定
-    const R = (ok ? DIG.rMax * 0.62 : 0.2) * (0.88 + 0.12 * pulse);
-    const lift = ok ? 0 : 0.05;
+    const R = (fillMode && ok ? Math.max(A.fillR, 0.2) * 1.5 : ok ? DIG.rMax * 0.62 : 0.2) * (0.88 + 0.12 * pulse);
+    const lift = ok && !fillMode ? 0 : 0.05;
     for (let i = 0; i < RING; i++) {
       const a = (i / RING) * Math.PI * 2 + this.cursorT * 1.5;
       pos.setXYZ(i, A.p[0] + n[0] * lift + (t1[0] * Math.cos(a) + t2[0] * Math.sin(a)) * R, A.p[1] + n[1] * lift + (t1[1] * Math.cos(a) + t2[1] * Math.sin(a)) * R, A.p[2] + n[2] * lift + (t1[2] * Math.cos(a) + t2[2] * Math.sin(a)) * R);
@@ -448,7 +461,7 @@ export class AquariumDigFx {
       const s = 0.14 * (k + 1) + 0.06 * ((this.cursorT * 2.5) % 1);
       pos.setXYZ(RING + DOTS + k, A.p[0] + d[0] * s, A.p[1] + d[1] * s, A.p[2] + d[2] * s);
       col.setXYZ(RING + DOTS + k, c[0], c[1], c[2]);
-      size.setX(RING + DOTS + k, ok ? (k < 2 ? 2 : 1) : 0);
+      size.setX(RING + DOTS + k, ok && !fillMode ? (k < 2 ? 2 : 1) : 0);
     }
     const ci = RING + DOTS + EXT;
     pos.setXYZ(ci, A.p[0] + n[0] * lift, A.p[1] + n[1] * lift, A.p[2] + n[2] * lift);

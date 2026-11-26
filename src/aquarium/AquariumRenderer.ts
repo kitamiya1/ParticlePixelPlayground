@@ -852,7 +852,7 @@ export class AquariumRenderer {
         this.spawn(0, e.x, e.y + 0.15, e.z, 2, 0.2, 0.03, 1.0);
       } else if (e.kind === 'jump' && crab.submerged > 0.5) {
         this.spawn(0, e.x, e.y + 0.05, e.z, 3, 0.25, 0.03, 0.8);
-      } else if (e.kind === 'dig' || e.kind === 'digBlocked') {
+      } else if (e.kind === 'dig' || e.kind === 'digBlocked' || e.kind === 'fill') {
         this.digFx.burst(e);
         // 水中で砂をかき出すと、砂の中の空気が小さな泡になって上る
         if (e.kind === 'dig' && e.y < TANK.waterY - 0.2 && Math.random() < 0.6) this.spawn(0, e.x, e.y + 0.05, e.z, 1 + Math.floor(Math.random() * 2), 0.12, 0.022, 0.7);

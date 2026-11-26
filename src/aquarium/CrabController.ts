@@ -32,13 +32,23 @@
 //   張り付いている間は重力・浮力・水流を止め、入力を面に沿う向きへ写す（壁へ向かう = 上、離れる = 下、沿う = 横。
 //   climbMove）。スティックを離すとその場で止まる。動いたら面から体の半径の所へ吸着し、ほかの物は contactSolid で押し戻す。
 //   緩い面（CLIMB_EXIT_NY）へ来たら歩きへ戻り、面を失ったら落ち、ジャンプで面から跳んで離れる。掘るボタンで離す。
-//   張り出しすぎた所へは進まず、押し続けたら縁を回り込む道（findMantle）をたどる（掘った穴の継ぎ目の棚・出口の縁）。
-//   歩いていて急な面の下のくぼみで進めないときも同じ道を探す。体の傾きは climbN（groundN へ写す）。
+//   歩いていて急な面の下のくぼみで進めないときは、縁を回り込む道（findMantle）をたどる（掘った穴の継ぎ目の棚・出口の縁）。
+//   体の傾きは climbN（groundN へ写す）。
+// - 天井歩き：張り付いたまま、張り出し・岩や流木の裏・掘ったトンネルの天井（完全な逆さ）まで回り込める。
+//   - 入力の写し方（moveF / moveR = スティックの前・右に当たる面に沿う向き）は面に貼り付けて持ち、面の向きが変わるたびに
+//     その回転で一緒に回す（平行移動）。床 → 壁 → 天井 → 反対側の壁と、押したまま連続して進める（途中で向きが反転しない）。
+//     スティックを離したら、いまのカメラと面から決め直す（camBasis。壁 = 従来どおり「壁へ = 上」、天井 = 画面の前・右）。
+//     押している間も、決め直した向きと近ければ少しずつそちらへ寄せる（反対向きのときは離すまで寄せない）。
+//   - 体の前（bodyF）も面に沿う向きとして持ち、同じ回転で回す（逆さでも向きが飛ばない。CrabRig は bodyF と groundN で
+//     体の向きを作る）。進む向きに対して横歩きになるよう、面の法線のまわりに回す。
+//   - 空中・水中から張り出し・天井へ触れて、移動入力かジャンプを押していれば張り付く（tryGrab）。
+//   - ジャンプで離れると、面の外向きへ押し出す（上向きの面ほど上へも跳ぶ。天井からは真下へ）。逆さから離れた後は、
+//     体の前を軸に起き上がりながら落ちる・沈む（frameMode の間は体の向きを bodyF から作る）。
 
 import { clamp, lerp, smoothstep } from '../core/math';
 import { TANK, type AquariumWorld } from './AquariumWorld';
 import { ROOM, type Flow, type Region } from './AquariumStand';
-import { DIG, diggable, type DigMaterial } from './AquariumDig';
+import { DIG, diggable, FILL, SAND, type DigMaterial } from './AquariumDig';
 
 export type CrabState = 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'swim' | 'sink' | 'ride' | 'dig' | 'climb' | 'pull';
 
@@ -48,7 +58,7 @@ export const CRAB_STATE_LABEL: Record<CrabState, string> = {
 
 /** 見た目側（泡・水しぶき・波紋）に知らせる出来事 */
 export type CrabEvent = {
-  kind: 'jump' | 'land' | 'enterWater' | 'exitWater' | 'swimStart' | 'stroke' | 'dig' | 'digBlocked';
+  kind: 'jump' | 'land' | 'enterWater' | 'exitWater' | 'swimStart' | 'stroke' | 'dig' | 'digBlocked' | 'fill';
   x: number; y: number; z: number; power: number;
   /** 穴掘り：かき出した向き（体から掘った所へ）と、当たった物 */
   dir?: [number, number, number];
@@ -66,6 +76,24 @@ export interface DigAim {
   hit: boolean;
   /** 届く距離の少し先までに何かある（掘り進めた穴の突き当たり。無ければ空振り） */
   face: boolean;
+  /** 道具（掘る / 盛る）。盛るとき：盛れるか・盛れない理由・置く砂山の半径の目安・当たった面の法線 */
+  tool: SandTool;
+  fillOk: boolean;
+  fillWhy: FillBlock | null;
+  fillR: number;
+  n: [number, number, number];
+}
+
+/** 掘る / 盛る（PC：G キー・スマホ：掘るボタンの上の切り替えで変える。どちらも同じ「掘る」ボタン・F キーで行う） */
+export type SandTool = 'dig' | 'fill';
+/** 盛れない理由：砂が足りない・掘れない物（ガラス・管・発見物・底）・カニや仲間に近すぎる・届かない */
+export type FillBlock = 'empty' | 'glass' | 'pipe' | 'treasure' | 'bottom' | 'near' | 'far' | 'other';
+export const FILL_BLOCK_LABEL: Record<FillBlock, string> = {
+  empty: '砂が足りない', glass: 'ガラスのそば', pipe: '配管のそば', treasure: '宝物のそば', bottom: '水槽の底', near: '近すぎる', far: '届かない', other: '盛れない',
+};
+/** 砂を盛ってよい面（砂・土・岩・流木の上。ガラス・管などの上には盛らない） */
+function fillable(m: DigMaterial): boolean {
+  return m === 'sand' || m === 'soil' || m === 'rock' || m === 'wood';
 }
 
 export interface CrabInput {
@@ -86,6 +114,8 @@ export interface CrabInput {
 
 /** 引っ張るときに立つ距離（穴の中心から体の中心まで。AquaBuddy.PULL_STAND と同じ） */
 const PULL_STAND = 0.6;
+/** 掘った・盛った砂の量を測る処理に、1 フレームで使う時間の上限（ms） */
+const MEASURE_MS = 1.5;
 
 const RADIUS = 0.24;
 /** 照準を上・下いっぱいにしたときの掘る向きの仰角（上は登れる坂の限界 57° より少し急、下は −57°）と、左右の最大 */
@@ -105,15 +135,19 @@ const DIG_MOVE_SPEED = 1.1;
  * 張り付き始めるのは、床とみなせない面（法線の y が floorNY 以下）だけ
  */
 const CLIMB_EXIT_NY = 0.74;
-const CLIMB_MIN_NY = -0.8;
 /**
- * 張り付き始めてよい面の張り出しの限度（法線の y。約 127°。動いている間は CLIMB_MIN_NY まで回り込める）。
- * 掘った穴の中は、ほぼ垂直（約 99°）まで：トンネルの天井・掘り口の内側の丸い突き当たりは、張り付いても上が
- * 天井（さらに張り出す）なので登れない。継ぎ目の段・坂の床は、張り付かずに歩く・よじ登る
+ * 歩いていて（接地して）張り付き始めてよい面の張り出しの限度（法線の y。約 127°）。張り付いた後は天井（−1）まで回り込める。
+ * 掘った穴の中は、ほぼ垂直（約 99°）まで：狭いトンネルを歩いていて頭が天井・丸い突き当たりに触れただけで張り付かないように
+ * （壁へ張り付いてから天井へ回り込むのはできる）。継ぎ目の段・坂の床は、張り付かずに歩く・よじ登る
  */
 const GRAB_MIN_NY = -0.6;
 const GRAB_MIN_NY_DUG = -0.15;
-/** 張り出しで進めないまま押し続けたら離れる時間と、離れたあと張り付かない時間 */
+/** 空中・水中から張り付ける面（法線の y がこれより下 = 張り出し・天井） */
+const CEIL_GRAB_NY = -0.3;
+/** 入力の写し方：天井の決め方に切り替える法線の y（約 127° より張り出した面）・離してから決め直すまでの時間 */
+const CEIL_RULE_NY = -0.6;
+const REANCHOR_T = 0.12;
+/** 押しても進めないまま縁を回り込む道を探すまでの時間と、天井から跳んで離れたあと張り付かない時間 */
 const CLIMB_STUCK_T = 0.3;
 const GRAB_COOLDOWN = 0.6;
 const CLIMB_GRAB_T = 0.1;
@@ -157,7 +191,21 @@ export class CrabController {
   readonly swimDuration = 2.6;
   readonly events: CrabEvent[] = [];
   /** 穴掘り：照準・かき出しの位相（1 回で π 進む。左右の鋏が交互にかく）・掘る向きの仰角・かき出した回数 */
-  readonly digAim: DigAim = { active: false, p: [0, 0, 0], dir: [0, 0, 1], material: 'none', hit: false, face: false };
+  readonly digAim: DigAim = { active: false, p: [0, 0, 0], dir: [0, 0, 1], material: 'none', hit: false, face: false, tool: 'dig', fillOk: false, fillWhy: null, fillR: 0, n: [0, 1, 0] };
+  /** 道具（掘る / 盛る）と手持ちの砂（体積。0〜SAND.capacity） */
+  tool: SandTool = 'dig';
+  sandHeld = 0;
+  /** 砂の出入りの記録（自動検証・表示用）：掘って得た・容量を超えて捨てた・盛って使った量、空振り・盛れなかった回数 */
+  readonly sandStats = { gained: 0, overflow: 0, spent: 0, places: 0, placeFails: 0, lastGain: 0, lastSpend: 0, measureMs: 0, maxMeasureMs: 0 };
+  /** 盛った砂で埋めてはいけない物（仲間など。中心と半径）。main が決める */
+  fillBlockers: () => { x: number; y: number; z: number; r: number }[] = () => [];
+
+  /** 掘る ↔ 盛る を切り替える（掘っている・盛っている途中なら、いったん離したことにする） */
+  toggleTool(): SandTool {
+    this.tool = this.tool === 'dig' ? 'fill' : 'dig';
+    this.digT = 0;
+    return this.tool;
+  }
   digPhase = 0;
   digPitch = 0;
   digStrokes = 0;
@@ -173,6 +221,19 @@ export class CrabController {
   /** 壁登り：壁に張り付いているか・張り付いている面の法線（平滑化。体の傾き・登る向きの基準） */
   climbing = false;
   readonly climbN: [number, number, number] = [0, 1, 0];
+  /**
+   * 体の前の向き（単位。groundN に垂直）。張り付いている間と、逆さから起き上がっている途中（frameMode）だけ使う。
+   * それ以外の間は heading（体の向き）から決まる向きに合わせておく
+   */
+  readonly bodyF: [number, number, number] = [0, 0, 1];
+  /** 体の向きを bodyF・groundN から作る（張り付いている・逆さから起き上がっている途中）。false なら heading・groundN（従来） */
+  frameMode = false;
+  /** 張り付いている間のスティックの前・右に当たる面に沿う向き（面の向きが変わると一緒に回す）・離している時間 */
+  private readonly moveF: [number, number, number] = [0, 0, 1];
+  private readonly moveR: [number, number, number] = [1, 0, 0];
+  private idleT = 0;
+  /** 張り付いている間に、逆さ（法線の y < −0.7）で過ごした時間・回り込んだ面の向きの範囲（自動検証用） */
+  readonly ceilStats = { invertedT: 0, minNY: 1, grabsAir: 0 };
   /** 壁へ向かって押し続けている時間（CLIMB_GRAB_T で張り付く）・張り付かない残り時間・張り出しで進めない時間 */
   private grabT = 0;
   private grabWait = 0;
@@ -224,6 +285,8 @@ export class CrabController {
     this.swimming = this.sinking = false;
     this.grounded = false;
     this.climbing = false;
+    this.frameMode = false;
+    this.groundN.splice(0, 3, 0, 1, 0);
     this.grabT = this.grabWait = this.stuckT = this.hopT = this.pushT = 0;
     this.mantle = null;
   }
@@ -246,6 +309,14 @@ export class CrabController {
     const h = dt / steps;
     this.clock += dt;
     for (let i = 0; i < steps; i++) this.step(h, inp, i === 0);
+    // 掘った・盛った砂の量を測る処理を少し進める（1 フレームに MEASURE_MS まで。スマホでも画面を止めない）
+    if (this.world.dig.measuring) {
+      const t0 = performance.now();
+      this.world.dig.measureStep(MEASURE_MS);
+      const ms = performance.now() - t0;
+      this.sandStats.measureMs = ms;
+      this.sandStats.maxMeasureMs = Math.max(this.sandStats.maxMeasureMs, ms);
+    }
     // 穴掘り（1 フレームに 1 回。照準を探ってから、間隔ごとにかき出す）
     if (this.digging) this.updateDig(dt, inp);
     else {
@@ -261,9 +332,11 @@ export class CrabController {
 
   private updateDig(dt: number, inp: CrabInput) {
     const w = this.world;
+    const fillMode = this.tool === 'fill';
     // 上下の向き：地表では斜め下、足元が十分深くなったら（または水槽の底の近く）水平。ジャンプで上へ、走るで急に下へ。
     // 照準を上下へずらしている間は、ずらした量で連続的に上・下へ向ける（自動の切り替えは止める：
-    // 地表へ近づいて「斜め下」に戻り、上へ掘っている向きが急に変わることがないように）
+    // 地表へ近づいて「斜め下」に戻り、上へ掘っている向きが急に変わることがないように）。
+    // 盛るときは、照準をずらしていなければ浅い斜め下（FILL.pitch。体から離れた所へ盛り、体を埋めない）
     const aimY = inp.digAim?.y ?? 0;
     const swiping = Math.abs(aimY) > 0.02;
     const depth = w.groundAt(this.x, this.z) - this.y;
@@ -272,23 +345,23 @@ export class CrabController {
       if (depth > DIG.tunnelDepth - 0.05 || nearBottom) this.digDeep = true;
       else if (depth < 0.25) this.digDeep = false;
     }
-    const base = this.digDeep ? 0 : -0.48;
+    const base = fillMode ? FILL.pitch : this.digDeep ? 0 : -0.48;
     let pitch = base;
     if (swiping) pitch = aimY > 0 ? base + (DIG_PITCH_UP - base) * aimY : base + ((nearBottom ? 0 : DIG_PITCH_DOWN) - base) * -aimY;
     else if (inp.jumpHeld) pitch = 0.75;
-    else if (inp.run && !nearBottom) pitch = -0.85;
+    else if (inp.run && !nearBottom && !fillMode) pitch = -0.85;
     this.digPitch += (pitch - this.digPitch) * (1 - Math.exp(-dt * 10));
     const cp = Math.cos(this.digPitch);
     const dir: [number, number, number] = [cp * Math.sin(this.digYaw), Math.sin(this.digPitch), cp * Math.cos(this.digYaw)];
     const o: [number, number, number] = [this.x, this.y + RADIUS, this.z];
-    // 上へ掘るときは天井・掘り口までが遠くなるので、届く距離を延ばす
-    const reach = DIG.reach + 0.45 * Math.max(0, this.digPitch);
+    // 上へ掘るときは天井・掘り口までが遠くなるので、届く距離を延ばす（盛るときは FILL.reach）
+    const reach = fillMode ? FILL.reach : DIG.reach + 0.45 * Math.max(0, this.digPitch);
     // 届く距離の少し先（FACE_AHEAD）まで探る：届く距離の中で当たればかき出す。その先で当たった（掘り進めた穴の突き当たりが
     // 少し先にある）なら、かき出さずに照準だけ出す（掘りながら進むと交互に起こるので、空振りの動きにはしない）
-    let pr = w.digProbe(o[0], o[1], o[2], dir, reach + FACE_AHEAD);
+    let pr = w.digProbe(o[0], o[1], o[2], dir, reach + (fillMode ? 0 : FACE_AHEAD));
     // 上へ掘っていて体の中心からは何も無い（地表へ抜けた）とき：足もとの少し上から水平にも探る。斜め上の穴が地表へ
     // 抜けた所には、穴の床と地表の間に足もとの段（登れない急な縁）が残るので、それを掘り取って出口を平らにする
-    if (pr.t === null && this.digPitch > 0.15 && w.groundAt(this.x, this.z) - this.y > 0.06) {
+    if (!fillMode && pr.t === null && this.digPitch > 0.15 && w.groundAt(this.x, this.z) - this.y > 0.06) {
       const flat: [number, number, number] = [Math.sin(this.digYaw), 0, Math.cos(this.digYaw)];
       const low = w.digProbe(o[0], o[1] - 0.12, o[2], flat, DIG.reach * 0.6);
       if (low.t !== null) {
@@ -299,12 +372,44 @@ export class CrabController {
     const inReach = pr.t !== null && pr.t <= reach;
     const A = this.digAim;
     A.active = true;
+    A.tool = this.tool;
     A.p = pr.t !== null ? pr.p : [o[0] + dir[0] * reach, o[1] + dir[1] * reach, o[2] + dir[2] * reach];
     A.dir = dir;
     A.material = pr.material;
     A.hit = inReach;
     A.face = pr.t !== null;
     const material: DigMaterial = inReach ? pr.material : 'none';
+    // 盛るとき：盛れるか（砂が足りる・盛ってよい面・保護する物から離れている・カニや仲間を埋めない）と、砂山の大きさの目安
+    let maxR: ((c: readonly number[], r: number) => number) | null = null;
+    if (fillMode) {
+      const blockers = [{ x: this.x, y: this.y + RADIUS, z: this.z, r: RADIUS }, ...this.fillBlockers()];
+      maxR = (c, r) => {
+        let m = r;
+        for (const b of blockers) m = Math.min(m, Math.hypot(c[0] - b.x, c[1] - b.y, c[2] - b.z) - b.r - FILL.clearance);
+        return m;
+      };
+      A.n = inReach ? w.contactNormal(pr.p[0], pr.p[1], pr.p[2]) : [0, 1, 0];
+      // 盛ってよい面かは、当たった所の本当の材質で決める（digProbe は掘れない範囲＝底・ガラス際の砂を「底」「ガラス」と返すが、
+      // 盛るのはその上でよい。保護する物から離れているかは planPlace が砂山の中心で決める）
+      if (inReach) {
+        const sm = w.surfaceMaterial(pr.p[0], pr.p[1], pr.p[2]);
+        A.material = sm === 'sand' || sm === 'soil' || sm === 'rock' || sm === 'wood' || sm === 'glass' || sm === 'pipe' ? sm : sm === 'acrylic' ? 'glass' : sm === 'deck' ? 'bottom' : pr.material;
+      }
+      let why: FillBlock | null = null;
+      if (!inReach) why = 'far';
+      else if (!fillable(A.material)) why = A.material === 'glass' || A.material === 'pipe' || A.material === 'treasure' || A.material === 'bottom' ? A.material : 'other';
+      else if (this.sandHeld < SAND.minPlace) why = 'empty';
+      let planR: number = FILL.rMin;
+      if (!why) {
+        // place と同じ判断（続けて盛っていれば、大きくする・上へ積む）
+        const pl = w.dig.planPlace(pr.p, A.n, this.clock, maxR);
+        planR = pl.r;
+        if (pl.why) why = pl.why === 'near' ? 'near' : pl.why === 'glass' || pl.why === 'pipe' || pl.why === 'treasure' || pl.why === 'bottom' ? pl.why : 'other';
+      }
+      A.fillWhy = why;
+      A.fillOk = why === null;
+      A.fillR = planR;
+    }
     // 空振り：照準の先に何も無い（水・空気・掘った穴の中）
     this.digWhiff += ((A.face ? 0 : 1) - this.digWhiff) * (1 - Math.exp(-dt * 8));
     // かき出し：左右の鋏で交互に（位相は 1 回で π）
@@ -314,6 +419,25 @@ export class CrabController {
     this.digT = Math.max(this.digT + this.digInterval, 0.02);
     this.digStrokes++;
     if (!A.face) this.digWhiffs++;
+    if (fillMode && maxR) {
+      // 盛る：盛れるときだけ。足した砂の量（測った体積）だけ手持ちから減らす
+      if (!A.fillOk) {
+        this.sandStats.placeFails++;
+        if (A.face && A.fillWhy !== 'empty') this.events.push({ kind: 'digBlocked', x: pr.p[0], y: pr.p[1], z: pr.p[2], power: 0.3, dir, material: pr.material });
+        return;
+      }
+      w.dig.beginEdit();
+      const res = w.dig.place(pr.p, A.n, this.clock, maxR);
+      // 足した砂の量は、測り終えたとき（数フレーム後）に手持ちから減らす（次に盛る・掘る前には必ず測り終える＝beginEdit）
+      if (res.changed) w.startMeasureEdit((v) => this.spendSand(Math.max(0, v)));
+      else w.dig.endEdit();
+      if (res.changed) {
+        this.sandStats.places++;
+        A.fillR = res.r;
+        this.events.push({ kind: 'fill', x: pr.p[0], y: pr.p[1], z: pr.p[2], power: res.r / FILL.rMax, dir, material: pr.material === 'soil' || pr.p[1] > TANK.waterY ? 'soil' : 'sand' });
+      } else this.sandStats.placeFails++;
+      return;
+    }
     if (material === 'none' || diggable(material)) {
       // 斜め下へ掘るときは、元の地表から tunnelDepth より深くは掘らない（走る＝急に下へ・照準を下へずらした、のときだけ深く掘れる）
       // （十分深くなって水平に掘っている間は制限しない。岸の斜面の下では地表が上がっても床を水平に保つ）
@@ -321,7 +445,12 @@ export class CrabController {
       const floorMin = down || this.digDeep ? -Infinity : w.groundAt(pr.p[0], pr.p[2]) - DIG.tunnelDepth - 0.04;
       // 届かないときも、直前に掘った空洞を太らせる（その場で掘り続けると穴が広がる）。そのときの砂粒は
       // 太らせた空洞の先（res.at）から少しだけ（空振りの鋏の先からは出さない）
+      w.dig.beginEdit();
       const res = w.dig.stroke(o, dir, diggable(material) ? pr.t : null, this.clock, floorMin, reach);
+      // 実際に取り除いた砂の量（測った体積）だけ手持ちに足す（空振り・掘った穴の中を太らせただけ・岩なら 0。容量を超えた分は捨てる）
+      // （測り終えたとき＝数フレーム後に足す）
+      if (res.changed) w.startMeasureEdit((v) => this.gainSand(Math.max(0, -v)));
+      else w.dig.endEdit();
       if (res.changed) {
         const at = diggable(material) ? pr.p : res.at;
         this.events.push({ kind: 'dig', x: at[0], y: at[1], z: at[2], power: (res.r / DIG.rMax) * (A.hit ? 1 : 0.3), dir, material: material === 'none' ? (A.face && diggable(pr.material) ? pr.material : 'sand') : material });
@@ -330,6 +459,24 @@ export class CrabController {
       w.dig.stats.blocked++;
       this.events.push({ kind: 'digBlocked', x: pr.p[0], y: pr.p[1], z: pr.p[2], power: 0.5, dir, material });
     }
+  }
+
+  /** 掘って取り除いた砂を手持ちへ（容量 SAND.capacity まで。超えた分は捨てる） */
+  private gainSand(v: number) {
+    const room = Math.max(0, SAND.capacity - this.sandHeld);
+    const take = Math.min(room, v);
+    this.sandHeld += take;
+    this.sandStats.gained += take;
+    this.sandStats.overflow += v - take;
+    this.sandStats.lastGain = v;
+  }
+
+  /** 盛って足した砂の分を手持ちから減らす（手持ちより多ければ手持ち全部） */
+  private spendSand(v: number) {
+    const spend = Math.min(this.sandHeld, v);
+    this.sandHeld -= spend;
+    this.sandStats.spent += spend;
+    this.sandStats.lastSpend = spend;
   }
 
   private step(dt: number, inp: CrabInput, first: boolean) {
@@ -378,14 +525,17 @@ export class CrabController {
 
     // 壁登りをやめる：管に入った・掘り始めた（掘るのは地面に立って。壁からは落ちる）・水槽の外へ出た
     if (this.climbing && (ride || digging || this.region !== 'tank')) this.releaseClimb('drops');
-    // 壁から跳ぶ：面の外向きと上へ押し出す（水中で押し続ければ、そのまま遊泳へ移れる）
+    // 壁から跳ぶ：面の外向きと上へ押し出す（水中で押し続ければ、そのまま遊泳へ移れる）。
+    // 張り出し・天井では上へは押さない（上へ押すと天井へ押し戻される）：天井からは真下へ離れて落ちる・沈む
     let wallJump = false;
     if (this.climbing && pressed) {
       const n = this.climbN;
-      const up = lerp(4.6, 3.8, s);
+      const up = lerp(4.6, 3.8, s) * smoothstep(-0.45, 0.1, n[1]);
       this.vx = n[0] * 3.2;
       this.vy = n[1] * 3.2 + up;
       this.vz = n[2] * 3.2;
+      // 張り出し・天井から離れた直後は張り付かない（ジャンプを押したまま遊泳へ移っても、同じ天井へ戻らない）
+      if (n[1] < CEIL_GRAB_NY) this.grabWait = GRAB_COOLDOWN;
       this.releaseClimb('jumps');
       this.coyote = 0;
       this.holdT = 0;
@@ -425,7 +575,7 @@ export class CrabController {
     // 移動と当たり判定（壁に張り付いている間は climbMove。重力・浮力・水流は効かない）
     const wasGrounded = this.grounded;
     let px: number, py: number, pz: number;
-    if (this.climbing) [px, py, pz] = this.climbMove(dt, inp, dx, dz, hasInput, s, cy);
+    if (this.climbing) [px, py, pz] = this.climbMove(dt, inp, hasInput, s, cy);
     else {
       // 水平方向の速さと加速
       let maxSpeed = (inp.run ? this.runSpeed : this.walkSpeed) * lerp(1, 0.72, s);
@@ -586,7 +736,7 @@ export class CrabController {
       this.tryGrab(dt, inp, px, py, pz, mx, mz, mag, hasInput, floorNY, ride);
       // 押しても進めない縁の下のくぼみ：回り込める道があれば回り込む
       if (!this.climbing && hasInput && mag > 0.5 && !ride && !this.swimming && !inp.dig && this.region === 'tank' && w.contactSolid(px, py, pz) < RADIUS + 0.03) {
-        this.tryMantleFromWalk(dt, px, py, pz, ux0, uz0, (px - this.x) * ux0 + (pz - this.z) * uz0 > 0.15 * maxSpeed * mag * dt);
+        this.tryMantleFromWalk(dt, px, py, pz, ux0, uz0, (px - this.x) * ux0 + (pz - this.z) * uz0 > 0.15 * maxSpeed * mag * dt, inp.cameraYaw);
       } else this.pushT = hasInput ? Math.max(0, this.pushT - dt) : 0;
     }
     // 部屋の外へは出ない（ガラス・水槽台・濾過槽の壁は contactSolid の当たり判定で止まる）
@@ -625,6 +775,14 @@ export class CrabController {
       this.groundN[0] = this.climbN[0];
       this.groundN[1] = this.climbN[1];
       this.groundN[2] = this.climbN[2];
+      if (this.climbN[1] < -0.7) this.ceilStats.invertedT += dt;
+      this.ceilStats.minNY = Math.min(this.ceilStats.minNY, this.climbN[1]);
+    } else if (this.frameMode) {
+      // 逆さ・張り出しから離れた直後：体の前（bodyF）を軸に起き上がりながら落ちる（真上へ向き直すのに約 0.5 秒。
+      // 法線をいきなり上へ戻すと、逆さから一瞬で正立に飛ぶ）
+      this.coyote -= dt;
+      this.airTime += dt;
+      this.rightUp(dt);
     } else {
       this.coyote -= dt;
       this.airTime += dt;
@@ -633,6 +791,8 @@ export class CrabController {
       this.groundN[2] *= 1 - dt * 3;
       this.groundN[1] = Math.sqrt(Math.max(0, 1 - this.groundN[0] ** 2 - this.groundN[2] ** 2));
     }
+    // 床に立った：体の向きは heading・groundN（従来）へ戻す
+    if (this.grounded && this.frameMode) this.frameMode = false;
     this.landImpact *= Math.exp(-dt * 6);
 
     // 水面を横切った出来事（水しぶき・泡・波紋）
@@ -653,14 +813,23 @@ export class CrabController {
       const h = Math.atan2(this.pullAt[0] - this.x, this.pullAt[1] - this.z);
       this.heading = wrap(this.heading + wrap(h - this.heading) * (1 - Math.exp(-12 * dt)));
     } else if (this.climbing) {
-      // 壁：面に沿った速度を体の座標（面を床に起こした向き）へ戻し、その向きに対して横歩きになるよう回す
-      const L = toSurfaceLocal(this.climbN, this.vx, this.vy, this.vz);
-      if (hasInput && Math.hypot(L[0], L[2]) > 0.2) {
-        const move = Math.atan2(L[0], L[2]);
-        const a = wrap(move + Math.PI / 2 - this.heading), b = wrap(move - Math.PI / 2 - this.heading);
-        const d = Math.abs(a) < Math.abs(b) ? a : b;
-        this.heading = wrap(this.heading + d * (1 - Math.exp(-6 * dt)));
+      // 面に沿って進む向きに対して横歩きになるよう、体の前（bodyF）を面の法線のまわりに回す（逆さでも同じ式）。
+      // heading は面を床に起こした向きの方位（床へ戻ったとき・壁で使う。真逆さの近くでは決まらないので更新しない）
+      const n = this.climbN, F = this.bodyF;
+      const v = Math.hypot(this.vx, this.vy, this.vz);
+      if (hasInput && v > 0.2) {
+        // 進む向きに垂直な面の向き 2 つ（n × v と その逆）のうち、いまの体の前に近い方
+        let cx = n[1] * this.vz - n[2] * this.vy, cyy = n[2] * this.vx - n[0] * this.vz, cz = n[0] * this.vy - n[1] * this.vx;
+        const cl = Math.hypot(cx, cyy, cz) || 1;
+        cx /= cl; cyy /= cl; cz /= cl;
+        if (cx * F[0] + cyy * F[1] + cz * F[2] < 0) { cx = -cx; cyy = -cyy; cz = -cz; }
+        const sinA = (F[1] * cz - F[2] * cyy) * n[0] + (F[2] * cx - F[0] * cz) * n[1] + (F[0] * cyy - F[1] * cx) * n[2];
+        const cosA = F[0] * cx + F[1] * cyy + F[2] * cz;
+        rotateAbout(F, n, Math.atan2(sinA, cosA) * (1 - Math.exp(-6 * dt)));
       }
+      this.headingFromFrame();
+    } else if (this.frameMode) {
+      // 起き上がっている途中：heading は rightUp が bodyF から決める
     } else if (hasInput && Math.hypot(this.vx, this.vz) > 0.2) {
       // 横歩き：移動方向の ±90° のうち、いまの向きに近い方へ体を回す
       const move = Math.atan2(this.vx, this.vz);
@@ -669,12 +838,20 @@ export class CrabController {
       this.heading = wrap(this.heading + d * (1 - Math.exp(-(this.grounded ? 7 : 3) * dt)));
     }
     // 体の向き基準の速度（+x = 左, +z = 前）
-    const ch = Math.cos(this.heading), sh = Math.sin(this.heading);
-    // 壁では、実際に動いた量を面の座標へ戻してから体の向き基準にする（脚が面に沿って進む向きへ振れる）
-    const lm = this.climbing ? toSurfaceLocal(this.climbN, mvx, mvy, mvz) : null;
-    const lvx = lm ? lm[0] : mvx, lvz = lm ? lm[2] : mvz;
-    this.localVX = lvx * ch - lvz * sh;
-    this.localVZ = lvx * sh + lvz * ch;
+    if (this.climbing || this.frameMode) {
+      // 面の上（逆さを含む）：実際に動いた量を体の前（bodyF）と横（n × bodyF）へ分ける（脚が面に沿って進む向きへ振れる）
+      const n = this.groundN, F = this.bodyF;
+      const Lx = n[1] * F[2] - n[2] * F[1], Ly = n[2] * F[0] - n[0] * F[2], Lz = n[0] * F[1] - n[1] * F[0];
+      this.localVX = mvx * Lx + mvy * Ly + mvz * Lz;
+      this.localVZ = mvx * F[0] + mvy * F[1] + mvz * F[2];
+    } else {
+      const ch = Math.cos(this.heading), sh = Math.sin(this.heading);
+      this.localVX = mvx * ch - mvz * sh;
+      this.localVZ = mvx * sh + mvz * ch;
+      // 張り付いていない間の体の前（張り付いたとき・CrabRig の切り替えに使う）：heading の向きを groundN の面へ写したもの
+      const f = rotateMin([sh, 0, ch], UP3, this.groundN);
+      this.bodyF[0] = f[0]; this.bodyF[1] = f[1]; this.bodyF[2] = f[2];
+    }
 
     // 歩行位相（脚 1 歩の振れ幅に合わせ、地面に対して足が滑らない速さ）
     if (this.grounded || this.climbing) this.stridePhase += (this.speed * dt) / (0.64 * (this.speed > 3.2 ? 0.1 : 0.075));
@@ -698,13 +875,34 @@ export class CrabController {
    * 登れる面（climbSolid）に触れていて、その面が床とみなせない急な面（法線の y が floorNY 以下・張り出しは CLIMB_MIN_NY まで）、
    * 入力がその面へ向かっている（CLIMB_INTO 以上）。これが CLIMB_GRAB_T 続いたら張り付く（かすめただけでは張り付かない）。
    * 面の向きは、体の中心から入力の向きへ少し進めた所で測る（床と壁の隅では、中心の距離関数は床と壁のどちらとも言えないので、
-   * 押している壁の側を選ぶ）
+   * 押している壁の側を選ぶ）。
+   * 空中・水中（接地していない。泳いでいてもよい）では、張り出し・天井（法線の y < CEIL_GRAB_NY）に触れていて、移動入力か
+   * ジャンプを押していれば張り付く（跳び上がって・泳いで流木の裏・トンネルの天井につかまる）。上向きに速く動いている間は待つ
    */
   private tryGrab(dt: number, inp: CrabInput, px: number, py: number, pz: number, mx: number, mz: number, mag: number, hasInput: boolean, floorNY: number, ride: boolean) {
     const w = this.world;
     this.grabWait = Math.max(0, this.grabWait - dt);
-    const ok = hasInput && mag > 0.3 && !ride && !this.swimming && !inp.dig && this.region === 'tank' && this.vy < 2.5 && this.grabWait <= 0;
-    if (!ok || w.climbSolid(px, py, pz) > RADIUS + 0.05) {
+    const base = !ride && !inp.dig && this.region === 'tank' && this.vy < 2.5 && this.grabWait <= 0;
+    if (!base || w.climbSolid(px, py, pz) > RADIUS + 0.05) {
+      this.grabT = 0;
+      return;
+    }
+    // 空中・水中から天井へ：触れている面の向きを体の中心で測る（入力の向きは天井の向きと関係ない）
+    // （泳いでいる間はジャンプの長押し＝遊泳なので、それだけでは張り付かない：移動入力で天井へ向かったときだけ）
+    if (!this.grounded && this.coyote <= 0 && ((hasInput && mag > 0.3) || (inp.jumpHeld && !this.swimming))) {
+      const n = w.climbNormal(px, py, pz);
+      if (n[1] < CEIL_GRAB_NY) {
+        this.grabT += dt;
+        if (this.grabT >= CLIMB_GRAB_T) {
+          this.ceilStats.grabsAir++;
+          this.swimming = false;
+          this.beginClimb(n, inp.cameraYaw);
+        }
+        return;
+      }
+    }
+    const ok = hasInput && mag > 0.3 && !this.swimming;
+    if (!ok) {
       this.grabT = 0;
       return;
     }
@@ -719,13 +917,27 @@ export class CrabController {
     }
     this.grabT += dt;
     if (this.grabT < CLIMB_GRAB_T) return;
+    this.beginClimb(n, inp.cameraYaw);
+  }
+
+  /**
+   * 面（法線 n）に張り付く：体の前 = いまの体の向き（heading・groundN から決まる向き、起き上がり途中なら bodyF）を面へ写したもの、
+   * 入力の写し方 = いまのカメラと面から決めたもの
+   */
+  private beginClimb(n: readonly number[], cameraYaw: number) {
     this.grabT = 0;
     this.stuckT = 0;
+    const from = this.frameMode ? this.groundN : null;
+    const f = from ? rotateMin(this.bodyF, from, n) : rotateMin([Math.sin(this.heading), 0, Math.cos(this.heading)], UP3, n);
     this.climbing = true;
+    this.frameMode = true;
     this.grounded = false;
     this.climbN[0] = n[0];
     this.climbN[1] = n[1];
     this.climbN[2] = n[2];
+    this.bodyF.splice(0, 3, ...tangentUnit(f, n));
+    this.camBasis(cameraYaw, this.moveF, this.moveR);
+    this.idleT = 0;
     this.vx = this.vy = this.vz = 0;
     this.climbStats.grabs++;
   }
@@ -734,6 +946,70 @@ export class CrabController {
     this.climbing = false;
     this.mantle = null;
     this.climbStats[why]++;
+    // 床へ戻った：体の向きは heading・groundN（従来）へ。それ以外（落ちる・跳ぶ）は起き上がりながら（frameMode のまま）
+    if (why === 'exits') this.frameMode = false;
+    else this.headingFromFrame();
+  }
+
+  /**
+   * いまの面（climbN）とカメラの向きから、スティックの前・右に当たる面に沿う向きを決める。
+   * - 壁・緩い張り出し（法線の y > CEIL_RULE_NY）：従来の壁登りと同じ（水平の入力を「上 → 面の法線」の最小の回転で面へ写す
+   *   = 壁へ向かう = 上、離れる = 下、沿う = 横）
+   * - 天井・強い張り出し：カメラの前・右を面へ投影する（画面の前 = カメラから離れる向き、右 = 画面の右。カメラは傾かない）
+   */
+  private camBasis(yaw: number, F: [number, number, number], R: [number, number, number]) {
+    const n = this.climbN;
+    const f = [-Math.sin(yaw), 0, -Math.cos(yaw)], r = [Math.cos(yaw), 0, -Math.sin(yaw)];
+    if (n[1] > CEIL_RULE_NY) {
+      F.splice(0, 3, ...tangentUnit(rotateMin(f, UP3, n), n));
+      R.splice(0, 3, ...tangentUnit(rotateMin(r, UP3, n), n));
+    } else {
+      F.splice(0, 3, ...tangentUnit(f, n));
+      R.splice(0, 3, ...tangentUnit(r, n));
+    }
+  }
+
+  /**
+   * 張り付いている面の向きを n0 → n1 へ変える：体の前・入力の写し方を同じ回転で回す（平行移動。面に沿って回り込んでも、
+   * 押している向き・体の向きが続く）
+   */
+  private setClimbN(a: number, b: number, c: number) {
+    const n = this.climbN;
+    const l = Math.hypot(a, b, c) || 1;
+    const m = [a / l, b / l, c / l];
+    for (const v of [this.bodyF, this.moveF, this.moveR]) v.splice(0, 3, ...tangentUnit(rotateMin(v, n, m), m));
+    n[0] = m[0]; n[1] = m[1]; n[2] = m[2];
+  }
+
+  /** heading（面を床に起こした向きの方位）を bodyF から決める。真逆さの近く（決まらない所）では変えない */
+  private headingFromFrame() {
+    const n = this.frameMode || this.climbing ? (this.climbing ? this.climbN : this.groundN) : null;
+    if (!n || n[1] < -0.9) return;
+    const L = toSurfaceLocal(n, this.bodyF[0], this.bodyF[1], this.bodyF[2]);
+    if (Math.hypot(L[0], L[2]) > 0.2) this.heading = Math.atan2(L[0], L[2]);
+  }
+
+  /**
+   * 張り出し・天井から離れたあと（空中・水中）：体の上（groundN）を真上へ起こしていく。軸は体の前（真逆さのとき）か、
+   * いまの上と真上の外積。体の前も同じ回転で回し、heading を合わせる。十分起きたら従来の体の向き（frameMode = false）へ
+   */
+  private rightUp(dt: number) {
+    const g = this.groundN, F = this.bodyF;
+    const ang = Math.acos(clamp(g[1], -1, 1));
+    const step = Math.min(ang, Math.max(ang * (1 - Math.exp(-dt * 5)), dt * 1.5));
+    // g × 上 = (−g.z, 0, g.x)：この軸のまわりに正の角度で回すと g は上へ近づく
+    const ax = -g[2], az = g[0];
+    const al = Math.hypot(ax, az);
+    let axis: number[];
+    if (al < 0.05) axis = F; // 真逆さ：体の前を軸に転がって起きる（前の向きは変わらない）
+    else axis = [ax / al, 0, az / al];
+    rotateAbout(g, axis, step);
+    if (axis !== F) rotateAbout(F, axis, step);
+    const gl = Math.hypot(g[0], g[1], g[2]) || 1;
+    g[0] /= gl; g[1] /= gl; g[2] /= gl;
+    F.splice(0, 3, ...tangentUnit(F, g));
+    this.headingFromFrame();
+    if (g[1] > 0.5) this.frameMode = false;
   }
 
   /** 張り出しの縁を回り込む道をたどり始める（壁に張り付いた状態で。climbMove の先頭が道を進める） */
@@ -751,7 +1027,7 @@ export class CrabController {
    * 縁を回り込む道（findMantle。押している向きの逆を「面から離れる向き」とする）があれば、張り付いて回り込む。
    * 道は押している向きへ 0.2 以上先へ進んだ所で終わるので、ガラス・管のように回り込めない物の前では見つからない
    */
-  private tryMantleFromWalk(dt: number, px: number, py: number, pz: number, ux: number, uz: number, progress: boolean) {
+  private tryMantleFromWalk(dt: number, px: number, py: number, pz: number, ux: number, uz: number, progress: boolean, yaw: number) {
     if (progress) {
       this.pushT = 0;
       return;
@@ -766,13 +1042,7 @@ export class CrabController {
     if (na[1] >= 0.55) return;
     const path = this.findMantle(px, py, pz, [-ux, 0, -uz]);
     if (!path) return;
-    this.climbing = true;
-    this.grounded = false;
-    this.climbN[0] = na[0];
-    this.climbN[1] = na[1];
-    this.climbN[2] = na[2];
-    this.vx = this.vy = this.vz = 0;
-    this.climbStats.grabs++;
+    this.beginClimb(na, yaw);
     this.startMantle(path);
   }
 
@@ -824,9 +1094,12 @@ export class CrabController {
    * - 動いたあと、登れる面（climbSolid）から体の半径の距離へ吸着し（角を回り込む・凹凸に沿う）、そのほかの物
    *   （ガラス・管など）は従来どおり contactSolid で押し戻す。
    * - 面を失った（半径 + 0.12 より離れた）ら落ちる。床とみなせる緩い面（CLIMB_EXIT_NY）へ来たら歩きへ戻る。
-   *   張り出しすぎた所（CLIMB_MIN_NY より下向き）へは進まない。
+   * - 張り出し・天井（真逆さ）まで回り込める：入力の写し方（moveF / moveR）と体の前は面に貼り付けて、面の向きが変わるたびに
+   *   同じ回転で回す（updateMoveBasis・setClimbN）。凹んだ角（壁 → 天井）では、進む向きの少し先の面の向きも混ぜて、
+   *   次の面へ早めに体を向ける（角で押し合って止まらない）。
+   * - 押しても進めないまま CLIMB_STUCK_T 経ったら、縁を回り込む道（findMantle）を探す（継ぎ目の棚の段など）。
    */
-  private climbMove(dt: number, inp: CrabInput, dx: number, dz: number, hasInput: boolean, s: number, cy: number): [number, number, number] {
+  private climbMove(dt: number, inp: CrabInput, hasInput: boolean, s: number, cy: number): [number, number, number] {
     const w = this.world;
     const n = this.climbN;
     // 張り出しの縁を回り込んでいる途中：折れ線の道を一定の速さでたどる（入力では変えない）。体の傾きは回り込んだ先の面へ
@@ -850,30 +1123,28 @@ export class CrabController {
       this.vy = dir[1] * sp;
       this.vz = dir[2] * sp;
       const kn = 1 - Math.exp(-dt * 8);
-      for (let k = 0; k < 3; k++) n[k] += (M.n[k] - n[k]) * kn;
-      const l = Math.hypot(n[0], n[1], n[2]) || 1;
-      n[0] /= l; n[1] /= l; n[2] /= l;
+      this.setClimbN(n[0] + (M.n[0] - n[0]) * kn, n[1] + (M.n[1] - n[1]) * kn, n[2] + (M.n[2] - n[2]) * kn);
       if (M.s < M.len) return q;
       // 着いた：その面に張り付き直す（緩い面なら下の判定で歩きへ戻る）
       this.mantle = null;
       this.vx = this.vy = this.vz = 0;
-      n[0] = M.n[0]; n[1] = M.n[1]; n[2] = M.n[2];
+      this.setClimbN(M.n[0], M.n[1], M.n[2]);
       this.x = q[0];
       this.z = q[2];
       cy = q[1];
     }
-    const hl = Math.hypot(n[0], n[2]) || 1;
-    // 壁へ向かう水平の向き・壁に沿う水平の向き・面に沿って上る向き
-    const ix = -n[0] / hl, iz = -n[2] / hl;
-    const sx = -iz, sz = ix;
-    const ul = Math.sqrt(Math.max(1e-6, 1 - n[1] * n[1]));
-    const ux = (-n[0] * n[1]) / ul, uy = (1 - n[1] * n[1]) / ul, uz = (-n[2] * n[1]) / ul;
-    const into = dx * ix + dz * iz, lat = dx * sx + dz * sz;
+    // スティックの前・右 → 面に沿う向き（押している間は面に貼り付けた向き、離したらカメラから決め直す）
+    this.updateMoveBasis(dt, inp.cameraYaw, hasInput);
+    const ix = inp.move.x, iy = inp.move.y;
+    let Dx = this.moveR[0] * ix + this.moveF[0] * iy, Dy = this.moveR[1] * ix + this.moveF[1] * iy, Dz = this.moveR[2] * ix + this.moveF[2] * iy;
+    const Dl = Math.hypot(Dx, Dy, Dz);
+    if (Dl > 1) { Dx /= Dl; Dy /= Dl; Dz /= Dl; }
+    if (!hasInput) Dx = Dy = Dz = 0;
     const sp = (inp.run ? CLIMB_RUN : CLIMB_SPEED) * lerp(1, 0.85, s);
     const k = 1 - Math.exp(-(hasInput ? 12 : 18) * dt);
-    this.vx += ((ux * into + sx * lat) * sp - this.vx) * k;
-    this.vy += (uy * into * sp - this.vy) * k;
-    this.vz += ((uz * into + sz * lat) * sp - this.vz) * k;
+    this.vx += (Dx * sp - this.vx) * k;
+    this.vy += (Dy * sp - this.vy) * k;
+    this.vz += (Dz * sp - this.vz) * k;
     // 面に垂直な成分は持たない
     const vn = this.vx * n[0] + this.vy * n[1] + this.vz * n[2];
     this.vx -= n[0] * vn;
@@ -900,35 +1171,33 @@ export class CrabController {
     }
     const d = w.climbSolid(px, py, pz);
     const m = w.climbNormal(px, py, pz);
+    // 凹んだ角：進む向きの少し先に別の面があれば、その面の向きも混ぜる（壁を登って天井に頭が当たったら、天井の向きへ早めに起こす）
+    const vl = Math.hypot(this.vx, this.vy, this.vz);
+    if (vl > 0.3) {
+      const ax = px + (this.vx / vl) * 0.16, ay = py + (this.vy / vl) * 0.16, az = pz + (this.vz / vl) * 0.16;
+      const da = w.climbSolid(ax, ay, az);
+      if (da < RADIUS + 0.04) {
+        const ma = w.climbNormal(ax, ay, az);
+        const wgt = clamp((RADIUS + 0.04 - da) / 0.12, 0, 1);
+        for (let q = 0; q < 3; q++) m[q] += ma[q] * wgt;
+        const ml = Math.hypot(m[0], m[1], m[2]) || 1;
+        m[0] /= ml; m[1] /= ml; m[2] /= ml;
+      }
+    }
+    // 押しても進めない（凹凸に引っかかった・継ぎ目の棚の段）：しばらく続いたら縁を回り込む道を探す
+    const moved = Math.hypot(px - this.x, py - cy, pz - this.z);
+    this.stuckT = hasInput && moved < 0.25 * sp * dt ? this.stuckT + dt : 0;
     if (d > RADIUS + 0.12) {
       // 面を失った：少し離れる向きへ押して落ちる
       this.vx += n[0] * 0.4;
+      this.vy += Math.min(0, n[1]) * 0.4;
       this.vz += n[2] * 0.4;
       this.releaseClimb('lost');
-    } else if (m[1] < CLIMB_MIN_NY && m[1] < n[1] - 0.02) {
-      // 張り出しすぎた所へは進まない（岩の根元のくびれのように、張り付いた所がすでに張り出していれば、
-      // 張り出しが緩くなる向きへは進める）
-      px = this.x;
-      py = cy;
-      pz = this.z;
-      this.vx = this.vy = this.vz = 0;
+    } else if (this.stuckT > CLIMB_STUCK_T && n[1] > CEIL_GRAB_NY) {
+      this.stuckT = 0;
       this.climbStats.blocked++;
-      // 押し続けても進めない（張り出した縁・掘った穴の継ぎ目の棚の下）なら、面から離れる向きと上へ小さく跳んで離れ、
-      // しばらく張り付かない（押している向きへの空中の加速で、縁の上へ回り込める。届かなければそのまま落ちる）
-      this.stuckT += dt;
-      const path = this.stuckT > CLIMB_STUCK_T ? this.findMantle(px, py, pz, n) : null;
-      if (path) {
-        // 縁を回り込める：その道をたどる（climbMove の先頭）
-        this.startMantle(path);
-      } else if (this.stuckT > CLIMB_STUCK_T) {
-        const hl2 = Math.hypot(n[0], n[2]) || 1;
-        this.vx = (n[0] / hl2) * 1.4;
-        this.vz = (n[2] / hl2) * 1.4;
-        this.vy = lerp(4.2, 3.4, s);
-        this.hopT = 0.35;
-        this.releaseClimb('drops');
-        this.grabWait = GRAB_COOLDOWN;
-      }
+      const path = this.findMantle(px, py, pz, n);
+      if (path) this.startMantle(path);
     } else if (m[1] > CLIMB_EXIT_NY) {
       // 床とみなせる面へ来た：歩きへ戻る
       this.releaseClimb('exits');
@@ -938,14 +1207,37 @@ export class CrabController {
       this.groundN[2] = m[2];
       if (this.vy > 0) this.vy = 0;
     } else {
-      this.stuckT = 0;
       const kn = 1 - Math.exp(-dt * 14);
-      let a = n[0] + (m[0] - n[0]) * kn, b = n[1] + (m[1] - n[1]) * kn, c = n[2] + (m[2] - n[2]) * kn;
-      const l = Math.hypot(a, b, c) || 1;
-      a /= l; b /= l; c /= l;
-      n[0] = a; n[1] = b; n[2] = c;
+      this.setClimbN(n[0] + (m[0] - n[0]) * kn, n[1] + (m[1] - n[1]) * kn, n[2] + (m[2] - n[2]) * kn);
     }
     return [px, py, pz];
+  }
+
+  /**
+   * 張り付いている間の入力の写し方：離して REANCHOR_T 経ったら、いまのカメラと面から決め直す。押している間は面に貼り付けたまま
+   * （setClimbN が回す）だが、決め直した向きと前・右ともに 60° 以内なら少しずつ寄せる（カメラを回したときに追う。
+   * 天井へ回り込んだ直後のように反対向きなら、離すまで寄せない＝押している向きが反転しない）
+   */
+  private updateMoveBasis(dt: number, yaw: number, hasInput: boolean) {
+    const F = this.moveF, R = this.moveR;
+    const cf: [number, number, number] = [0, 0, 1], cr: [number, number, number] = [1, 0, 0];
+    this.camBasis(yaw, cf, cr);
+    if (!hasInput) {
+      this.idleT += dt;
+      if (this.idleT >= REANCHOR_T) {
+        F.splice(0, 3, ...cf);
+        R.splice(0, 3, ...cr);
+      }
+      return;
+    }
+    this.idleT = 0;
+    if (F[0] * cf[0] + F[1] * cf[1] + F[2] * cf[2] > 0.5 && R[0] * cr[0] + R[1] * cr[1] + R[2] * cr[2] > 0.5) {
+      const k = 1 - Math.exp(-dt * 3);
+      const n = this.climbN;
+      for (const [v, c] of [[F, cf], [R, cr]] as const) {
+        v.splice(0, 3, ...tangentUnit([v[0] + (c[0] - v[0]) * k, v[1] + (c[1] - v[1]) * k, v[2] + (c[2] - v[2]) * k], n));
+      }
+    }
   }
 
   /** 見た目側が出来事を受け取る（受け取ったら空にする） */
@@ -956,6 +1248,54 @@ export class CrabController {
 
 function wrap(a: number): number {
   return Math.atan2(Math.sin(a), Math.cos(a));
+}
+
+const UP3: readonly number[] = [0, 1, 0];
+
+/**
+ * 単位ベクトル a を b へ重ねる最小の回転（軸 a × b）で v を回したもの（Rodrigues の式）。a と b がほぼ逆向き（回す軸が
+ * 決まらない）ときは、a に垂直な軸（v に近い向きを避けて選ぶ）で半回転する
+ */
+export function rotateMin(v: readonly number[], a: readonly number[], b: readonly number[]): [number, number, number] {
+  let kx = a[1] * b[2] - a[2] * b[1], ky = a[2] * b[0] - a[0] * b[2], kz = a[0] * b[1] - a[1] * b[0];
+  const s = Math.hypot(kx, ky, kz), c = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  if (s < 1e-6) {
+    if (c > 0) return [v[0], v[1], v[2]];
+    // 逆向き：a に垂直な軸で半回転
+    const t = Math.abs(a[0]) < 0.9 ? [1, 0, 0] : [0, 0, 1];
+    kx = a[1] * t[2] - a[2] * t[1]; ky = a[2] * t[0] - a[0] * t[2]; kz = a[0] * t[1] - a[1] * t[0];
+    const l = Math.hypot(kx, ky, kz);
+    const out: [number, number, number] = [v[0], v[1], v[2]];
+    rotateAbout(out, [kx / l, ky / l, kz / l], Math.PI);
+    return out;
+  }
+  kx /= s; ky /= s; kz /= s;
+  const kv = kx * v[0] + ky * v[1] + kz * v[2];
+  const cx = ky * v[2] - kz * v[1], cy = kz * v[0] - kx * v[2], cz = kx * v[1] - ky * v[0];
+  return [v[0] * c + cx * s + kx * kv * (1 - c), v[1] * c + cy * s + ky * kv * (1 - c), v[2] * c + cz * s + kz * kv * (1 - c)];
+}
+
+/** v（書き換える）を単位ベクトルの軸 k のまわりに角度 a だけ回す */
+function rotateAbout(v: number[], k: readonly number[], a: number) {
+  const c = Math.cos(a), s = Math.sin(a);
+  const kv = k[0] * v[0] + k[1] * v[1] + k[2] * v[2];
+  const cx = k[1] * v[2] - k[2] * v[1], cy = k[2] * v[0] - k[0] * v[2], cz = k[0] * v[1] - k[1] * v[0];
+  const x = v[0] * c + cx * s + k[0] * kv * (1 - c), y = v[1] * c + cy * s + k[1] * kv * (1 - c), z = v[2] * c + cz * s + k[2] * kv * (1 - c);
+  v[0] = x; v[1] = y; v[2] = z;
+}
+
+/** v を法線 n の面へ投影して単位にしたもの（ほぼ n と平行で決まらなければ、n に垂直な適当な向き） */
+function tangentUnit(v: readonly number[], n: readonly number[]): [number, number, number] {
+  const d = v[0] * n[0] + v[1] * n[1] + v[2] * n[2];
+  let x = v[0] - n[0] * d, y = v[1] - n[1] * d, z = v[2] - n[2] * d;
+  let l = Math.hypot(x, y, z);
+  if (l < 1e-5) {
+    const t = Math.abs(n[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+    const e = t[0] * n[0] + t[1] * n[1] + t[2] * n[2];
+    x = t[0] - n[0] * e; y = t[1] - n[1] * e; z = t[2] - n[2] * e;
+    l = Math.hypot(x, y, z);
+  }
+  return [x / l, y / l, z / l];
 }
 
 /**
