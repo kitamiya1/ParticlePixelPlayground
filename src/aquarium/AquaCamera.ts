@@ -113,6 +113,8 @@ import type { VistaView } from './AquariumSpots';
 import type { CrabController } from './CrabController';
 
 export type CameraMode = 'adventure' | 'observe' | 'diorama';
+/** 視点（第 6 段階）：冒険カメラの方式 + ガラス越し・箱庭 */
+export type CamView = CamStyle | 'observe' | 'diorama';
 export const CAMERA_MODE_LABEL: Record<CameraMode, string> = { adventure: '冒険カメラ', observe: 'ガラス越し', diorama: '箱庭カメラ' };
 /** ガラス越しのカメラ：ガラスの外面からカメラまでの最小の距離と、カメラの高さの下限（底板・台の天板より上） */
 const OBSERVE_GAP = 0.35;
@@ -283,6 +285,33 @@ export class AquaCamera {
   setVista(v: VistaView | null) {
     if (v !== this.vista) this.viewing = false;
     this.vista = v;
+  }
+
+  /**
+   * いまの視点（第 6 段階：冒険カメラの方式とカメラの種類を 1 列の「視点」にまとめた名前。AquaCamPicker の VIEW_LABEL）。
+   * 冒険カメラなら方式（三人称 tps・肩越し close・自由追従 free・従来 classic）、それ以外はガラス越し observe・箱庭 diorama
+   */
+  get view(): CamView {
+    if (this.mode !== 'adventure') return this.mode;
+    return this.close ? 'close' : this.style;
+  }
+
+  /**
+   * 視点を選ぶ。冒険カメラの方式は setStyle と同じ（肩越しは三人称の方式に重ねる）。ガラス越し・箱庭から冒険カメラへ戻るときは
+   * カニの背中側から見る。ガラス越しへ入るときは、カニにいちばん近いガラスの正面から見る
+   */
+  setView(v: CamView, c: CrabController) {
+    if (v === 'observe' || v === 'diorama') {
+      if (this.mode === v) return;
+      this.mode = v;
+      if (v === 'observe') this.faceNearestGlass(c);
+      return;
+    }
+    const back = this.mode !== 'adventure';
+    this.mode = 'adventure';
+    // 肩越し → 三人称へ戻すときは、肩越しを重ねる前の方式（自由追従なら三人称）
+    this.setStyle(v);
+    if (back) this.placeBehind(c);
   }
 
   /** 冒険 → ガラス越し → 箱庭 → 冒険。ガラス越しへ入るときは、カニにいちばん近いガラスの正面から見る */

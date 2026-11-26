@@ -577,6 +577,15 @@ export interface GrabCreature {
   readonly grip: number;
   /** 物より遠くから挟める分（省略 = CREATURE_BONUS：巣穴の触角。水草・エビ・小魚は 0） */
   readonly bonus?: number;
+  /**
+   * 鋏が届かない量がこれを越えたら滑り始める（省略 = SLIP_REACH × 1.6。水草は大きくしなって鋏から離れて見えにくいので広い）
+   */
+  readonly slipReach?: number;
+  /**
+   * 張っている間の、速さの上限の落ち方（省略 = TUG_SLOW。速さの上限 × (1 − slow × 張り²)）。水草は大きく（ふつうに歩いて引くと
+   * 握る力の手前で釣り合って止まる：ダッシュで引いたときだけ握る力を越えて滑る）
+   */
+  readonly slow?: number;
   /** いま挟めるか（穴から見えている・抜けていない） */
   grabbable(): boolean;
   /** 見えている部分のうち from にいちばん近い点と、そこから表面までの距離（挟めないときは null） */
@@ -1072,13 +1081,13 @@ export class GrabSystem {
       this.stats.maxOver = Math.max(this.stats.maxOver, this.over);
       this.strain += (strain - this.strain) * (1 - Math.exp(-dt / 0.25));
       // 反作用：生き物が引く力でカニが穴の方へ引き戻され、強く張っているほど下がる速さが落ちる
-      this.tow = { ax: -F[0] / CRAB_MASS_TUG, ay: -F[1] / CRAB_MASS_TUG, az: -F[2] / CRAB_MASS_TUG, slow: 1 - TUG_SLOW * strain * strain };
+      this.tow = { ax: -F[0] / CRAB_MASS_TUG, ay: -F[1] / CRAB_MASS_TUG, az: -F[2] / CRAB_MASS_TUG, slow: 1 - (cr.slow ?? TUG_SLOW) * strain * strain };
       if (t.done) this.release('pop');
       else {
         // 滑る：握る力を越えて引いている時間が続いた・鋏が届かない。越え方は 2 通り：急に強く引いた（over：越えた量が
         // 大きいほど早い。走って引き続けると約 0.7 秒）、暴れている間に強く張っている（tugOver：暴れる 1 回を歩いて耐えると
         // 滑る直前まで、走って耐えると滑る）。緩めれば減る（理不尽に滑らない：滑りそうな間は鋏が震えて知らせる = warn）
-        const reachOver = claw.reachErr > SLIP_REACH * 1.6;
+        const reachOver = claw.reachErr > (cr.slipReach ?? SLIP_REACH * 1.6);
         const rJerk = t.over > 1 ? Math.min(1.2, 0.3 + (t.over - 1) * 1.5) : 0;
         const rTug = t.tugOver > 1 ? Math.min(2, 0.5 + (t.tugOver - 1) * 3.5) : 0;
         const rate = Math.max(rJerk, rTug, reachOver ? 1.5 : 0);

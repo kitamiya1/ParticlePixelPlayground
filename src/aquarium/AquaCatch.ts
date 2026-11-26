@@ -1,8 +1,13 @@
 // 第 5 段階：環境との相互作用。ハサミ（GrabSystem）で挟める「生き物」（GrabCreature）として、
-// - 水草（PlantGrab）：茎・葉を直接挟む。引くと植物がしなり（AquaPlants の held）、根が張っている植物は抵抗する（ばねの力がカニへ返る）。
-//   張力が種類ごとの強さを一定の時間超えると、根元の近くを挟んでいれば根元から抜け、高い所を挟んでいればそこで切れる。
-//   抜けた・ちぎれた部分は「かけら」（WeedPieces：円盤の集まり + 軽い物理の物 PropKind 'weed'）になり、そのまま挟んで運べる。
-//   離すと水中を漂ってゆっくり沈む。シダ・葉の広い草は根が強く、強く引くとハサミが滑る（抜けにくい）。
+// - 水草（PlantGrab）：茎・葉を直接挟む。引くと植物が大きくしなり（AquaPlants の held。種類ごとの上限 cap まで）、引くほど抵抗が
+//   増えて（張力が距離の 3 乗で硬くなる）カニが引き戻される（ばねの力がカニへ返る：GrabSystem の tow）。離すと曲がっていた分だけ
+//   ビヨーンと跳ね返って何度か揺れ戻る（AquaPlants.fling）。上へ引くほど・強く引くほど葉が震える。
+//   第 6 段階（iPhone の確認から）：引くだけでは抜けない・ちぎれない。強く引きすぎる（握る力を越える）と先にハサミが滑る。
+//   抜く・ちぎるは、挟んだまま「掘る」ボタン（F・X / □）で意図して行う（twist）：高い所を挟んでいて、ちぎれる種類なら切る。
+//   そうでなければ種類ごとの強さ以上に引いている間だけ、根をゆすって抜ける（足りなければ草が震えるだけ）。
+//   抜けた・ちぎれた部分は「かけら」（WeedPieces：円盤の集まり + 軽い物理の物 PropKind 'weed'）になり、つかんだ所の近くは
+//   そのまま挟んで運べ、その先（長い葉の先）は離れたかけらとして漂う（消さない）。離すと水中を漂ってゆっくり沈む。
+//   長い葉は柔らかく大きくしなり、有茎草は中くらい、シダ・葉の広い草は硬く・根が強い（抜くには強く引く）。
 // - エビ・小魚（LifeGrab）：近づくと逃げる（AquaLife の従来の動き）。ハサミが届けば挟める。挟まれた生き物は体を動かして抵抗し
 //   （エビ = 尾で跳ねる強い一打ち、小魚 = 尾を振る小刻みな力）、その力がハサミを越えるとハサミから逃れる。離すと従来の動きへ戻る
 //   （逃げる）。地形・ガラスにはめり込ませない。
@@ -15,18 +20,26 @@ import { PLANT_PARAMS, type PlantField } from './AquaPlants';
 import type { AquariumWorld } from './AquariumWorld';
 import type { SurfelRenderer } from '../render/surfel/SurfelRenderer';
 
-/** 種類ごとの、抜ける張力・ちぎれる張力（null = ちぎれない）・ちぎれる高さ（根元からの距離）の下限・かけらの重さ */
-const PLANT_STRENGTH = [
-  { name: 'テープ状の葉', uproot: 4.6, cut: 3.6, cutAbove: 0.16, mass: 0.03 },
-  { name: '有茎草', uproot: 5.4, cut: 4.6, cutAbove: 0.2, mass: 0.05 },
-  { name: 'シダ', uproot: 7.2, cut: null, cutAbove: 1, mass: 0.12 },
-  { name: '葉の広い草', uproot: 7.6, cut: null, cutAbove: 1, mass: 0.12 },
-  { name: '汀線の草', uproot: 3.4, cut: null, cutAbove: 1, mass: 0.02 },
+/**
+ * 種類ごとの引っ張りの手応え（PLANT_KIND の順）。
+ * cap = 挟んでいる間の曲がりの上限（ふだんの押された上限より大きくしなる）、k = 引く強さ（張力 / 引いた距離）、
+ * soft = これを越えて引くと急に硬くなる距離（引くほど抵抗が増える）、boing = 離したときの跳ね返り、quiver = 張ったときの震え、
+ * uproot = 抜くのに要る張りの割合（握る力に対して。「抜く」を押したときにこれだけ引いていれば根元から抜ける）、
+ * cut = ちぎれる種類か・cutAbove = ちぎれる高さ（根元からの距離）の下限、mass = かけらの重さ
+ * （第 6 段階：引くだけでは抜けない・ちぎれない。強く引きすぎるとハサミが先に滑る。抜く・ちぎるは「掘る」ボタンで意図して行う）
+ */
+const PLANT_PULL = [
+  { name: 'テープ状の葉', cap: 1.05, k: 2.6, soft: 0.85, boing: 2.2, quiver: 0.9, uproot: 0.3, cut: true, cutAbove: 0.16, mass: 0.03 },
+  { name: '有茎草', cap: 0.8, k: 4.0, soft: 0.62, boing: 1.8, quiver: 0.7, uproot: 0.38, cut: true, cutAbove: 0.2, mass: 0.05 },
+  { name: 'シダ', cap: 0.45, k: 6.0, soft: 0.45, boing: 1.2, quiver: 0.5, uproot: 0.62, cut: false, cutAbove: 1, mass: 0.12 },
+  { name: '葉の広い草', cap: 0.4, k: 6.8, soft: 0.4, boing: 1.0, quiver: 0.45, uproot: 0.68, cut: false, cutAbove: 1, mass: 0.12 },
+  { name: '汀線の草', cap: 0.45, k: 3.2, soft: 0.5, boing: 2.0, quiver: 0.8, uproot: 0.22, cut: false, cutAbove: 1, mass: 0.02 },
 ] as const;
-/** 張力が強さを越えている時間がこれを越えたら抜ける・ちぎれる */
-const BREAK_T = 0.35;
 /** 植物の握る力（物と同じ）。茎は細いので少し小さく */
 const PLANT_GRIP = GRIP_FORCE * 0.95;
+/** ちぎる（ハサミで切る）・抜く（引きながら根をゆする）の長さ */
+const CUT_T = 0.14;
+const UPROOT_T = 0.3;
 
 export interface Detach {
   i: number;
@@ -34,18 +47,31 @@ export interface Detach {
   at: V3;
 }
 
+/** 「掘る」ボタンを押したときの結果：ちぎり始めた・抜き始めた・引きが足りない（抜けない）・水草を挟んでいない */
+export type TwistResult = 'cut' | 'uproot' | 'weak' | null;
+
 export class PlantGrab implements GrabCreature {
   name = '水草';
   readonly p: V3 = [0, 0, 0];
   readonly rb = 0.04;
   readonly grip = PLANT_GRIP;
   readonly bonus = 0;
+  /** 大きくしなるので、鋏が届かない量は広めに許す（引いても鋏がすぐ外れない） */
+  readonly slipReach = 0.15;
+  /** 引くほど歩みが重くなる（ふつうに歩いて引くと握る力の手前で止まる） */
+  readonly slow = 0.92;
   private cand: { i: number; f: number } | null = null;
   i = -1;
-  private fg = 0;
-  private strainT = 0;
+  /** 挟んだ高さ（根元からの高さの割合） */
+  fg = 0;
+  private prevL = -1;
+  /** 張り（張力 / 握る力。約 0.15 秒でならす）・曲がり（表示・検証用） */
+  tension = 0;
+  bend = 0;
+  /** ちぎる・抜くの途中（残り時間） */
+  private act: { kind: 'cut' | 'uproot'; t: number } | null = null;
   private result: Detach | null = null;
-  readonly stats = { grabs: 0, uproots: 0, cuts: 0, slips: 0, maxTension: 0 };
+  readonly stats = { grabs: 0, uproots: 0, cuts: 0, slips: 0, releases: 0, weak: 0, maxTension: 0, maxBend: 0 };
 
   constructor(private readonly field: PlantField, private readonly onDetach: (d: Detach) => void) {}
 
@@ -54,9 +80,13 @@ export class PlantGrab implements GrabCreature {
   }
 
   nearest(from: readonly number[]): { p: V3; d: number } | null {
-    const n = this.field.nearestStem(from, 0.3);
+    // （0.6 まで探す：挟めるかは GrabSystem が距離で決める。体の中心から探す狙いの補助（near）にも見つかるように）
+    const n = this.field.nearestStem(from, 0.6);
     if (!n) return null;
     this.cand = { i: n.i, f: n.f };
+    this.from[0] = from[0];
+    this.from[1] = from[1];
+    this.from[2] = from[2];
     if (this.i < 0) this.name = PLANT_PARAMS[this.field.table.kind[n.i]].name;
     return { p: n.p, d: n.d };
   }
@@ -67,11 +97,17 @@ export class PlantGrab implements GrabCreature {
     const T = this.field.table, i = this.i;
     const y = T.root[i * 3 + 1] + this.fg * T.height[i];
     const o = this.field.offsetAt(i, y);
-    this.p[0] = T.root[i * 3] + o[0];
+    this.p[0] = T.root[i * 3] + o[0] + this.side[0];
     this.p[1] = y + o[1];
-    this.p[2] = T.root[i * 3 + 2] + o[2];
+    this.p[2] = T.root[i * 3 + 2] + o[2] + this.side[1];
     return this.p;
   }
+
+  /**
+   * 茎の中心から、挟んだ側の面へのずれ（水平）。太い株（シダ・葉の広い草）は中心ではなく手前の葉の所を挟む
+   * （中心までは鋏が届かない）。細い茎では小さい
+   */
+  private readonly side: [number, number] = [0, 0];
 
   aim(at: readonly number[]) {
     if (!this.cand) return;
@@ -80,25 +116,90 @@ export class PlantGrab implements GrabCreature {
     this.p[0] = at[0];
     this.p[1] = at[1];
     this.p[2] = at[2];
-    this.name = PLANT_PARAMS[this.field.table.kind[this.i]].name;
+    const T = this.field.table, kp = PLANT_PARAMS[T.kind[this.i]];
+    this.name = kp.name;
+    // 鋏の付け根の側（この時点の狙う点 = 茎の中心の点。鋏の構えの側は GrabSystem が知っている：from に近い向き）
+    const fx = this.from[0] - at[0], fz = this.from[2] - at[2], fl = Math.hypot(fx, fz);
+    const s = fl > 1e-4 ? Math.min(kp.thick * 0.42, fl * 0.5) / fl : 0;
+    this.side[0] = fx * s;
+    this.side[1] = fz * s;
   }
 
+  /** nearest を最後に呼んだ所（鋏の構えの先・付け根。aim で挟む側を決める） */
+  private readonly from: V3 = [0, 0, 0];
+
   onGrab() {
-    this.strainT = 0;
     this.result = null;
+    this.act = null;
+    this.prevL = -1;
+    this.tension = this.bend = 0;
     this.stats.grabs++;
     this.stats.maxTension = 0;
-    this.field.held = { i: this.i, dx: 0, dz: 0, fc: this.fg };
+    this.stats.maxBend = 0;
+    this.field.held = { i: this.i, dx: 0, dz: 0, fc: this.fg, cap: PLANT_PULL[this.field.table.kind[this.i]].cap, fl: 0 };
   }
 
   onRelease(kind: 'release' | 'slip' | 'pop') {
-    if (this.field.held?.i === this.i) this.field.held = null;
+    const i = this.i;
+    if (this.field.held?.i === i) this.field.held = null;
     if (kind === 'slip') this.stats.slips++;
+    else if (kind === 'release') this.stats.releases++;
+    // 離した・滑った：しなっていた分だけビヨーンと跳ね返る（滑ったときは強く）
+    if (i >= 0 && kind !== 'pop') {
+      const S = PLANT_PULL[this.field.table.kind[i]];
+      this.field.fling(i, S.boing * (kind === 'slip' ? 1.5 : 1), S.quiver * (kind === 'slip' ? 1 : 0.6));
+    }
     const r = this.result;
     this.i = -1;
     this.result = null;
+    this.act = null;
+    this.tension = this.bend = 0;
     // （かけらを鋏に渡すのは、鋏の状態の更新が終わってから：flush。release の途中で渡すと、その後 idle に戻される）
     if (kind === 'pop' && r) this.pending = r;
+  }
+
+  /** 最後に nearest で見つけた植物（狙っている植物。無ければ −1） */
+  get candIndex(): number {
+    return this.cand?.i ?? -1;
+  }
+
+  /** 挟んでいるか */
+  get holding(): boolean {
+    return this.i >= 0 && this.field.held?.i === this.i;
+  }
+
+  /**
+   * 「掘る」ボタン（挟んでいる間）：意図して抜く・ちぎる。高い所を挟んでいて、ちぎれる種類ならハサミで切る（CUT_T 後）。
+   * そうでなければ、種類ごとの強さ（uproot）以上に引いていれば根をゆすって抜く（UPROOT_T の間引き続ける）。
+   * 引きが足りなければ抜けない（草が震えるだけ：'weak'）
+   */
+  twist(): TwistResult {
+    if (!this.holding || this.act) return null;
+    if (this.cutsHere) {
+      this.act = { kind: 'cut', t: CUT_T };
+      return 'cut';
+    }
+    const S = PLANT_PULL[this.field.table.kind[this.i]];
+    if (this.tension >= S.uproot) {
+      this.act = { kind: 'uproot', t: UPROOT_T };
+      return 'uproot';
+    }
+    this.stats.weak++;
+    if (this.field.held) this.field.held.fl = 1;
+    return 'weak';
+  }
+
+  /** 抜くのに要る張りの割合（いま挟んでいる植物。案内・検証用） */
+  get uprootNeed(): number {
+    return this.i >= 0 ? PLANT_PULL[this.field.table.kind[this.i]].uproot : 1;
+  }
+
+  /** いま挟んでいる所で「掘る」を押すと ちぎる か（そうでなければ抜く） */
+  get cutsHere(): boolean {
+    if (this.i < 0) return false;
+    const T = this.field.table, S = PLANT_PULL[T.kind[this.i]], h = this.fg * T.height[this.i];
+    // （もうちぎった株の残りで、挟んだ所より上に葉が無ければ、ちぎらずに抜く）
+    return S.cut && h >= S.cutAbove && h < this.field.cutH[this.i] - 0.04;
   }
 
   private pending: Detach | null = null;
@@ -110,97 +211,184 @@ export class PlantGrab implements GrabCreature {
     if (r) this.onDetach(r);
   }
 
-  stepHeld(dt: number, a0: readonly number[], a1: readonly number[]) {
+  stepHeld(dt: number, _a0: readonly number[], a1: readonly number[]) {
     const T = this.field.table, i = this.i;
-    const k = PLANT_PARAMS[T.kind[i]], S = PLANT_STRENGTH[T.kind[i]];
+    const S = PLANT_PULL[T.kind[i]];
     const rx = T.root[i * 3], ry = T.root[i * 3 + 1], rz = T.root[i * 3 + 2];
     const restY = ry + this.fg * T.height[i];
-    // 植物を鋏の方へ曲げる（曲がりの上限まで。上限を越えて引いた分が張力になる）
-    let dx = a1[0] - rx, dz = a1[2] - rz;
-    const dl = Math.hypot(dx, dz);
-    if (dl > k.max) {
-      dx *= k.max / dl;
-      dz *= k.max / dl;
-    }
-    if (this.field.held) {
-      this.field.held.dx = dx;
-      this.field.held.dz = dz;
-    }
-    const p = this.gripPoint();
-    const kv = dt > 0 ? 1 / dt : 0;
-    const out: V3 = [0, 0, 0];
-    // 茎はしなるので、鋏とのばねは柔らかめ（mass を小さく = 減衰を弱く）。縦に引くと根を引き抜く向きの張力
-    const ex = a1[0] - p[0], ey = a1[1] - p[1], ez = a1[2] - p[2];
-    const raw = clawSpring(ex, ey * 1.2, ez, (a1[0] - a0[0]) * kv, (a1[1] - a0[1]) * kv, (a1[2] - a0[2]) * kv, 0.25, this.grip, out);
-    this.stats.maxTension = Math.max(this.stats.maxTension, raw);
-    // 抜ける・ちぎれる：高い所を挟んでいて、ちぎれる種類なら、ちぎれる強さ。そうでなければ抜ける強さ
-    const cuts = S.cut !== null && this.fg * T.height[i] >= S.cutAbove;
-    const need = cuts ? S.cut! : S.uproot;
-    this.strainT = raw > need ? this.strainT + dt : Math.max(0, this.strainT - dt * 0.5);
+    // 引いている量：挟んだ所（曲がっていない位置）から鋏の構えまで。横はしなり、上は根を引く（硬い）、下へ押しても張らない
+    const px = a1[0] - rx, pz = a1[2] - rz, py = a1[1] - restY;
+    const ph = Math.hypot(px, pz);
+    // しなり：上限（cap）の 8 割までは鋏について曲がり、そこから上限へなめらかに近づく。上限を越えて引いた分は鋏が茎から離れる
+    const knee = S.cap * 0.8;
+    const bl = ph <= knee ? ph : knee + (S.cap - knee) * Math.tanh((ph - knee) / (S.cap - knee));
+    // 曲がりの形（AquaPlants.offsetAt）：根元のすぐ近く（高さの 12% 未満）を挟んだときは、挟んだ所のずれが曲がりより小さい。
+    // その分だけ曲がりを大きくして、挟んだ所が鋏について行くようにする
+    const fcc = Math.min(1, Math.max(0.12, this.fg)), u = Math.min(1, this.fg / fcc), sG = Math.max(0.3, u * u * (3 - 2 * u));
+    const bx = ph > 1e-5 ? (px / ph) * bl / sG : 0, bz = ph > 1e-5 ? (pz / ph) * bl / sG : 0;
+    const lv = Math.max(0, py - 0.04) * 1.4;
+    const L = Math.hypot(ph, lv);
+    // 張力：引いた距離に比例 + soft を越えると急に硬く（引くほど抵抗が増える）+ 上限を越えて引いた分はとても硬く（それ以上は
+    // 離れられない：引き続けると握る力を越えて鋏が滑る）+ 急に引いた分（勢いで引くと強く張る）。根元の近くを挟むほど硬い（てこ）
+    const kE = S.k * (1.35 - 0.6 * this.fg);
+    const dL = this.prevL >= 0 && dt > 0 ? (L - this.prevL) / dt : 0;
+    this.prevL = L;
+    let F = kE * L * (1 + (L / S.soft) ** 2) + Math.max(0, ph - S.cap) * 28 + Math.max(0, dL) * kE * 0.35;
+    // ちぎる・抜くの途中：ハサミで茎をゆする（小刻みな力）
     let done = false;
-    if (this.strainT > BREAK_T) {
-      done = true;
-      this.result = { i, cutY: cuts ? restY - 0.02 : null, at: [p[0], p[1], p[2]] };
-      if (cuts) this.stats.cuts++;
-      else this.stats.uproots++;
+    if (this.act) {
+      this.act.t -= dt;
+      F += this.grip * 0.18 * Math.abs(Math.sin(this.act.t * 70));
+      if (this.act.kind === 'uproot' && this.tension < S.uproot * 0.5) {
+        // 途中で緩めた：抜けない（草が震えて戻る）
+        this.act = null;
+        this.stats.weak++;
+      } else if (this.act.t <= 0) {
+        const cuts = this.act.kind === 'cut';
+        const p = this.gripPoint();
+        this.result = { i, cutY: cuts ? restY - 0.02 : null, at: [p[0], p[1], p[2]] };
+        if (cuts) this.stats.cuts++;
+        else this.stats.uproots++;
+        this.act = null;
+        done = true;
+      }
     }
-    return { force: out, over: raw / this.grip, tugOver: 0, stretch: Math.hypot(ex, ey, ez), done };
+    this.tension += (F / this.grip - this.tension) * (1 - Math.exp(-dt / 0.15));
+    this.bend = bl;
+    this.stats.maxTension = Math.max(this.stats.maxTension, F);
+    this.stats.maxBend = Math.max(this.stats.maxBend, bl);
+    if (this.field.held) {
+      const H = this.field.held;
+      H.dx = bx;
+      H.dz = bz;
+      H.cap = S.cap / sG;
+      // 張っている震え：強く引くほど、上へ引くほど（根が張って葉先が細かく震える）。ゆすっている間は強く
+      H.fl = this.act ? 1 : S.quiver * Math.min(1, this.tension) * (0.45 + 0.55 * (L > 1e-4 ? lv / L : 0));
+    }
+    // 鋏にかける力：つかみ点から鋏の構えへ（引いた向き）。握る力で頭打ち（越えた分 over で GrabSystem が鋏を滑らせる）
+    const out: V3 = [0, 0, 0];
+    if (L > 1e-5) {
+      const f = Math.min(F, this.grip) / L;
+      out[0] = px * f;
+      out[1] = lv * f;
+      out[2] = pz * f;
+    }
+    const gp = this.gripPoint();
+    const stretch = Math.hypot(a1[0] - gp[0], a1[1] - gp[1], a1[2] - gp[2]);
+    return { force: out, over: F / this.grip, tugOver: 0, stretch, done };
   }
 }
 
-/** かけらにする範囲（つかんだ所からの距離） */
+/** 挟んだまま運ぶかけらにする範囲（つかんだ所からの距離）。これより先は離れたかけらとして漂う（消さない） */
 const PIECE_R = 1.0;
+/** 片づけるかけらが小さくなって消えるまでの時間 */
+const FADE_T = 0.8;
 
 /** 抜いた・ちぎった水草のかけら（円盤の集まり + 軽い物理の物） */
 export class WeedPieces {
-  readonly list: { prop: Prop; mesh: THREE.Mesh }[] = [];
+  readonly list: { prop: Prop; mesh: THREE.Mesh; die: number }[] = [];
   private n = 0;
-  private readonly m = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
   private readonly v = new THREE.Vector3();
   private readonly s = new THREE.Vector3(1, 1, 1);
-  /** 一度に残すかけらの数（古いものから片づける） */
-  max = 8;
+  /** 一度に残すかけらの数（越えたら古いもの（挟んでいない）から、小さくしてから片づける） */
+  max = 12;
+  readonly stats = { spawned: 0, drifting: 0, faded: 0 };
 
   constructor(private readonly field: PlantField, private readonly surfel: SurfelRenderer, private readonly props: PropSystem, private readonly pos: ArrayLike<number>) {}
 
-  /** かけらを作って、鋏 claw に挟ませる */
-  spawn(d: Detach, claw: GrabSystem): Prop | null {
-    const all = this.field.detach(d.i, d.cutY, this.pos);
-    if (!all.length) return null;
-    this.surfel.hideWorldPoints(all);
-    // かけらにするのは、つかんだ所から PIECE_R までの円盤（長い葉の先は流れて消える）。持って歩いても画面を覆わない
-    const idx = all.filter((k) => Math.hypot(this.pos[k * 3] - d.at[0], this.pos[k * 3 + 1] - d.at[1], this.pos[k * 3 + 2] - d.at[2]) <= PIECE_R);
-    if (!idx.length) return null;
-    const mesh = this.surfel.addPiece(idx, d.at);
-    // 当たりの楕円体：かけらの広がり（つかみ点まわり）の半分。細長い葉でも大きくしすぎない
+  /** 円盤 idx のかけら（pivot = かけらの原点、at = 置く所。円盤は pos − pivot + at に見える） */
+  private make(idx: number[], pivot: readonly number[], at: readonly number[], mass: number, name: string): Prop {
+    const mesh = this.surfel.addPiece(idx, pivot);
+    // 当たりの楕円体：かけらの広がり（原点まわり）の半分。細長い葉でも大きくしすぎない
     let ex = 0.03, ey = 0.03, ez = 0.03;
     for (const k of idx) {
-      ex = Math.max(ex, Math.abs(this.pos[k * 3] - d.at[0]));
-      ey = Math.max(ey, Math.abs(this.pos[k * 3 + 1] - d.at[1]));
-      ez = Math.max(ez, Math.abs(this.pos[k * 3 + 2] - d.at[2]));
+      ex = Math.max(ex, Math.abs(this.pos[k * 3] - pivot[0]));
+      ey = Math.max(ey, Math.abs(this.pos[k * 3 + 1] - pivot[1]));
+      ez = Math.max(ez, Math.abs(this.pos[k * 3 + 2] - pivot[2]));
     }
     const semi: V3 = [Math.min(0.14, ex * 0.5), Math.min(0.14, ey * 0.35), Math.min(0.14, ez * 0.5)];
-    const S = PLANT_STRENGTH[this.field.table.kind[d.i]];
-    const prop = new Prop(`weed${this.n++}`, 'weed', 1, [...d.at], 0, { semi, mass: S.mass * (d.cutY === null ? 1 : 0.6), name: S.name });
-    this.list.push({ prop, mesh });
-    while (this.list.length > this.max) {
-      const old = this.list.shift()!;
-      if (old.prop.held) continue;
-      this.surfel.removePiece(old.mesh);
-      const j = this.props.props.indexOf(old.prop);
-      if (j >= 0) this.props.props.splice(j, 1);
-    }
-    claw.forceHold(prop, d.at);
-    this.update();
+    const prop = new Prop(`weed${this.n++}`, 'weed', 1, [at[0], at[1], at[2]], 0, { semi, mass, name });
+    this.list.push({ prop, mesh, die: -1 });
+    this.stats.spawned++;
     return prop;
   }
 
-  /** かけらの円盤を物の位置・向きへ */
-  update() {
-    for (const { prop, mesh } of this.list) {
+  /**
+   * かけらを作って、鋏 claw に挟ませる。つかんだ所から PIECE_R までを挟むかけらに、その先（長い葉の先など）は
+   * 離れたかけらにして、その場から漂わせる（突然消えたように見せない）。どちらも曲がっていた位置から始める
+   */
+  spawn(d: Detach, claw: GrabSystem): Prop | null {
+    const T = this.field.table, S = PLANT_PULL[T.kind[d.i]];
+    // 曲がり（切り離す前に読む：detach で消える）
+    const offG = this.field.offsetAt(d.i, d.at[1]);
+    const all = this.field.detach(d.i, d.cutY, this.pos);
+    if (!all.length) return null;
+    const near: number[] = [], far: number[] = [];
+    for (const k of all) (Math.hypot(this.pos[k * 3] - d.at[0] + offG[0], this.pos[k * 3 + 1] - d.at[1], this.pos[k * 3 + 2] - d.at[2] + offG[2]) <= PIECE_R ? near : far).push(k);
+    // 離れたかけら：原点は円盤の重心、置く所はその高さの曲がりを足した所
+    let farOff: V3 | null = null, farC: V3 = [0, 0, 0];
+    if (far.length) {
+      for (const k of far) for (let j = 0; j < 3; j++) farC[j] += this.pos[k * 3 + j] / far.length;
+      farOff = this.field.offsetAt(d.i, farC[1]);
+    }
+    this.surfel.hideWorldPoints(all);
+    const mass = S.mass * (d.cutY === null ? 1 : 0.6);
+    let held: Prop | null = null;
+    if (near.length) {
+      // 鋏が挟んでいるかけら：原点 = つかみ点から曲がりを引いた所（円盤は曲がっていた位置に見える）
+      held = this.make(near, [d.at[0] - offG[0], d.at[1] - offG[1], d.at[2] - offG[2]], d.at, mass * Math.min(1, near.length / all.length + 0.3), S.name);
+      claw.forceHold(held, d.at);
+    }
+    if (far.length && farOff) {
+      const at: V3 = [farC[0] + farOff[0], farC[1] + farOff[1], farC[2] + farOff[2]];
+      const pr = this.make(far, farC, at, mass * 0.5, S.name);
+      this.props.props.push(pr);
+      // 切り離された勢いで少し浮く（ゆっくり沈んでいく）
+      pr.v[1] = 0.12;
+      pr.wake();
+      this.stats.drifting++;
+    }
+    this.trim();
+    this.update(0);
+    return held;
+  }
+
+  /** 多すぎるかけらを、古いもの（挟んでいない）から小さくして片づけ始める */
+  private trim() {
+    let alive = this.list.filter((w) => w.die < 0).length;
+    for (const w of this.list) {
+      if (alive <= this.max) break;
+      if (w.die >= 0 || w.prop.held) continue;
+      w.die = 0;
+      alive--;
+    }
+  }
+
+  /** かけらの円盤を物の位置・向きへ（片づけ中のかけらは小さくして、消えたら外す） */
+  update(dt = 1 / 60) {
+    for (let j = this.list.length - 1; j >= 0; j--) {
+      const w = this.list[j], { prop, mesh } = w;
+      let sc = 1;
+      if (w.die >= 0) {
+        // 挟んだ（拾い直した）ら片づけない
+        if (prop.held) w.die = -1;
+        else {
+          w.die += dt;
+          if (w.die >= FADE_T) {
+            this.surfel.removePiece(mesh);
+            const k = this.props.props.indexOf(prop);
+            if (k >= 0) this.props.props.splice(k, 1);
+            this.list.splice(j, 1);
+            this.stats.faded++;
+            continue;
+          }
+          sc = Math.max(0.02, 1 - w.die / FADE_T);
+        }
+      }
       this.q.set(prop.q[0], prop.q[1], prop.q[2], prop.q[3]);
       this.v.set(prop.p[0], prop.p[1], prop.p[2]);
+      this.s.set(sc, sc, sc);
       mesh.matrix.compose(this.v, this.q, this.s);
       mesh.matrixWorld.copy(mesh.matrix);
     }
