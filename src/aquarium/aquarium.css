@@ -2,18 +2,60 @@
 body.aqua #app { inset: 0; }
 body.aqua #loading { color: #9fc7c0; }
 
-#hud { position: fixed; left: calc(12px + env(safe-area-inset-left)); top: calc(12px + env(safe-area-inset-top)); display: flex; flex-direction: column; gap: 6px;
-  pointer-events: none; z-index: 2; font-variant-numeric: tabular-nums; }
-#hud .card { background: rgba(10, 22, 28, 0.72); border: 1px solid rgba(160, 220, 210, 0.18); border-radius: 6px; padding: 7px 11px; line-height: 1.55; }
-#hud .title { font-weight: 700; color: #b9ece0; letter-spacing: 0.04em; }
-#hud .row { display: flex; gap: 10px; align-items: center; }
-#hud .tag { padding: 1px 7px; border-radius: 3px; background: #2e8079; color: #e8fff8; font-size: 12px; }
-#hud .tag.land { background: #6a7a3a; }
-#hud .tag.cam { background: #4a5a7a; }
-#hud .bar { width: 92px; height: 7px; border-radius: 4px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+/* 左上の小さな表示（AquaHud.ts）：1 行目 = 場所・砂・（盛るのとき）道具・「詳細」、2 行目 = 必要なときだけの状態・警告 */
+#hud { position: fixed; left: calc(10px + env(safe-area-inset-left)); top: calc(8px + env(safe-area-inset-top)); display: flex; flex-direction: column;
+  align-items: flex-start; gap: 4px; pointer-events: none; z-index: 2; font-variant-numeric: tabular-nums; font-size: 12px; line-height: 1.4;
+  max-width: calc(100vw - 150px - env(safe-area-inset-left) - env(safe-area-inset-right)); }
+#hud .line { display: flex; align-items: center; gap: 7px; background: rgba(10, 22, 28, 0.62); border: 1px solid rgba(160, 220, 210, 0.16);
+  border-radius: 15px; padding: 2px 3px 2px 10px; max-width: 100%; }
+#hud .line.st { display: none; background: none; border: 0; padding: 0; flex-wrap: wrap; gap: 4px; }
+#hud.has-st .line.st { display: flex; }
+#hud .tag { padding: 1px 7px; border-radius: 3px; background: #2e8079; color: #e8fff8; font-size: 12px; white-space: nowrap; }
+#hud .tag.off { display: none; }
+#hud .bar { display: inline-block; width: 46px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.14); overflow: hidden; vertical-align: 1px; }
 #hud .bar i { display: block; height: 100%; background: #7cd6c4; }
-#hud .sub { color: #9fb8b2; font-size: 11px; }
-#hud a { pointer-events: auto; color: #8fd4ff; }
+#hud .lbl { color: #b9d8d1; font-size: 11px; margin-right: 4px; }
+#hud .sandc { display: inline-flex; align-items: center; white-space: nowrap; }
+#hud .tag.swim { background: rgba(10, 22, 28, 0.72); }
+#hud .tag.warn { background: #8a3a32; }
+#hud .hud-more { pointer-events: auto; min-height: 26px; padding: 0 10px; border-radius: 13px; font-size: 12px; color: #e8fff8;
+  background: rgba(46, 128, 121, 0.55); border: 1px solid rgba(160, 220, 210, 0.35); touch-action: manipulation; white-space: nowrap; }
+#hud .hud-more.on { background: rgba(46, 128, 121, 0.95); }
+/* 詳しい表示の欄（「詳細」で開く）：中でスクロール（pan-y。ピンチの拡大は許さない）。操作のボタン（下）に掛からない高さ */
+#hud-detail { position: fixed; left: calc(10px + env(safe-area-inset-left)); top: calc(44px + env(safe-area-inset-top)); display: none; flex-direction: column;
+  width: min(360px, calc(100vw - 20px - env(safe-area-inset-left) - env(safe-area-inset-right))); z-index: 5;
+  max-height: calc(100vh - 60px - env(safe-area-inset-top)); max-height: calc(100dvh - 60px - env(safe-area-inset-top));
+  background: rgba(10, 22, 28, 0.92); border: 1px solid rgba(160, 220, 210, 0.3); border-radius: 8px; color: #e8fff8; font-size: 12px; line-height: 1.5;
+  touch-action: pan-y; overscroll-behavior: contain; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; font-variant-numeric: tabular-nums; }
+#hud-detail.show { display: flex; }
+/* 縦長の画面：右上の縦に並んだボタン（セーブ・？・仲間）を隠さない幅 */
+@media (max-width: 760px) { #hud-detail { width: calc(100vw - 104px - env(safe-area-inset-left) - env(safe-area-inset-right)); } }
+body.aqua.touch #hud-detail { max-height: calc(100vh - 220px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  max-height: calc(100dvh - 220px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
+@media (orientation: landscape) {
+  /* 横持ち：下のスティックに掛からないよう、背の低い画面では欄を細く長くせず上半分に収める */
+  body.aqua.touch #hud-detail { max-height: calc(100vh - 206px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    max-height: calc(100dvh - 206px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); min-height: 110px; }
+}
+#hud-detail .hd-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 0 10px; flex: none; }
+#hud-detail .hd-close { min-width: 44px; min-height: 38px; padding: 0; background: transparent; border: 0; color: #e8fff8; font-size: 22px; line-height: 1; touch-action: manipulation; }
+#hud-detail .hd-body { overflow-y: auto; min-height: 0; padding: 0 10px 8px; touch-action: pan-y; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+#hud-detail .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 2px 0; }
+#hud-detail .k { color: #9fb8b2; font-size: 11px; min-width: 2.6em; }
+#hud-detail .tag { padding: 1px 7px; border-radius: 3px; background: #2e8079; color: #e8fff8; font-size: 12px; }
+#hud-detail .tag.land { background: #6a7a3a; }
+#hud-detail .tag.cam { background: #4a5a7a; }
+#hud-detail .bar { width: 92px; height: 7px; border-radius: 4px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+#hud-detail .bar i { display: block; height: 100%; background: #7cd6c4; }
+#hud-detail .sec { margin: 8px 0 2px; color: #b9ece0; font-weight: 700; font-size: 11px; letter-spacing: 0.04em; }
+#hud-detail .sub { color: #9fb8b2; font-size: 11px; }
+#hud-detail .pre { white-space: pre-wrap; word-break: break-all; font: 10px/1.4 ui-monospace, Menlo, Consolas, monospace; color: #cfe6e0; }
+#hud-detail .log { max-height: 9em; overflow-y: auto; margin-top: 4px; padding: 4px; background: rgba(0, 0, 0, 0.3); border-radius: 4px; touch-action: pan-y;
+  -webkit-user-select: text; user-select: text; }
+#hud-detail .btns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+#hud-detail .btns button { min-height: 34px; padding: 2px 10px; border-radius: 6px; font-size: 12px; background: #2e5e5a; color: #f2fff9; border: 1px solid rgba(255, 255, 255, 0.2); touch-action: manipulation; }
+#hud-detail .res { color: #ffe08a; font-size: 11px; }
+#hud-detail a { color: #8fd4ff; }
 
 /* 操作の説明：右上の × で閉じ、右上のメニューの「？」で開き直す（AquaHelp.ts）。長い説明は欄の中でスクロールする。
    欄は指を受ける（pointer-events: auto。ゲームの指は Canvas と操作のボタンだけが受けるので、欄の上の指は視点の回転・
@@ -71,11 +113,10 @@ body.aqua #touch-ui .cam { position: fixed; right: calc(20px + env(safe-area-ins
 @media (max-width: 760px) {
   body.aqua #touch-ui { display: block; }
   body.aqua #help { display: flex; }
-  #hud .card { padding: 5px 9px; font-size: 12px; }
 }
 
-/* 探索：いまいる場所・発見の数 */
-#hud .place { font-weight: 700; color: #e8fff8; font-size: 13px; }
+/* 探索：いまいる場所（長い名前は省略） */
+#hud .place { font-weight: 700; color: #e8fff8; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 15em; }
 #hud .place.hidden { color: #ffe08a; }
 #help .hint { color: #b9ece0; }
 
@@ -103,16 +144,18 @@ body.aqua #touch-ui .cam { position: fixed; right: calc(20px + env(safe-area-ins
   background: rgba(10, 22, 28, 0.6); border: 1px solid rgba(160, 220, 210, 0.3); border-radius: 3px; padding: 0 5px; }
 .spot-label.hidden { color: #ffe08a; border-color: rgba(255, 224, 138, 0.45); }
 
-/* 中くらいの幅（横持ちのスマホ・小さな窓）：左上の表示を避けて右寄りに出す */
-@media (min-width: 761px) and (max-width: 1100px) {
-  #place-banner { left: calc(50% + 130px); max-width: calc(100vw - 290px); }
-}
-@media (max-width: 760px) {
-  /* 縦長の画面では左上の表示の下に出す（重ならないように） */
-  #place-banner { top: calc(200px + env(safe-area-inset-top)); }
+/* 左上の表示が小さくなったので、場所の名前は上の中央（横持ちでは左上の表示の下・右上のボタンの間） */
+@media (max-height: 500px) {
+  #place-banner { top: calc(44px + env(safe-area-inset-top)); }
   #place-banner .name { font-size: 18px; }
   #place-banner .desc { font-size: 12px; }
-  #vista-tag { right: auto; left: 50%; transform: translateX(-50%); bottom: auto; top: calc(300px + env(safe-area-inset-top)); white-space: normal; text-align: center; max-width: 80vw; }
+}
+@media (max-width: 760px) {
+  /* 縦長の画面では左上の表示・右上の縦のボタンの下に出す（重ならないように） */
+  #place-banner { top: calc(140px + env(safe-area-inset-top)); }
+  #place-banner .name { font-size: 18px; }
+  #place-banner .desc { font-size: 12px; }
+  #vista-tag { right: auto; left: 50%; transform: translateX(-50%); bottom: auto; top: calc(250px + env(safe-area-inset-top)); white-space: normal; text-align: center; max-width: 80vw; }
   .spot-label { font-size: 10px; }
 }
 
@@ -157,14 +200,14 @@ body.aqua #touch-ui .dig.aiming span { opacity: 0.35; }
 #save-panel .state[data-state="error"], #save-panel .state[data-state="conflict"] { color: #ff8a7a; }
 #save-panel .btns button:disabled { opacity: 0.45; }
 /* 競合の知らせ：画面の上の中央。閉じずに残す（このタブは保存しない） */
-#save-alert { position: fixed; left: max(345px, calc(50% - 260px)); top: calc(12px + env(safe-area-inset-top)); display: none; z-index: 6;
-  /* 左上の表示（幅約 320px）と右上のボタンの間に収める */
-  width: min(520px, calc(100vw - 345px - 110px)); background: rgba(60, 22, 18, 0.95); border: 1px solid rgba(255, 138, 122, 0.7); border-radius: 8px;
+#save-alert { position: fixed; left: max(12px, calc(50% - 260px)); top: calc(48px + env(safe-area-inset-top)); display: none; z-index: 6;
+  /* 左上の小さな表示の下、右上のボタンの左に収める */
+  width: min(520px, calc(100vw - 24px - 110px)); background: rgba(60, 22, 18, 0.95); border: 1px solid rgba(255, 138, 122, 0.7); border-radius: 8px;
   padding: 8px 12px; color: #fff1ec; font-size: 13px; line-height: 1.5; touch-action: manipulation; }
 #save-alert.show { display: block; }
 #save-alert .btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 #save-alert .btns button { min-height: 38px; padding: 4px 12px; border-radius: 6px; font-size: 13px; background: #7a3a32; color: #fff; border: 1px solid rgba(255, 255, 255, 0.3); }
-@media (max-width: 760px) { #save-alert { left: 12px; width: calc(100vw - 24px); top: calc(182px + env(safe-area-inset-top)); } }
+@media (max-width: 760px) { #save-alert { left: 12px; width: calc(100vw - 24px); top: calc(132px + env(safe-area-inset-top)); } }
 #save-panel .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 #save-panel .close { min-width: 34px; min-height: 34px; border-radius: 17px; background: transparent; border: 0; color: #e8fff8; font-size: 18px; }
 #save-panel .status { color: #b9ece0; font-size: 12px; }
@@ -183,7 +226,7 @@ body.aqua #touch-ui .dig.aiming span { opacity: 0.35; }
 /* 縦長の画面：知らせは左上の表示・場所の名前の下（下は操作のボタンがあるので避ける）。右上のボタンは縦に並べ、
    左上の表示（幅約 250px）に重ならないよう短い名前にする */
 @media (max-width: 760px) {
-  #aqua-toast { bottom: auto; top: calc(320px + env(safe-area-inset-top)); white-space: normal; max-width: 86vw; text-align: center; }
+  #aqua-toast { bottom: auto; top: calc(250px + env(safe-area-inset-top)); white-space: normal; max-width: 86vw; text-align: center; }
   #menu { flex-direction: column; align-items: flex-end; max-width: 34vw; }
   #menu .menu-btn { padding: 4px 10px; font-size: 12px; }
   #menu .menu-btn .nm { display: none; }
@@ -251,7 +294,23 @@ body.aqua #view, body.aqua #touch-ui, body.aqua #touch-ui *, body.aqua #hud, bod
 #zoom-fix .sv[data-state="error"], #zoom-fix .sv[data-state="conflict"] { color: #ff8a7a; }
 #zoom-fix .sv[data-state="off"] { color: #c9d3d0; }
 #zoom-fix .s { font-size: 12px; color: #b9ece0; }
+#zoom-fix .btns button.quiet { background: transparent; }
+#zoom-fix .res { font-size: 13px; font-weight: 700; color: #e8fff8; margin: 2px 0 4px; }
+#zoom-fix .res:empty { display: none; }
+#zoom-fix .res[data-kind="ok"] { color: #a8f0b0; }
+#zoom-fix .res[data-kind="ng"] { color: #ff9a8a; }
+/* 新しいタブへ引き継いだ後：書き出しだけ残す */
+#zoom-fix.handed .btns button:not([data-k="export"]), #zoom-fix.handed .s { display: none; }
+/* 「このまま遊ぶ」の後：拡大が続く間、上の中央に小さな「直す」だけ（知らせの面は指を通す） */
+#zoom-fix .chip { display: none; }
+#zoom-fix.chip-only { display: flex; align-items: flex-start; background: none; pointer-events: none; }
+#zoom-fix.chip-only .card { display: none; }
+#zoom-fix.chip-only .chip { display: block; pointer-events: auto; margin-top: calc(48px + env(safe-area-inset-top)); min-height: 36px; padding: 4px 14px;
+  border-radius: 18px; font-size: 13px; font-weight: 700; color: #2a1d10; background: rgba(255, 224, 138, 0.95); border: 1px solid rgba(255, 255, 255, 0.6);
+  touch-action: manipulation; }
 html.aqua-zoomfix:has(body.aqua), html.aqua-zoomfix body.aqua { touch-action: manipulation; }
+/* ページが拡大されたまま：ゲームの画面（body の中身）を、見えている範囲へ拡大を打ち消して置く（AquaViewport.ts が transform を書く） */
+html.aqua-pinned body.aqua { position: fixed; left: 0; top: 0; width: 100%; height: 100%; transform-origin: 0 0; }
 /* ?diag：倍率・指の座標などの表示（指は受けない） */
 #vp-diag { position: fixed; left: 0; top: 0; transform-origin: 0 0; z-index: 19; pointer-events: none; white-space: pre; max-width: 100vw; overflow: hidden;
   font: 10px/1.35 ui-monospace, Menlo, Consolas, monospace; color: #d8fff4; background: rgba(0, 0, 0, 0.62); padding: 4px 6px; }
