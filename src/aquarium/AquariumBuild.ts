@@ -668,22 +668,39 @@ class PointsOut {
   sun: number[] = [];
   /** 根元（砂に植わっている所）。掘って根元の砂が無くなった円盤を消すのに使う。NaN = 岩・流木の上（消さない） */
   anc: number[] = [];
+  /** 円盤が属する植物の番号（−1 = 曲がらない：苔・絨毯）。植物ごとの根元・高さ・種類（第 3 段階：かき分ける） */
+  plantOf: number[] = [];
+  readonly plants = { root: [] as number[], top: [] as number[], kind: [] as number[] };
   private ax = NaN;
   private ay = NaN;
   private az = NaN;
+  private pid = -1;
   constructor(private readonly light: LightGrid) {}
-  /** これから足す円盤の根元（植物 1 本・1 株ごとに決める） */
-  anchor(x: number, y: number, z: number) {
+  /**
+   * これから足す円盤の根元（植物 1 本・1 株ごとに決める）。kind を渡すと新しい植物として番号を付け、かき分けで曲がる
+   * （PLANT_KIND。渡さなければ曲がらない：絨毯・陸の苔のような小さな円盤）
+   */
+  anchor(x: number, y: number, z: number, kind?: number) {
     this.ax = x;
     this.ay = y;
     this.az = z;
+    if (kind === undefined) this.pid = -1;
+    else {
+      this.pid = this.plants.kind.length;
+      this.plants.root.push(x, y, z);
+      this.plants.top.push(y);
+      this.plants.kind.push(kind);
+    }
   }
   noAnchor() {
     this.ax = this.ay = this.az = NaN;
+    this.pid = -1;
   }
   push(x: number, y: number, z: number, c: RGB, nx: number, ny: number, nz: number, size: number, wind: number, sunBias = 0) {
     const l = Math.hypot(nx, ny, nz) || 1;
     this.anc.push(this.ax, this.ay, this.az);
+    this.plantOf.push(this.pid);
+    if (this.pid >= 0) this.plants.top[this.pid] = Math.max(this.plants.top[this.pid], y);
     this.pos.push(x, y, z);
     this.col.push(u8(c[0]), u8(c[1]), u8(c[2]));
     this.nrm.push(nx / l, ny / l, nz / l);
@@ -694,7 +711,7 @@ class PointsOut {
   get count() {
     return this.size.length;
   }
-  toSet(rng: Rng): { set: SplatPointSet; anchors: Float32Array } {
+  toSet(rng: Rng): { set: SplatPointSet; anchors: Float32Array; plants: PlantTable } {
     // シャッフル（先頭から N 個描けば全体から均一に間引ける。SurfelRenderer の密度と同じ前提）
     const n = this.count;
     const order = Array.from({ length: n }, (_, i) => i);
@@ -704,7 +721,9 @@ class PointsOut {
     }
     const out: SplatPointSet = { count: n, pos: new Float32Array(n * 3), col: new Uint8Array(n * 3), nrm: new Float32Array(n * 3), size: new Float32Array(n), wind: new Float32Array(n), sun: new Float32Array(n) };
     const anchors = new Float32Array(n * 3);
+    const plantId = new Float32Array(n);
     order.forEach((i, o) => {
+      plantId[o] = this.plantOf[i];
       for (let k = 0; k < 3; k++) {
         anchors[o * 3 + k] = this.anc[i * 3 + k];
         out.pos[o * 3 + k] = this.pos[i * 3 + k];
@@ -715,8 +734,23 @@ class PointsOut {
       out.wind[o] = this.wind[i];
       out.sun[o] = this.sun[i];
     });
-    return { set: out, anchors };
+    const np = this.plants.kind.length;
+    const H = new Float32Array(np);
+    for (let i = 0; i < np; i++) H[i] = Math.max(0.05, this.plants.top[i] - this.plants.root[i * 3 + 1]);
+    return { set: out, anchors, plants: { count: np, root: new Float32Array(this.plants.root), height: H, kind: new Uint8Array(this.plants.kind), plantId } };
   }
+}
+
+/** 植物の種類（かき分けたときの硬さ・しなり方。AquaPlants.ts の PLANT_PARAMS と同じ順） */
+export const PLANT_KIND = { tape: 0, stem: 1, fern: 2, broad: 3, hair: 4 } as const;
+
+/** 植物の表：植物ごとの根元・高さ・種類と、円盤ごとの植物の番号（−1 = 曲がらない） */
+export interface PlantTable {
+  count: number;
+  root: Float32Array;
+  height: Float32Array;
+  kind: Uint8Array;
+  plantId: Float32Array;
 }
 
 /** テープ状の葉の水草（バリスネリアのような細長い葉が水面近くまで伸びる） */
@@ -734,7 +768,7 @@ function tapeGrass(P: PointsOut, world: AquariumWorld, rng: Rng, cx: number, cz:
     if (world.solid(x, g + 0.1, z) < 0.05) continue;
     const depth = TANK.waterY - g;
     if (depth < 0.8) continue;
-    P.anchor(x, g, z);
+    P.anchor(x, g, z, PLANT_KIND.tape);
     const H = Math.min(depth - 0.15, depth * (0.55 + rng() * 0.5));
     const lean = rng() * Math.PI * 2, leanAmt = 0.2 + rng() * 0.35;
     const twist0 = rng() * Math.PI, twistRate = (rng() - 0.5) * 2.2;
@@ -770,7 +804,7 @@ function stemPlants(P: PointsOut, world: AquariumWorld, rng: Rng, cx: number, cz
     if (world.solid(x, g + 0.1, z) < 0.05) continue;
     const H = Math.min(TANK.waterY - g - 0.25, (0.55 + rng() * 0.45) * (TANK.waterY - g) * 0.85);
     if (H < 0.4) continue;
-    P.anchor(x, g, z);
+    P.anchor(x, g, z, PLANT_KIND.stem);
     const bend = (rng() - 0.5) * 0.4, bend2 = (rng() - 0.5) * 0.4;
     const nodes = Math.ceil(H / 0.11);
     let rot = rng() * Math.PI;
@@ -857,7 +891,7 @@ function landMoss(P: PointsOut, world: AquariumWorld, rng: Rng) {
 /** シダ（中心から放射状に葉が弧を描き、羽片が対に並ぶ） */
 function fern(P: PointsOut, world: AquariumWorld, rng: Rng, cx: number, cz: number, scale: number) {
   const g = world.groundAt(cx, cz);
-  P.anchor(cx, g, cz);
+  P.anchor(cx, g, cz, PLANT_KIND.fern);
   const fronds = 7 + Math.floor(rng() * 4);
   const dark = hex('#3f7a34'), light = hex('#7cb350'), rach = hex('#5d6e34');
   for (let f = 0; f < fronds; f++) {
@@ -890,7 +924,7 @@ function fern(P: PointsOut, world: AquariumWorld, rng: Rng, cx: number, cz: numb
 /** 葉の広い草（白い葉脈の入った楕円の葉が数枚） */
 function broadleaf(P: PointsOut, world: AquariumWorld, rng: Rng, cx: number, cz: number) {
   const g = world.groundAt(cx, cz);
-  P.anchor(cx, g, cz);
+  P.anchor(cx, g, cz, PLANT_KIND.broad);
   const leaves = 6 + Math.floor(rng() * 5);
   const leafC = hex('#2f6a35'), vein = hex('#d8e8d0'), edge = hex('#245a2c');
   for (let i = 0; i < leaves; i++) {
@@ -927,7 +961,7 @@ function hairGrass(P: PointsOut, world: AquariumWorld, rng: Rng) {
     for (let b = 0; b < blades; b++) {
       const bx = x + (rng() - 0.5) * 0.25, bz = z + (rng() - 0.5) * 0.25;
       const bg = world.groundAt(bx, bz);
-      P.anchor(bx, bg, bz);
+      P.anchor(bx, bg, bz, PLANT_KIND.hair);
       const H = 0.25 + rng() * 0.45;
       const la = rng() * Math.PI * 2, lean = rng() * 0.35;
       const c = cols[Math.floor(rng() * cols.length)];
@@ -940,7 +974,7 @@ function hairGrass(P: PointsOut, world: AquariumWorld, rng: Rng) {
   }
 }
 
-export function buildAquariumSurfels(world: AquariumWorld, light: LightGrid): { set: SplatPointSet; anchors: Float32Array; ms: number; counts: Record<string, number>; times: Record<string, number> } {
+export function buildAquariumSurfels(world: AquariumWorld, light: LightGrid): { set: SplatPointSet; anchors: Float32Array; plants: PlantTable; ms: number; counts: Record<string, number>; times: Record<string, number> } {
   const t0 = performance.now();
   const rng = mulberry32(9);
   const P = new PointsOut(light);
@@ -1014,9 +1048,9 @@ export function buildAquariumSurfels(world: AquariumWorld, light: LightGrid): { 
   const tin = world.landmarks.tunnelIn;
   for (const [x, z, s] of [[tin[0] - 0.4, tin[2] + 1.6, 0.85], [tin[0] + 1.3, tin[2] + 1.9, 0.7], [tin[0] - 1.6, tin[2] + 1.0, 0.6]] as const) fern(P, world, frng, x, z, s);
   mark('抜け道のシダ');
-  const { set, anchors } = P.toSet(rng);
+  const { set, anchors, plants } = P.toSet(rng);
   times['並べ替え'] = Math.round(performance.now() - lastT);
-  return { set, anchors, ms: performance.now() - t0, counts, times };
+  return { set, anchors, plants, ms: performance.now() - t0, counts, times };
 }
 
 /** 照明の向き（描画側の太陽の向きと同じ） */

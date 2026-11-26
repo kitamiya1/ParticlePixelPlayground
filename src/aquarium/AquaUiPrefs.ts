@@ -15,15 +15,19 @@ export const CAM_STYLE_LABEL: Record<CamStyle, string> = { classic: '従来', tp
 /** 歩き方（第 4 段階）。cycle = 従来（歩行周期）、ik = 接地 IK */
 export type GaitStyle = 'cycle' | 'ik';
 
+/** 水草をかき分ける方式（第 3 段階）。dyn = 近くの植物だけばね、gpu = GPU だけ（状態なし） */
+export type PlantStyle = 'dyn' | 'gpu';
+
 export interface UiPrefs {
   btnScale: number;
   btnAlpha: number;
   guides: boolean;
   camStyle: CamStyle;
   gait: GaitStyle;
+  plants: PlantStyle;
 }
 
-export const UI_DEFAULTS: UiPrefs = { btnScale: 0.75, btnAlpha: 0.25, guides: false, camStyle: 'tps', gait: 'ik' };
+export const UI_DEFAULTS: UiPrefs = { btnScale: 0.75, btnAlpha: 0.25, guides: false, camStyle: 'tps', gait: 'ik', plants: 'dyn' };
 export const BTN_SCALE_RANGE: [number, number] = [0.55, 1.1];
 export const BTN_ALPHA_RANGE: [number, number] = [0.08, 0.6];
 
@@ -50,6 +54,7 @@ export class UiPrefStore {
     p.btnAlpha = clamp(p.btnAlpha, ...BTN_ALPHA_RANGE);
     if (!CAMS.includes(p.camStyle)) p.camStyle = UI_DEFAULTS.camStyle;
     if (p.gait !== 'cycle' && p.gait !== 'ik') p.gait = UI_DEFAULTS.gait;
+    if (p.plants !== 'dyn' && p.plants !== 'gpu') p.plants = UI_DEFAULTS.plants;
     this.prefs = p;
     // URL で決めた値は覚えない（覚えている値の方を残す）
     const keep = { ...readPrefs(), ...p };
@@ -69,6 +74,7 @@ function readPrefs(): UiPrefs {
         guides: typeof v.guides === 'boolean' ? v.guides : UI_DEFAULTS.guides,
         camStyle: CAMS.includes(v.camStyle) ? v.camStyle : UI_DEFAULTS.camStyle,
         gait: v.gait === 'cycle' || v.gait === 'ik' ? v.gait : UI_DEFAULTS.gait,
+        plants: v.plants === 'dyn' || v.plants === 'gpu' ? v.plants : UI_DEFAULTS.plants,
       };
     }
   } catch {
@@ -88,7 +94,7 @@ function writePrefs(p: UiPrefs) {
 /**
  * 設定の欄（音の欄の下）に「操作ボタン」「表示」「カメラ」「歩き方」の段を足す。touch = false では操作ボタンの段を出さない
  */
-export function mountUiPrefs(panel: HTMLElement, store: UiPrefStore, opts: { touch: boolean; cam?: boolean; gait?: boolean }) {
+export function mountUiPrefs(panel: HTMLElement, store: UiPrefStore, opts: { touch: boolean; cam?: boolean; gait?: boolean; plants?: boolean }) {
   const sec = document.createElement('div');
   sec.className = 'ui-prefs';
   sec.innerHTML = `${opts.touch ? `
@@ -98,7 +104,9 @@ export function mountUiPrefs(panel: HTMLElement, store: UiPrefStore, opts: { tou
     <div class="sec">カメラ（冒険）</div>
     <div class="row seg" data-k="cam">${CAMS.map((c) => `<button type="button" data-v="${c}">${CAM_STYLE_LABEL[c]}</button>`).join('')}</div>` : ''}${opts.gait ? `
     <div class="sec">歩き方</div>
-    <div class="row seg" data-k="gait"><button type="button" data-v="ik">接地 IK</button><button type="button" data-v="cycle">従来</button></div>` : ''}
+    <div class="row seg" data-k="gait"><button type="button" data-v="ik">接地 IK</button><button type="button" data-v="cycle">従来</button></div>` : ''}${opts.plants ? `
+    <div class="sec">水草のかき分け</div>
+    <div class="row seg" data-k="plants"><button type="button" data-v="dyn">しなる（近くだけ計算）</button><button type="button" data-v="gpu">GPU だけ</button></div>` : ''}
     <div class="sec">表示</div>
     <label class="row"><input type="checkbox" data-k="guides"> 案内を出す（挟める物の輪・物の名前・引っ張りの手応え・操作の知らせ）</label>
     <div class="row"><button type="button" data-k="reset">表示の設定を元に戻す</button></div>`;
@@ -110,6 +118,7 @@ export function mountUiPrefs(panel: HTMLElement, store: UiPrefStore, opts: { tou
   guides.addEventListener('change', () => store.set({ guides: guides.checked }));
   for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="cam"] button')) b.addEventListener('click', () => store.set({ camStyle: b.dataset.v as CamStyle }));
   for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="gait"] button')) b.addEventListener('click', () => store.set({ gait: b.dataset.v as GaitStyle }));
+  for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="plants"] button')) b.addEventListener('click', () => store.set({ plants: b.dataset.v as PlantStyle }));
   q('reset')!.addEventListener('click', () => store.set({ btnScale: UI_DEFAULTS.btnScale, btnAlpha: UI_DEFAULTS.btnAlpha, guides: UI_DEFAULTS.guides }));
   store.onChange((p) => {
     if (scale) scale.value = String(Math.round(p.btnScale * 100));
@@ -120,5 +129,6 @@ export function mountUiPrefs(panel: HTMLElement, store: UiPrefStore, opts: { tou
     guides.checked = p.guides;
     for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="cam"] button')) b.classList.toggle('on', b.dataset.v === p.camStyle);
     for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="gait"] button')) b.classList.toggle('on', b.dataset.v === p.gait);
+    for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="plants"] button')) b.classList.toggle('on', b.dataset.v === p.plants);
   });
 }

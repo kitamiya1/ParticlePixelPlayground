@@ -12,10 +12,10 @@ async (page, O = {}) => {
   const ctx = await page.context().browser().newContext({ viewport: { width: O.w ?? 1280, height: O.h ?? 800 }, hasTouch: !!O.touch, isMobile: !!O.touch });
   const p = await ctx.newPage();
   for (let r = 0; r < rounds; r++) {
-    for (const { tag, host, style, gait } of hosts) {
+    for (const { tag, host, style, gait, plants } of hosts) {
       await p.goto(`${host}/aquarium.html?nosave&${Date.now()}`);
       await p.waitForFunction(() => window.__aqua && window.__aqua.bootMs > 0, null, { timeout: 180000 });
-      await p.evaluate(([style, gait]) => { window.__aqua.help?.close?.(); document.getElementById('help')?.classList.remove('show'); if (style) window.__aqua.camera.setStyle(style); if (gait && window.__aqua.crab.setGait) window.__aqua.crab.setGait(gait); }, [style, gait]);
+      await p.evaluate(([style, gait, plants]) => { window.__aqua.help?.close?.(); document.getElementById('help')?.classList.remove('show'); if (style) window.__aqua.camera.setStyle(style); if (gait && window.__aqua.crab.setGait) window.__aqua.crab.setGait(gait); if (plants && window.__aqua.plantField) window.__aqua.plantField.setMode(plants); }, [style, gait, plants]);
       for (const pl of places) {
         const m = await p.evaluate(async (pl) => {
           const A = window.__aqua;
