@@ -1,4 +1,5 @@
-// 各段階の性能の簡単な比較（Playwright。fetch + eval して page を渡す）。O = { hosts: [{tag, host}], places, w, h, touch }
+// 各段階の性能の簡単な比較（Playwright。fetch + eval して page を渡す）。O = { hosts: [{tag, host, style?, gait?}], places, w, h, touch }
+// （style = カメラの方式、gait = 歩き方。開発版で方式どうしを比べるとき）
 // 各ホストを交互に開き（機械の負荷の揺れを打ち消す）、場所ごとに
 //   cpu：__aqua.step(1) の平均 ms（ゲームの更新 + 描画の命令。GPU の終わりは待たない）を 120 回
 //   frame：凍結を解いて 3 秒、requestAnimationFrame の間隔の平均と 95 パーセンタイル（GPU を含む実際のフレーム時間）
@@ -11,10 +12,10 @@ async (page, O = {}) => {
   const ctx = await page.context().browser().newContext({ viewport: { width: O.w ?? 1280, height: O.h ?? 800 }, hasTouch: !!O.touch, isMobile: !!O.touch });
   const p = await ctx.newPage();
   for (let r = 0; r < rounds; r++) {
-    for (const { tag, host } of hosts) {
+    for (const { tag, host, style, gait } of hosts) {
       await p.goto(`${host}/aquarium.html?nosave&${Date.now()}`);
       await p.waitForFunction(() => window.__aqua && window.__aqua.bootMs > 0, null, { timeout: 180000 });
-      await p.evaluate(() => { window.__aqua.help?.close?.(); document.getElementById('help')?.classList.remove('show'); });
+      await p.evaluate(([style, gait]) => { window.__aqua.help?.close?.(); document.getElementById('help')?.classList.remove('show'); if (style) window.__aqua.camera.setStyle(style); if (gait && window.__aqua.crab.setGait) window.__aqua.crab.setGait(gait); }, [style, gait]);
       for (const pl of places) {
         const m = await p.evaluate(async (pl) => {
           const A = window.__aqua;

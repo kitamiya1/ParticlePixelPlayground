@@ -92,6 +92,23 @@ const CEIL_LIFT = 0.55;
 const TRAVERSE_SPEED = 8;
 
 export type TunnelCam = 'orbit' | 'shoulder' | 'near';
+/**
+ * 冒険カメラの方式（第 2 段階。AquaUiPrefs の camStyle）：
+ * - classic：従来（このファイルの先頭の説明のまま）
+ * - tps：改良型三人称。腕の最短（MIN_ARM）を設け、障害物で腕が縮むときは、まず見る角度を少し上げて（raise）空いている所を探し、
+ *   それでも無ければ MIN_ARM で止めて、カメラとカニの間の物（砂も）を描画で抜く（cut.sand。地形の中から見た裏面は断面の色）。
+ *   カメラの位置の動きの上限（smoothPose）を掘った穴のそば以外でも使う（急に飛ばない）
+ * - close：肩越し・一人称（いつでも切り替えられる。blendTunnel の 'close'。頭の後ろの低い所から前を少し見下ろす：ハサミと
+ *   挟んでいる物が視界の下に入る）。天井・壁では体の上（面の外向き）に置き、カメラは傾けない。戻すとなめらかに三人称へ
+ * - free：自由追従。地形でカメラの移動を制限しない（地面の下・岩や流木の中にも入れる）。カメラとカニの間にある物（砂・岩・流木・
+ *   水草）だけを円すいで抜き、地形の中から見た裏面は断面の色で塗る（AquariumRenderer の uCap）
+ */
+export type CamStyle = 'classic' | 'tps' | 'close' | 'free';
+/** 改良型三人称の腕の最短（カニの体の中心から）と、空きを探すときに見る角度を上げる最大 */
+const MIN_ARM = 1.15;
+const RAISE_MAX = 0.84;
+/** 肩越し・一人称：頭の上の高さ・後ろへ引く最大・見下ろす角度・画角 */
+const CLOSE = { lift: 0.3, back: 0.2, down: 0.42, fov: 78 };
 import type { VistaView } from './AquariumSpots';
 import type { CrabController } from './CrabController';
 
@@ -194,7 +211,19 @@ export class AquaCamera {
    * 描画で抜く範囲（薄い物を越えたとき）：to = カニの体の中心、near / far = カメラからの距離の範囲、
    * radius = カニの位置での半径（カメラに近いほど細い円すい）、on = 強さ 0..1（平滑化）
    */
-  readonly cut = { to: [0, 0, 0] as V3, near: 0, far: 0, radius: CUT_RADIUS, on: 0 };
+  readonly cut = { to: [0, 0, 0] as V3, near: 0, far: 0, radius: CUT_RADIUS, on: 0, sand: 0 };
+  /** 冒険カメラの方式（第 2 段階）。close = 肩越し・一人称を重ねるか（style は三人称の方式） */
+  style: Exclude<CamStyle, 'close'> = 'tps';
+  close = false;
+  /** 肩越し・一人称へ寄せている割合（0..1。平滑化）・改良型三人称で見る角度を上げている量（平滑化）・腕の最短で止めて抜いているか */
+  closeW = 0;
+  raise = 0;
+  cutThrough = false;
+  private cutWas = false;
+  /** 水面の高さを避けるときの側（−1 = 下、1 = 上。改良型三人称では平滑化） */
+  private waterSide = -1;
+  /** 肩越し・一人称の「体の上」の向き（平滑化。壁・天井へ移るときに視点が急に回らない） */
+  private closeUp: V3 = [0, 1, 0];
   /** 異常な値から戻した回数（検証用） */
   recovered = 0;
   /** 掘った穴のそばにいるか（先読み・動きの上限を使う。update が決める） */
@@ -238,6 +267,17 @@ export class AquaCamera {
     this.target.x = c.x;
     this.target.y = c.y + 0.3;
     this.target.z = c.z;
+  }
+
+  /** 方式を変える（close は三人称の方式を変えずに重ねる。自由追従から close へは三人称へ戻してから重ねる） */
+  setStyle(s: CamStyle) {
+    if (s === 'close') {
+      this.close = true;
+      if (this.style === 'free') this.style = 'tps';
+    } else {
+      this.style = s;
+      this.close = false;
+    }
   }
 
   setVista(v: VistaView | null) {
@@ -451,8 +491,13 @@ export class AquaCamera {
     // 地下：三人称の姿勢を近い視点（または肩越し）へ寄せる
     // （天井に張り付いている間は弱める：近い視点は「頭の上」＝天井の側に寄り、逆さのカニが画面の上の端へ逃げる。
     // 代わりに面から離した注視点の三人称で、下から見上げる）
-    const e = this.tunnelCam === 'orbit' || this.region !== 'tank' ? 0 : smoothstep(0, 1, this.tunnel) * (1 - 0.85 * this.ceilW);
-    if (e > 1e-3) this.blendTunnel(o, c, e, dt);
+    const e = this.tunnelCam === 'orbit' || this.region !== 'tank' || this.style === 'free' ? 0 : smoothstep(0, 1, this.tunnel) * (1 - 0.85 * this.ceilW);
+    // 肩越し・一人称（close）：入れる・戻すをなめらかに（管の中では使わない）
+    const closeWant = this.close && c.region !== 'drain' && c.region !== 'return' ? 1 : 0;
+    this.closeW += (closeWant - this.closeW) * (1 - Math.exp(-dt * 4));
+    if (closeWant === 0 && this.closeW < 1e-3) this.closeW = 0;
+    if (this.closeW > 1e-3 && this.closeW >= e) this.blendTunnel(o, c, smoothstep(0, 1, Math.min(1, this.closeW * 1.02)), dt, 'close');
+    else if (e > 1e-3) this.blendTunnel(o, c, e, dt);
     else this.nearDist = 0;
     this.smoothPose(c, dt, touched);
     // カメラがカニに近いほど、カニを透かす（体の中心から 1.0 で 0、0.35 で最大）
@@ -524,10 +569,11 @@ export class AquaCamera {
    * 地下の視点へ寄せる（e = 寄せる割合 0..1）。近い視点：頭の上（天井が低ければ下げる）を中心に、視点の向きの後ろへ
    * 見る向きの水平な後ろへ NEAR.back（壁の手前まで）引き、前（三人称でカニを見ていた向き）を見る。肩越し：三人称の注視点から腕 1.1 で、カニを見る
    */
-  private blendTunnel(o: Orbit, c: CrabController, e: number, dt: number) {
+  private blendTunnel(o: Orbit, c: CrabController, e: number, dt: number, kind: TunnelCam | 'close' = this.tunnelCam) {
     const w = this.world, region = this.region, P = this.pose;
     const cx = c.x, cy = c.y + c.radius, cz = c.z;
-    const shoulder = this.tunnelCam === 'shoulder';
+    if (kind === 'close') return this.blendClose(o, c, e, dt);
+    const shoulder = kind === 'shoulder';
     let pivot: V3;
     if (shoulder) pivot = [this.target.x, this.target.y, this.target.z];
     else {
@@ -575,6 +621,54 @@ export class AquaCamera {
   }
 
   /**
+   * 肩越し・一人称（close）：体の上（ふだんは真上、壁・天井では面の外向き。空きが無ければ下げる）から、見る向きの水平な後ろへ
+   * CLOSE.back まで引き（壁の手前まで）、前を CLOSE.down だけ見下ろす（ハサミと挟んでいる物が視界の下に入る）。
+   * 見る向きはプレイヤーの yaw / pitch（三人称と同じ値）なので、カニの姿勢でカメラは回らない（傾けない）。e で三人称から混ぜる
+   */
+  private blendClose(o: Orbit, c: CrabController, e: number, dt: number) {
+    const w = this.world, region = this.region, P = this.pose;
+    const cx = c.x, cy = c.y + c.radius, cz = c.z;
+    const upW: readonly number[] = c.climbing ? c.climbN : [0, 1, 0];
+    const ku = 1 - Math.exp(-dt * 5);
+    this.closeUp = unit([this.closeUp[0] + (upW[0] - this.closeUp[0]) * ku, this.closeUp[1] + (upW[1] - this.closeUp[1]) * ku, this.closeUp[2] + (upW[2] - this.closeUp[2]) * ku]);
+    const up = this.closeUp;
+    let h = CLOSE.lift;
+    while (h > 0.02 && w.cameraSolid(cx + up[0] * h, cy + up[1] * h, cz + up[2] * h, region) < NEAR.gap) h -= 0.03;
+    h = Math.max(0, h);
+    const pivot: V3 = [cx + up[0] * h, cy + up[1] * h, cz + up[2] * h];
+    const d = direction({ yaw: o.yaw, pitch: clamp(o.pitch, -NEAR.maxPitch, NEAR.maxPitch) });
+    const hl = Math.hypot(d[0], d[2]) || 1;
+    const m: V3 = [d[0] / hl, 0, d[2] / hl];
+    let s = 0;
+    while (s < CLOSE.back) {
+      const t = Math.min(CLOSE.back, s + 0.04);
+      if (w.cameraSolid(pivot[0] + m[0] * t, pivot[1] + m[1] * t, pivot[2] + m[2] * t, region) < NEAR.gap) break;
+      s = t;
+    }
+    this.nearDist += (s - this.nearDist) * (1 - Math.exp(-dt * (s < this.nearDist ? 14 : 3)));
+    this.nearDist = Math.min(this.nearDist, s);
+    const pn: V3 = [pivot[0] + m[0] * this.nearDist, pivot[1] + m[1] * this.nearDist, pivot[2] + m[2] * this.nearDist];
+    // 前（三人称でカニを見ていた向き）を少し見下ろす
+    const pitchF = clamp(-o.pitch - CLOSE.down, -1.3, 1.1);
+    const fN = direction({ yaw: o.yaw + Math.PI, pitch: pitchF });
+    const pO = P.pos, tO = P.target;
+    const fO = unit([tO[0] - pO[0], tO[1] - pO[1], tO[2] - pO[2]]);
+    const mix = (k: number): V3 => [pO[0] + (pn[0] - pO[0]) * k, pO[1] + (pn[1] - pO[1]) * k, pO[2] + (pn[2] - pO[2]) * k];
+    let pos = mix(e);
+    const need = Math.min(CAM_HARD * 0.5, w.cameraSolid(pO[0], pO[1], pO[2], region) - 0.01);
+    for (let k = e; k < 1 && w.cameraSolid(pos[0], pos[1], pos[2], region) < need; ) {
+      k = Math.min(1, k + 0.1);
+      pos = mix(k);
+      this.blendFallback++;
+    }
+    const f = unit([fO[0] + (fN[0] - fO[0]) * e, fO[1] + (fN[1] - fO[1]) * e, fO[2] + (fN[2] - fO[2]) * e]);
+    P.pos = pos;
+    P.target = [pos[0] + f[0] * 3, pos[1] + f[1] * 3, pos[2] + f[2] * 3];
+    P.fov += (CLOSE.fov - P.fov) * e;
+    this.cut.on = Math.min(this.cut.on, 1 - e);
+  }
+
+  /**
    * 掘った穴のそばでの、カメラの位置の動きの上限。求めた位置（pose.pos）へ、直前の位置 + カニの動きから、
    * 1 秒あたり SMOOTH まで近づける（地上 ↔ トンネルの出入りで、床・天井・腕の長さ・近い視点への寄せ方が一度に変わって
    * 1 フレームで飛ばないように）。見る向きは変えない（注視点も同じだけ動かす）。
@@ -585,7 +679,8 @@ export class AquaCamera {
     const P = this.pose, w = this.world;
     const crab: V3 = [c.x, c.y + c.radius, c.z];
     const prev = this.smoothPrev;
-    const ok = this.digNear && !touched && prev !== null && dt > 0 && this.blendT <= 0 &&
+    // （改良型三人称は掘った穴のそば以外でも使う。自由追従は固体を避けないので使わない）
+    const ok = (this.digNear || this.style === 'tps') && this.style !== 'free' && !touched && prev !== null && dt > 0 && this.blendT <= 0 &&
       Math.hypot(crab[0] - prev.crab[0], crab[1] - prev.crab[1], crab[2] - prev.crab[2]) < 0.5;
     if (ok) {
       const base: V3 = [prev.pos[0] + crab[0] - prev.crab[0], prev.pos[1] + crab[1] - prev.crab[1], prev.pos[2] + crab[2] - prev.crab[2]];
@@ -596,7 +691,8 @@ export class AquaCamera {
       if (len > vmax) {
         let k = vmax / len;
         let q: V3 = [base[0] + dx * k, base[1] + dy * k, base[2] + dz * k];
-        if (w.cameraSolid(q[0], q[1], q[2], this.region) < CAM_HARD) {
+        // （腕の最短で抜いている間は固体の中でもよい：抜いて描くので）
+        if (!this.cutThrough && w.cameraSolid(q[0], q[1], q[2], this.region) < CAM_HARD) {
           // 固体に近い：まず面の外向きへ最小限だけ押し出す（急な坂を登り始めたときなど、天井・壁が少し近づいただけで
           // 求めた位置の側へ大きく進めると 1 フレームに 0.5 近く飛んでいた）
           for (let i = 0; i < 4; i++) {
@@ -704,6 +800,8 @@ export class AquaCamera {
     const yaw = o.yaw;
     // 引っこ抜き：少し上から見下ろす（カニの体の向こうの穴と生き物が見える。床・天井の調べはこの仰角で行う）
     const op = Math.min(o.maxPitch, o.pitch + 0.22 * this.focusW);
+    if (this.style === 'free') return this.freePose(c, dt, T, Z, yaw, op);
+    this.cutThrough = false;
 
     // 1. 床：いまの仰角で最初に当たるのが床なら、床に当たらない最小の仰角を探す（その分は見上げる）。
     //    天井：最初に当たるのが越えられない天井で、そこで大きく縮むなら、当たらない最大の仰角を探す（その分は見下ろす）
@@ -726,9 +824,33 @@ export class AquaCamera {
     this.ceilPitch += (cpT - this.ceilPitch) * (1 - Math.exp(-dt * (cpT < this.ceilPitch ? 14 : 4)));
     if (fp < op && this.floorPitch < op + 2e-3) this.floorPitch = fp;
     if (cp > op && this.ceilPitch > op - 2e-3) this.ceilPitch = cp;
-    const pitch = clamp(op, this.floorPitch, Math.max(this.floorPitch, this.ceilPitch));
+    let pitch = clamp(op, this.floorPitch, Math.max(this.floorPitch, this.ceilPitch));
     this.lookUp = Math.max(0, pitch - op);
     this.lookDown = Math.max(0, op - pitch);
+
+    // 改良型三人称：腕が MIN_ARM より縮むなら、見る角度を少しずつ上げて（最大 RAISE_MAX）腕が伸びる角度を探す。
+    // 上げる量は平滑化して（上げるのは少し速く、戻すのはゆっくり）、プレイヤーの pitch は変えない（障害物が無くなれば戻る）
+    const tps = this.style === 'tps' && this.tunnel < 0.3 && Z > MIN_ARM + 0.1;
+    if (tps) {
+      let want = 0;
+      if (this.castArm(T, yaw, pitch, Z).free < MIN_ARM) {
+        want = RAISE_MAX;
+        for (let r = 0.12; r <= RAISE_MAX + 1e-6; r += 0.12) {
+          if (pitch + r > o.maxPitch) break;
+          if (this.castArm(T, yaw, pitch + r, Z).free >= MIN_ARM + 0.15) {
+            want = r;
+            break;
+          }
+        }
+      }
+      this.raise += (want - this.raise) * (1 - Math.exp(-dt * (want > this.raise ? 5 : 1.5)));
+      pitch = Math.min(o.maxPitch, pitch + this.raise);
+    } else {
+      // トンネルへ入った・方式を変えたとき：上げていた分はゆっくり戻す（1 フレームで仰角を変えない）
+      this.raise += (0 - this.raise) * (1 - Math.exp(-dt * 3));
+      if (this.raise < 1e-3) this.raise = 0;
+      pitch = Math.min(o.maxPitch, pitch + this.raise);
+    }
 
     // 2. 腕（注視点 → カメラ）に沿って球を進める。薄い物は越えて、描画で抜く範囲を覚える
     const [dx, dy, dz] = direction({ yaw, pitch });
@@ -739,6 +861,15 @@ export class AquaCamera {
     // 先読み：進む先の注視点からの腕も縮むなら、先に寄り始める
     if (T2) hit = Math.min(hit, this.castArm(T2, yaw, pitch, Z).free);
     this.occluded = hit < Z - 0.05;
+    // 改良型三人称：角度を上げても腕が MIN_ARM に届かない（狭い所・厚い砂や岩に囲まれた）なら、MIN_ARM で止め、
+    // カメラとカニの間の物を砂も含めて描画で抜く（カニが画面を覆わない。地形の中から見た裏面は断面の色）
+    // 抜くのをやめるのは、カメラがふつうに置ける距離までなめらかに戻ってから（やめた瞬間に安全網で手前へ飛ばない）
+    const wasCut = this.cutWas;
+    if (tps && (hit < MIN_ARM || (wasCut && hit < this.dist - 0.06))) {
+      hit = Math.max(hit, MIN_ARM);
+      this.cutThrough = true;
+    }
+    this.cutWas = this.cutThrough;
     // 寄るときは少し速く、離れるときはゆっくり（ちらつき防止）。めり込みは 4 の安全網が防ぐので、寄るのも一瞬ではなくてよい。
     // 寄るのは、いまの距離のカメラの位置がまだ固体から離れている間は CLOSE_SPEED（1 秒あたり）まで
     // （大きく縮むときに 1 フレームで飛ばない。先読みで早めに寄り始めるので、間に合う）。固体に近ければ従来どおり速く寄る
@@ -769,7 +900,7 @@ export class AquaCamera {
     this.dist = nd;
     // 越えた薄い物の中をカメラが通る間は、4 の安全網で手前へ戻さない（戻すと遠ざかる向きに越えられなくなる）。
     // その物はカメラとカニの間で抜いて描くので、中を通っても視界は遮られない（面はカメラと反対を向いていて描かれない）
-    const inPassed = this.traverse !== null || arm.passed.some(([a0, a1]) => this.dist > a0 - 0.1 && this.dist < a1 + 0.05);
+    const inPassed = this.cutThrough || this.traverse !== null || arm.passed.some(([a0, a1]) => this.dist > a0 - 0.1 && this.dist < a1 + 0.05);
     // 寄らされて近いほど画角を広げる（最大 +16°）
     const near = this.dist < Z - 0.05 ? 1 - smoothstep(0.7, Math.max(1.2, Math.min(Z, 3)), this.dist) : 0;
     this.closeFov += (16 * near - this.closeFov) * (1 - Math.exp(-dt * 4));
@@ -819,7 +950,10 @@ export class AquaCamera {
     // 水面の高さちょうどを避ける（カニのいる側へ寄せる）
     if (region === 'tank') {
       const band = 0.22;
-      if (Math.abs(py - TANK.waterY) < band) py = c.y + 0.3 < TANK.waterY ? TANK.waterY - band : TANK.waterY + band;
+      // （改良型三人称：カニが水面をまたいだときに上下の側を一気に入れ替えず、0.2 秒ほどで移す）
+      const side = c.y + 0.3 < TANK.waterY ? -1 : 1;
+      this.waterSide += (side - this.waterSide) * (this.style === 'tps' ? 1 - Math.exp(-dt * 10) : 1);
+      if (Math.abs(py - TANK.waterY) < band) py = this.style === 'tps' ? TANK.waterY + band * this.waterSide : side < 0 ? TANK.waterY - band : TANK.waterY + band;
     } else if (region === 'sump' && px > SUMP_IN.minX && px < SUMP_IN.maxX && pz > SUMP_IN.minZ && pz < SUMP_IN.maxZ) {
       const level = w.stand.chamberAt(px).level;
       const band = 0.18;
@@ -831,13 +965,60 @@ export class AquaCamera {
     const cut = this.cut;
     // 手前へ抜けている途中（traverse）は、抜けている物の区間を抜く
     const cf = this.traverse ? this.traverse[0] : arm.cutFrom, ctt = this.traverse ? this.traverse[1] : arm.cutTo;
-    const want = cf >= 0 && cf < D - 0.2 ? 1 : 0;
-    if (want) {
+    const want = this.cutThrough || (cf >= 0 && cf < D - 0.2) ? 1 : 0;
+    if (this.cutThrough) {
+      // 腕の最短で止めて抜く：カメラのすぐ前からカニの手前まで全部
+      cut.near = 0.02;
+      cut.far = Math.max(0.05, D - 0.45);
+    } else if (want) {
       cut.near = Math.max(0, D - ctt - 0.3);
       cut.far = Math.max(cut.near, D - Math.max(cf - 0.3, 0.5));
     }
     cut.on += (want - cut.on) * (1 - Math.exp(-dt * (want ? 14 : 5)));
+    cut.sand += ((this.cutThrough ? 1 : 0) - cut.sand) * (1 - Math.exp(-dt * (this.cutThrough ? 14 : 5)));
+    cut.radius = CUT_RADIUS;
     cut.to = [c.x, c.y + c.radius, c.z];
+    return [px, py, pz];
+  }
+
+  /**
+   * 自由追従（free）：注視点から見る向きへ zoom だけ離れた所に置く（地形・岩・流木では止めない。部屋の範囲と水面の高さだけ守る）。
+   * 床・天井で仰角を変えない。カメラとカニの間を円すい（カニの位置で半径 0.62）でいつも抜く：砂・岩・流木・水草のうち
+   * カメラとカニの間にある部分だけが消える。地形の中から見た裏面は描画側が断面の色で塗る（AquariumRenderer の uCap）
+   */
+  private freePose(c: CrabController, dt: number, T: V3, Z: number, yaw: number, pitch: number): V3 {
+    const w = this.world;
+    this.floorPitch = -2;
+    this.ceilPitch = 2;
+    this.lookUp = this.lookDown = 0;
+    this.raise = 0;
+    this.cutThrough = this.cutWas = false;
+    this.traverse = null;
+    this.prevPassed = [];
+    this.occluded = false;
+    this.closeFov += (0 - this.closeFov) * (1 - Math.exp(-dt * 4));
+    this.dist += (Z - this.dist) * (1 - Math.exp(-dt * 6));
+    const d = direction({ yaw, pitch });
+    let px = T[0] + d[0] * this.dist, py = T[1] + d[1] * this.dist, pz = T[2] + d[2] * this.dist;
+    px = clamp(px, ROOM.minX + 0.5, ROOM.maxX - 0.5);
+    pz = clamp(pz, ROOM.minZ + 0.5, ROOM.maxZ - 0.5);
+    py = clamp(py, ROOM.floorY - 6, ROOM.ceilY - 0.5);
+    if (this.region === 'tank') {
+      const band = 0.22;
+      if (Math.abs(py - TANK.waterY) < band) py = c.y + 0.3 < TANK.waterY ? TANK.waterY - band : TANK.waterY + band;
+    }
+    const crab: V3 = [c.x, c.y + c.radius, c.z];
+    const D = Math.hypot(px - crab[0], py - crab[1], pz - crab[2]);
+    const cut = this.cut;
+    cut.to = crab;
+    cut.near = 0.02;
+    cut.far = Math.max(0.05, D - 0.4);
+    cut.radius = 0.62;
+    // 抜くのは、間に固体がある・カメラが固体の中にあるとき（何も無ければ水草だけを抜くことになるので弱める）
+    const blocked = !this.sees([px, py, pz], crab) || w.cameraSolid(px, py, pz, this.region) < CAM_HARD;
+    const want = blocked ? 1 : 0.6;
+    cut.on += (want - cut.on) * (1 - Math.exp(-dt * 10));
+    cut.sand += ((blocked ? 1 : 0) - cut.sand) * (1 - Math.exp(-dt * 10));
     return [px, py, pz];
   }
 

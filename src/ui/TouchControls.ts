@@ -14,8 +14,10 @@ export interface TouchControlsOptions {
   runLabel?: string;
   /** ジャンプボタン（押している間 Input.touchJump = true） */
   jump?: boolean;
-  /** カメラ切り替えボタン（押したときに呼ぶ） */
+  /** カメラ切り替えボタン（押したときに呼ぶ。onCameraHold があるときは、短く押して離したときに呼ぶ） */
   onCamera?: () => void;
+  /** カメラのボタンを長押ししたとき（水槽ゲーム：肩越し・一人称 ↔ 三人称） */
+  onCameraHold?: () => void;
   /**
    * 掘るボタン（押している間 Input.touchDig = true）。押したまま指をずらすと、押した位置からのずれが掘る向きの照準
    * （Input.touchDigAim：上へずらす = 上を掘る、左右 = 左右、斜めも可。指がボタンの外へ出ても続く）
@@ -36,6 +38,9 @@ export interface TouchControlsOptions {
    */
   icons?: boolean;
 }
+
+/** カメラのボタンの長押しの長さ（ms） */
+const CAMERA_HOLD_MS = 420;
 
 /** 挟むボタンを押したまま指をずらしたとき、視点の回転に使い始めるずれ（CSS px） */
 const GRAB_LOOK_DEAD = 10;
@@ -107,11 +112,46 @@ export class TouchControls {
     if (grab) this.bindGrab(grab);
     const cam = this.root.querySelector<HTMLButtonElement>('.cam');
     if (cam && opts.onCamera) {
-      const fn = opts.onCamera;
-      cam.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        fn();
-      });
+      const fn = opts.onCamera, hold = opts.onCameraHold;
+      if (!hold) {
+        cam.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          fn();
+        });
+      } else {
+        // 長押し（CAMERA_HOLD_MS）で onCameraHold、それより短く離したら onCamera（離したときに切り替える）
+        let id = -1, timer = 0, fired = false;
+        cam.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          if (id !== -1) this.input.release(id);
+          const mine = e.pointerId;
+          id = mine;
+          fired = false;
+          cam.classList.add('on');
+          capture(cam, mine);
+          clearTimeout(timer);
+          timer = window.setTimeout(() => {
+            if (id !== mine) return;
+            fired = true;
+            cam.classList.add('held');
+            hold();
+          }, CAMERA_HOLD_MS);
+          this.input.claim(e, {
+            end: () => {
+              if (id !== mine) return;
+              id = -1;
+              clearTimeout(timer);
+              cam.classList.remove('on', 'held');
+              if (!fired) fn();
+            },
+          });
+        });
+        this.input.onReset(() => {
+          id = -1;
+          clearTimeout(timer);
+          cam.classList.remove('on', 'held');
+        });
+      }
       cam.addEventListener('contextmenu', (e) => e.preventDefault());
     }
   }
