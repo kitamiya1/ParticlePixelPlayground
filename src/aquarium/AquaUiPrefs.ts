@@ -16,6 +16,10 @@ export const CAM_STYLE_LABEL: Record<CamStyle, string> = { classic: '従来', tp
 export type GaitStyle = 'cycle' | 'ik' | 'lead';
 const GAITS: GaitStyle[] = ['lead', 'ik', 'cycle'];
 
+/** 旋回の仕方（第 9 段階の比較用。接地 IK・接地主導のとき。CrabRig.turnStyle）：step = 第 8 段階まで、pivot = 踏ん張り旋回、cycle = 旋回中は歩行周期 */
+export type TurnStyle = 'step' | 'pivot' | 'cycle';
+const TURNS: TurnStyle[] = ['step', 'pivot', 'cycle'];
+
 /** 水草をかき分ける方式（第 3 段階）。dyn = 近くの植物だけばね、gpu = GPU だけ（状態なし） */
 export type PlantStyle = 'dyn' | 'gpu';
 
@@ -25,6 +29,7 @@ export interface UiPrefs {
   guides: boolean;
   camStyle: CamStyle;
   gait: GaitStyle;
+  turn: TurnStyle;
   plants: PlantStyle;
   /** 接地 IK の診断の表示（第 4 段階） */
   footDiag: boolean;
@@ -32,7 +37,7 @@ export interface UiPrefs {
   labels: boolean;
 }
 
-export const UI_DEFAULTS: UiPrefs = { btnScale: 0.75, btnAlpha: 0.25, guides: false, camStyle: 'tps', gait: 'lead', plants: 'dyn', footDiag: false, labels: false };
+export const UI_DEFAULTS: UiPrefs = { btnScale: 0.75, btnAlpha: 0.25, guides: false, camStyle: 'tps', gait: 'lead', turn: 'step', plants: 'dyn', footDiag: false, labels: false };
 export const BTN_SCALE_RANGE: [number, number] = [0.55, 1.1];
 export const BTN_ALPHA_RANGE: [number, number] = [0.08, 0.6];
 
@@ -59,6 +64,7 @@ export class UiPrefStore {
     p.btnAlpha = clamp(p.btnAlpha, ...BTN_ALPHA_RANGE);
     if (!CAMS.includes(p.camStyle)) p.camStyle = UI_DEFAULTS.camStyle;
     if (!GAITS.includes(p.gait)) p.gait = UI_DEFAULTS.gait;
+    if (!TURNS.includes(p.turn)) p.turn = UI_DEFAULTS.turn;
     if (p.plants !== 'dyn' && p.plants !== 'gpu') p.plants = UI_DEFAULTS.plants;
     this.prefs = p;
     // URL で決めた値は覚えない（覚えている値の方を残す）
@@ -79,6 +85,7 @@ function readPrefs(): UiPrefs {
         guides: typeof v.guides === 'boolean' ? v.guides : UI_DEFAULTS.guides,
         camStyle: CAMS.includes(v.camStyle) ? v.camStyle : UI_DEFAULTS.camStyle,
         gait: GAITS.includes(v.gait) ? v.gait : UI_DEFAULTS.gait,
+        turn: TURNS.includes(v.turn) ? v.turn : UI_DEFAULTS.turn,
         plants: v.plants === 'dyn' || v.plants === 'gpu' ? v.plants : UI_DEFAULTS.plants,
         footDiag: typeof v.footDiag === 'boolean' ? v.footDiag : UI_DEFAULTS.footDiag,
         labels: typeof v.labels === 'boolean' ? v.labels : UI_DEFAULTS.labels,
@@ -113,6 +120,8 @@ export function mountUiPrefs(panel: HTMLElement, store: UiPrefStore, opts: { tou
     <div class="row seg" data-k="cam">${CAMS.map((c) => `<button type="button" data-v="${c}">${CAM_STYLE_LABEL[c]}</button>`).join('')}</div>` : ''}${opts.gait ? `
     <div class="sec">歩き方</div>
     <div class="row seg" data-k="gait"><button type="button" data-v="lead">接地主導</button><button type="button" data-v="ik">接地 IK</button><button type="button" data-v="cycle">従来</button></div>
+    <div class="sec">旋回（接地 IK・接地主導のとき。比較用）</div>
+    <div class="row seg" data-k="turn"><button type="button" data-v="step">現行</button><button type="button" data-v="pivot">踏ん張り旋回</button><button type="button" data-v="cycle">旋回中は歩行周期</button></div>
     <label class="row"><input type="checkbox" data-k="footdiag"> 接地の診断を表示（足先・次の足場・届く範囲・支え）</label>` : ''}${opts.plants ? `
     <div class="sec">水草のかき分け</div>
     <div class="row seg" data-k="plants"><button type="button" data-v="dyn">しなる（近くだけ計算）</button><button type="button" data-v="gpu">GPU だけ</button></div>` : ''}
@@ -131,6 +140,7 @@ export function mountUiPrefs(panel: HTMLElement, store: UiPrefStore, opts: { tou
   fd?.addEventListener('change', () => store.set({ footDiag: fd.checked }));
   for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="cam"] button')) b.addEventListener('click', () => store.set({ camStyle: b.dataset.v as CamStyle }));
   for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="gait"] button')) b.addEventListener('click', () => store.set({ gait: b.dataset.v as GaitStyle }));
+  for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="turn"] button')) b.addEventListener('click', () => store.set({ turn: b.dataset.v as TurnStyle }));
   for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="plants"] button')) b.addEventListener('click', () => store.set({ plants: b.dataset.v as PlantStyle }));
   q('reset')!.addEventListener('click', () => store.set({ btnScale: UI_DEFAULTS.btnScale, btnAlpha: UI_DEFAULTS.btnAlpha, guides: UI_DEFAULTS.guides, labels: UI_DEFAULTS.labels }));
   store.onChange((p) => {
@@ -144,6 +154,7 @@ export function mountUiPrefs(panel: HTMLElement, store: UiPrefStore, opts: { tou
     if (lb) lb.checked = p.labels;
     for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="cam"] button')) b.classList.toggle('on', b.dataset.v === p.camStyle);
     for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="gait"] button')) b.classList.toggle('on', b.dataset.v === p.gait);
+    for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="turn"] button')) b.classList.toggle('on', b.dataset.v === p.turn);
     for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="plants"] button')) b.classList.toggle('on', b.dataset.v === p.plants);
   });
 }

@@ -36,6 +36,8 @@ interface Weights {
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
+/** 旋回中は歩行周期（turnStyle = 'cycle'）：切り替える体の回る速さ（rad / 秒）・戻る速さ・戻るまで待つ時間 */
+const TURN_CYCLE = { on: 2.2, off: 0.9, hold: 0.12 } as const;
 
 /** 右の鋏（大きい方）の向きと大きさ・挟む所（掌の座標。不動指と可動指の間） */
 const GRIP_SX = -1;
@@ -162,6 +164,18 @@ export class CrabRig {
   // 'lead' = 接地主導（第 7 段階）：脚は接地 IK と同じ。CrabController が脚の接地から崖・段差の降り方を決める（縁の状態を脚へ渡す）
   gait: 'cycle' | 'ik' | 'lead' = 'lead';
   feet: CrabFeet | null = null;
+  /**
+   * 旋回の仕方（第 9 段階の比較用。接地 IK・接地主導のとき）：'step' = 第 8 段階まで、'pivot' = 踏ん張り旋回（CrabFeet の PIVOT・
+   * CrabController の PIVOT_TURN）、'cycle' = 床で速く体を回している間だけ従来の歩行周期の脚へ切り替える（回り終えたら足場を置き直して戻る）
+   */
+  turnStyle: 'step' | 'pivot' | 'cycle' = 'step';
+  /** 'cycle'：歩行周期の脚へ切り替えている（回り終えてから TURN_CYCLE.hold 秒で戻る） */
+  private turnCycle = false;
+  private turnCalm = 0;
+  /** 検証用（毎フレーム）：描いた足先（世界）・歩行周期の脚の持ち上げ（体の座標）・付け根から足先までの長さ / 届く長さ */
+  readonly tipW: [number, number, number][] = Array.from({ length: 8 }, () => [0, 0, 0]);
+  readonly cycleLift: number[] = new Array(8).fill(0);
+  readonly legStretch: number[] = new Array(8).fill(0);
   /** 接地 IK を混ぜる割合（平滑化） */
   ikW = 0;
   private readonly rootInv = new THREE.Matrix4();
@@ -250,7 +264,25 @@ export class CrabRig {
     // 接地 IK：足場を探して足先を置く（根の補正の前の向きで探す）→ 胴体の高さ・傾きの補正を根に掛ける
     const grounded = (c.grounded || c.climbing) && c.state !== 'swim' && c.tumbleT <= 0;
     const ik = this.gait !== 'cycle';
-    const ikWant = ik && this.feet ? Math.max(0, 1 - W.air - W.swim - W.sink - tumble) * (grounded ? 1 : 0) : 0;
+    // 旋回の改善（'pivot'・'cycle'）は床だけ（張り付いていない・縁 / 次の面の手がかりが無い）。壁・天井・面の移り・崖を降りる間は第 8 段階のまま
+    const floor = grounded && !c.climbing && !c.frameMode && !c.ledge && !c.faceHint;
+    // 旋回中は歩行周期（turnStyle = 'cycle'）：床で体を速く回している間だけ
+    if (this.feet && ik && this.turnStyle === 'cycle') {
+      const fast = floor && Math.abs(this.feet.turnRate) > TURN_CYCLE.on;
+      if (fast) {
+        this.turnCycle = true;
+        this.turnCalm = 0;
+      } else if (this.turnCycle) {
+        this.turnCalm += dt;
+        if (!floor || (Math.abs(this.feet.turnRate) < TURN_CYCLE.off && this.turnCalm > TURN_CYCLE.hold)) {
+          // 戻る：足場をいまの理想の位置へ置き直してから接地 IK を混ぜ戻す（古い足場へ脚を引き戻さない）
+          this.turnCycle = false;
+          this.feet.reset();
+        }
+      }
+    } else this.turnCycle = false;
+    if (this.feet) this.feet.turnStyle = this.turnStyle === 'pivot' && floor ? 'pivot' : 'step';
+    const ikWant = ik && this.feet && !this.turnCycle ? Math.max(0, 1 - W.air - W.swim - W.sink - tumble) * (grounded ? 1 : 0) : 0;
     this.ikW += (ikWant - this.ikW) * (1 - Math.exp(-dt * 10));
     if (this.feet && ik) {
       this.feet.update(dt, this.root, this.body.elements[13], [c.vx, c.vy, c.vz], grounded, c.climbing ? c.climbN : null, this.gait === 'lead' ? c.ledge : null, this.gait === 'lead' ? c.faceHint : null);
@@ -338,13 +370,22 @@ export class CrabRig {
         }
         // 接地 IK：足先を世界に固定した足場（根の座標へ直す）へ。掘っている間の前脚は従来の動きのまま
         const kI = this.ikW * (i === 0 ? 1 - W.dig : 1);
+        const li = (sx === 1 ? 0 : 4) + i;
+        this.cycleLift[li] = fy;
         if (kI > 1e-3 && this.feet) {
-          const P = this.feet.feet[(sx === 1 ? 0 : 4) + i].pos;
+          const P = this.feet.feet[li].pos;
           this.fv.set(P[0], P[1], P[2]).applyMatrix4(this.rootInv);
           fx += (this.fv.x - fx) * kI;
           fy += (this.fv.y - fy) * kI;
           fz += (this.fv.z - fz) * kI;
         }
+        // 検証用：描く足先（世界）と、付け根からの長さ / 届く長さ（1 を超えると届いていない）
+        this.fv.set(fx, fy, fz).applyMatrix4(this.root);
+        this.tipW[li][0] = this.fv.x;
+        this.tipW[li][1] = this.fv.y;
+        this.tipW[li][2] = this.fv.z;
+        const lt = legTip(L);
+        this.legStretch[li] = Math.hypot(fx - sx * L.hip[0], fy - L.hip[1] - this.body.elements[13], fz - L.hip[2]) / (L.l1 + Math.hypot(lt.u, lt.v));
         this.solveLeg(sx, i, fx, fy, fz);
       });
     }

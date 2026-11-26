@@ -174,7 +174,18 @@ export interface CrabInput {
    * support.planted / down / face（接地している脚・縁より下に掛かった脚・崖の側面に掛かった脚）を使う
    */
   lead?: boolean;
+  /**
+   * 踏ん張り旋回（第 9 段階の比較用。CrabRig.turnStyle = 'pivot'）：床で横歩きの向きへ体を回すとき、回る速さに上限（PIVOT_TURN.max）を
+   * 付け、回り始めは脚で押し出すように少しずつ速くする（脚の踏み替えが追いつく速さで回る）
+   */
+  pivot?: boolean;
 }
+
+/**
+ * 踏ん張り旋回：体の回る速さの上限（rad / 秒）と、回る速さが目標へ近づく速さ（/秒）。目標 = 従来と同じ（残りの角 × 7）を上限で切ったもの
+ * （90° なら従来とほぼ同じ時間で回り終え、回り始めの 1〜2 フレームで一気に回らない）
+ */
+const PIVOT_TURN = { max: 6.0, walkAdd: 5.0, acc: 22 } as const;
 
 /** 引っ張っている間、体の中心が穴の口へ近づけない距離（水平。AquaBuddy.PULL_KEEP と同じ） */
 const PULL_KEEP = 0.4;
@@ -243,6 +254,8 @@ export class CrabController {
   vy = 0;
   vz = 0;
   heading = 0;
+  /** 踏ん張り旋回（inp.pivot）：体の回る速さ（rad / 秒） */
+  private yawW = 0;
   /** 水平の速さ */
   speed = 0;
   state: CrabState = 'idle';
@@ -1068,8 +1081,20 @@ export class CrabController {
       const d = Math.abs(a) < Math.abs(b) ? a : b;
       // 鋏で物を挟んでいる間はゆっくり向きを変える（速く回ると鋏の先が大きく振れ、物が振り落とされる）
       const turn = (this.grounded ? 7 : 3) * (inp.tow ? 0.35 : 1);
-      this.heading = wrap(this.heading + d * (1 - Math.exp(-turn * dt)));
-    }
+      if (inp.pivot && this.grounded && !this.ledge && !this.faceHint) {
+        // 踏ん張り旋回：回る速さ（yawW）を目標へ寄せ、上限で切る。残りの角を越えては回さない
+        // （上限は歩く速さで上げる：歩きながら大きく向きを変えるときは従来に近い速さで回り、体の向きが進む向きから遅れて脚が伸びきらない）
+        const cap = PIVOT_TURN.max + PIVOT_TURN.walkAdd * clamp(Math.hypot(this.vx, this.vz) / this.walkSpeed, 0, 1);
+        const want = clamp(d * turn, -cap, cap);
+        this.yawW += (want - this.yawW) * (1 - Math.exp(-PIVOT_TURN.acc * dt));
+        const step = this.yawW * dt;
+        this.heading = wrap(this.heading + (Math.abs(step) > Math.abs(d) ? d : step));
+      } else {
+        this.yawW = 0;
+        this.heading = wrap(this.heading + d * (1 - Math.exp(-turn * dt)));
+      }
+    } else this.yawW *= Math.exp(-dt * 20);
+    if (this.digging || this.pulling || this.climbing || this.frameMode) this.yawW = 0;
     // 体の向き基準の速度（+x = 左, +z = 前）
     if (this.climbing || this.frameMode) {
       // 面の上（逆さを含む）：実際に動いた量を体の前（bodyF）と横（n × bodyF）へ分ける（脚が面に沿って進む向きへ振れる）

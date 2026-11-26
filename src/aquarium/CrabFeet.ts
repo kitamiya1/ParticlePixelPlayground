@@ -70,6 +70,37 @@ export interface Foot {
 }
 
 /**
+ * 旋回の仕方（第 9 段階の比較用）：'step' = 第 8 段階まで（体の回転は先読みしない・回る速さは脚の半径 0.42 で一律）、
+ * 'pivot' = 踏ん張り旋回（脚ごとに理想の位置の動く速さを見て、回る向きへ先読みして置く・歩幅は脚ごと・遅い脚は番を飛ばして踏ん張る）
+ */
+export type TurnStyle = 'step' | 'pivot';
+
+/**
+ * 踏ん張り旋回（pivot）：
+ * - 理想の位置の動く速さ（脚ごと）：歩く速さに体の回転の分（ω × 半径）が足される。旋回の外側の脚は速く、内側の脚は遅い
+ * - 先読み：踏み替えの間 + 接地の間の半分に理想の位置が動く分だけ前へ置く（歩く分は第 8 段階と同じ、回る分は理想の位置を体の中心のまわりに
+ *   回した所。接地の間、足先が理想の位置の前後に同じだけ振れる。第 8 段階は回転を先読みしないので、置いた直後から足先が体の回転に
+ *   置いていかれ、伸びきってから踏み替えていた）
+ * - 歩幅・踏み替えの時間は、歩く速さと（いまの回る速さ × 理想の位置の半径の平均）の合成で決め、体を回している間は歩幅を turnStride まで伸ばす（ゆっくり大きく踏み替える）。
+ *   番が来ても、行き先が今の所から skip × 歩幅より近い脚（旋回の内側・回転の中心に近い脚）は踏み替えずに接地したまま（次の番まで踏ん張る）
+ */
+const PIVOT = {
+  /** 行き先が今の所からこれ × 歩幅より近ければ、番が来ても踏み替えない（伸びが skipStretch 未満のとき） */
+  skip: 0.34,
+  skipStretch: 0.85,
+  /**
+   * 体を回している間の歩幅（回る速さ turnLo → turnHi rad / 秒で 0 → これへ）。回転は脚ごとの先読みで理想の位置の前後に振れるので、
+   * 歩きより長い歩幅でゆっくり踏み替えられる（速さで決まる短い歩幅のままだと、回る間の踏み替えが細かくなりバタつく）
+   */
+  turnStride: 0.3,
+  /** 先読みの上限（歩幅に対する割合。外側の脚・向きを急に変えた直後に、届く範囲の端へ置かない）・回る分の先読みの角の上限（rad） */
+  leadMax: 1.6,
+  rotLead: 1.0,
+  turnLo: 0.8,
+  turnHi: 2.4,
+} as const;
+
+/**
  * 第 8 段階：次の面（CrabLedge の FaceHint と同じ形。床 → 壁・壁 → 天井・崖を降り始める道）。先頭の脚（理想の位置が次の面の近く）は
  * 次の面に足場を探し（probeFace）、掛かった脚の数を support.next で返す。次の面に掛かった脚は、移り終えるまで（急ぎでなければ）踏み替えない
  */
@@ -182,6 +213,12 @@ export class CrabFeet {
   readonly stats = { probes: 0, probeMs: 0, steps: 0, emergency: 0, invalid: 0, slips: 0, frames: 0, ms: 0, maxMs: 0, idleSteps: 0, settleSteps: 0, probeFail: 0, snaps: 0, gapMax: 0, gapSum: 0, gapN: 0, seeks: 0, seekHits: 0, faceSeeks: 0, faceHits: 0 };
   /** 歩行の周期の位相（0..1 で 1 周期。半周期ごとに組が替わる）と、止まっている時間・動いているか */
   phase = 0;
+  /** 旋回の仕方（第 9 段階の比較用。CrabRig が決める） */
+  turnStyle: TurnStyle = 'step';
+  /** 体の向きの回る速さ（rad / 秒、体の上のまわり・平滑化なし。CrabRig の「旋回中は歩行周期」の判定・検証用） */
+  turnRate = 0;
+  /** 検証用：踏ん張り旋回で番を飛ばした回数 */
+  turnSkips = 0;
   private half = -1;
   stillT = 0;
   moving = false;
@@ -252,22 +289,7 @@ export class CrabFeet {
     const cx = this.lastFwd[1] * fwd[2] - this.lastFwd[2] * fwd[1], cy = this.lastFwd[2] * fwd[0] - this.lastFwd[0] * fwd[2], cz = this.lastFwd[0] * fwd[1] - this.lastFwd[1] * fwd[0];
     const turn = dt > 0 ? Math.atan2(cx * up[0] + cy * up[1] + cz * up[2], cr) / dt : 0;
     this.lastFwd.splice(0, 3, fwd[0], fwd[1], fwd[2]);
-    // 動いているか（歩く・体を回す）。足先の速さ：歩く速さと、回るときの足先の速さの大きい方
-    const veff = Math.max(speed, Math.abs(turn) * GAIT.turnR, vUp);
-    this.moving = speed > GAIT.moveV || Math.abs(turn) > GAIT.moveW || vUp > GAIT.moveV * 2;
-    // 歩幅と踏み替えの時間（左右交互の 4 本ずつ：接地している時間 = 踏み替えの時間 = 半周期）。踏み替えが速くなりすぎるときは
-    // 歩幅の方を伸ばす（ダッシュで脚が細かく震えない）
-    let S = Math.min(GAIT.strideMax, GAIT.strideMin + GAIT.strideK * veff);
-    S = Math.min(GAIT.strideMax, Math.max(S, veff * GAIT.swingMin));
-    const dur = Math.max(GAIT.swingMin, Math.min(GAIT.swingMax, veff > 1e-3 ? (S / veff) * 0.92 : GAIT.swingMax));
-    // 先読み：踏み替えを始める時に探す所は、理想の位置（休みの位置）より、踏み替えの間に胴体が進む分 + 接地の間に進む分の半分だけ前
-    // （= 接地の間、足先が理想の位置の前後に同じだけ振れる）。止まっている間は 0
-    const T = veff > 1e-3 ? (2 * S) / veff : 1;
-    const lead = this.moving ? Math.min(S * 1.6, speed * (T + dur) * 0.5) : 0;
-    const vlL = Math.hypot(vl[0], vl[1]) || 1;
-    const leadW: V3 = [0, 0, 0];
-    for (let j = 0; j < 3; j++) leadW[j] = (side[j] * vl[0] + fwd[j] * vl[1]) / vlL * lead;
-    const lift = 0.04 + Math.min(0.035, speed * 0.008);
+    this.turnRate = turn;
     // 付け根・理想の位置（休みの位置。先読みは探すときだけ足す）
     for (const sx of [1, -1] as const) {
       LEGS.forEach((L, i) => {
@@ -278,6 +300,58 @@ export class CrabFeet {
         this.toWorld(root, sx * L.rest.out, 0, L.rest.fwd, f.home);
       });
     }
+    // 踏ん張り旋回：理想の位置の、体の中心（根）からの半径の平均（体の上に垂直な成分）
+    const pivot = this.turnStyle === 'pivot';
+    let rSum = 0;
+    if (pivot) {
+      for (const f of this.feet) {
+        const rx = f.home[0] - e[12], ry = f.home[1] - e[13], rz = f.home[2] - e[14];
+        const ru = rx * up[0] + ry * up[1] + rz * up[2];
+        rSum += Math.hypot(rx - up[0] * ru, ry - up[1] * ru, rz - up[2] * ru);
+      }
+    }
+    // 動いているか（歩く・体を回す）。足先の速さ：歩く速さと、回るときの足先の速さの大きい方
+    // （踏ん張り旋回：理想の位置の動く速さの目安 = 歩く速さと、いまの回る速さ × 半径の平均の合成。外側の脚は歩幅が長く、内側の脚は短くなる。
+    // いまの回る速さから決める：回り始めに踏み替えが長く遅れて、足先が体の回転に置いていかれない）
+    const veff = pivot ? Math.max(Math.hypot(speed, Math.abs(turn) * (rSum / 8)), vUp) : Math.max(speed, Math.abs(turn) * GAIT.turnR, vUp);
+    this.moving = speed > GAIT.moveV || Math.abs(turn) > GAIT.moveW || vUp > GAIT.moveV * 2;
+    // 歩幅と踏み替えの時間（左右交互の 4 本ずつ：接地している時間 = 踏み替えの時間 = 半周期）。踏み替えが速くなりすぎるときは
+    // 歩幅の方を伸ばす（ダッシュで脚が細かく震えない）
+    let S = Math.min(GAIT.strideMax, GAIT.strideMin + GAIT.strideK * veff);
+    S = Math.min(GAIT.strideMax, Math.max(S, veff * GAIT.swingMin));
+    if (pivot) {
+      const u = Math.min(1, Math.max(0, (Math.abs(turn) - PIVOT.turnLo) / (PIVOT.turnHi - PIVOT.turnLo)));
+      S = Math.max(S, PIVOT.turnStride * u * u * (3 - 2 * u));
+    }
+    const dur = Math.max(GAIT.swingMin, Math.min(GAIT.swingMax, veff > 1e-3 ? (S / veff) * 0.92 : GAIT.swingMax));
+    // 先読み：踏み替えを始める時に探す所は、理想の位置（休みの位置）より、踏み替えの間に胴体が進む分 + 接地の間に進む分の半分だけ前
+    // （= 接地の間、足先が理想の位置の前後に同じだけ振れる）。止まっている間は 0
+    const T = veff > 1e-3 ? (2 * S) / veff : 1;
+    const lead = this.moving ? Math.min(S * 1.6, speed * (T + dur) * 0.5) : 0;
+    const vlL = Math.hypot(vl[0], vl[1]) || 1;
+    const leadW: V3 = [0, 0, 0];
+    for (let j = 0; j < 3; j++) leadW[j] = (side[j] * vl[0] + fwd[j] * vl[1]) / vlL * lead;
+    const lift = 0.04 + Math.min(0.035, speed * 0.008);
+    // 踏ん張り旋回の先読み（脚ごと）：理想の位置が（踏み替えの間 + 接地の間の半分）に動く分。上限は S × PIVOT.leadMax
+    // = 歩く分（第 8 段階と同じ leadW：いまの速さから）+ 回る分（理想の位置を体の中心のまわりに、いまの回る速さ × 同じ時間だけ回した所。
+    // 角の上限 PIVOT.rotLead）
+    const rotA = Math.max(-PIVOT.rotLead, Math.min(PIVOT.rotLead, turn * (T + dur) * 0.5));
+    const ca = Math.cos(rotA) - 1, sa = Math.sin(rotA);
+    const leadOf = (f: Foot): V3 => {
+      // 体の中心（根）から理想の位置への、体の上に垂直な成分を up のまわりに回す（Rodrigues。平行な成分は回らない）
+      // （rp = this.v は toWorld で上書きされるので、根の位置は行列から読む）
+      const rx = f.home[0] - e[12], ry = f.home[1] - e[13], rz = f.home[2] - e[14];
+      const ru = rx * up[0] + ry * up[1] + rz * up[2];
+      const px = rx - up[0] * ru, py = ry - up[1] * ru, pz = rz - up[2] * ru;
+      const cx = up[1] * pz - up[2] * py, cy = up[2] * px - up[0] * pz, cz = up[0] * py - up[1] * px;
+      const l: V3 = [leadW[0] + px * ca + cx * sa, leadW[1] + py * ca + cy * sa, leadW[2] + pz * ca + cz * sa];
+      const ll = Math.hypot(l[0], l[1], l[2]), cap = S * PIVOT.leadMax;
+      return ll > cap ? [(l[0] / ll) * cap, (l[1] / ll) * cap, (l[2] / ll) * cap] : l;
+    };
+    const walkTarget = (f: Foot): V3 => {
+      const l = pivot ? leadOf(f) : leadW;
+      return [f.home[0] + l[0], f.home[1] + l[1], f.home[2] + l[2]];
+    };
     let probes = 0;
     const tp = performance.now();
     if (!this.active || jumped) {
@@ -333,6 +407,8 @@ export class CrabFeet {
       f.failT = Math.max(0, f.failT - dt);
       if (f.swing) {
         const s = f.swing;
+        // 踏ん張り旋回：回り始めの前に（ゆっくり）上げた脚は、回る速さに合わせて残りを速く運ぶ（体の回転に置いていかれない）
+        if (pivot && this.moving && s.valid && !f.seek && !f.onFace) s.dur = Math.min(s.dur, Math.max(dur, GAIT.swingMin * 1.4));
         s.t += dt / s.dur;
         if (s.t >= 1) {
           f.pos.splice(0, 3, ...s.to);
@@ -408,6 +484,15 @@ export class CrabFeet {
       }
       if (this.moving) {
         // 歩いている：その組の番が来た脚（行き先と今の所がほとんど同じなら、踏み替えずに番を終える：下の probe の後）
+        // （踏ん張り旋回：行き先が近い脚＝旋回の内側・回転の中心に近い脚は、探さずに番を飛ばして接地したまま踏ん張る）
+        if (f.want && pivot && f.valid && f.stretch < PIVOT.skipStretch) {
+          const T2 = walkTarget(f);
+          if (Math.hypot(T2[0] - f.pos[0], T2[1] - f.pos[1], T2[2] - f.pos[2]) < PIVOT.skip * S) {
+            f.want = false;
+            this.turnSkips++;
+            continue;
+          }
+        }
         if (f.want) want.push({ k, urg: 1 + f.dist, emergency: false, settle: false });
         else if (f.dist > S * 0.8 + 0.08) want.push({ k, urg: 5, emergency: false, settle: false });
       } else if (settling && !f.settled && f.dist > GAIT.settleTol && f.cool <= 0) {
@@ -461,7 +546,7 @@ export class CrabFeet {
 
       // 探す所：歩いている間は先読みの分だけ前（止まっている・急ぎで止まっているときは理想の位置）
       // （縁の下を探す脚は、縁の下の探す所）
-      const target: V3 = w.seek ? this.seekTarget(f, hint!) : this.moving ? [f.home[0] + leadW[0], f.home[1] + leadW[1], f.home[2] + leadW[2]] : f.home;
+      const target: V3 = w.seek ? this.seekTarget(f, hint!) : this.moving ? walkTarget(f) : f.home;
       const r = this.probe(f, target, up, side, fwd, vl, climbN, w.seek ? hint : null);
       probes++;
       f.want = false;
