@@ -110,6 +110,10 @@ ${BAYER}
 #ifdef CUTAWAY
 uniform float uCutaway;
 #endif
+#ifdef OCCLUDER_CUT
+// 自由追従・腕の最短で抜いている間は 1：地形の中から見た裏面（断面）を暗い土の色で塗る
+uniform float uCap;
+#endif
 #ifdef USE_BONES
 // カメラがカニのすぐ近く（地下の近い視点・狭い所）にあるとき、体と脚をディザで透かす（x = 体・脚, y = 鋏。視界を塞がない）
 uniform vec2 uCrabFade;
@@ -126,6 +130,12 @@ void main() {
 #ifdef OCCLUDER_CUT
   // 冒険カメラが越えた薄い物のうち、カメラとカニの間に入った部分を抜く
   if (pppOccluderCut(vWorld)) discard;
+  // 地形の中から見た裏面（掘っていない砂・岩・流木の中）：中身の無い穴を見せず、暗い断面の色で塗る（明るさは少しだけ揺らす）
+  if (uCap > 0.5 && !gl_FrontFacing) {
+    float g = hash13(floor(vWorld * 14.0) + 0.5);
+    gl_FragColor = vec4(vColor * (0.24 + 0.08 * g), 1.0);
+    return;
+  }
 #endif
 #ifdef CUTAWAY
   // 箱庭カメラ：カメラを向く外側の面を大きく抜いて、中が見えるようにする（縁の気配は残す）
@@ -385,7 +395,11 @@ export class AquariumRenderer {
     uBeamP: { value: [new THREE.Vector4(0, -99, 0, 0), new THREE.Vector4(0, -99, 0, 0), new THREE.Vector4(0, -99, 0, 0)] },
     uBeamD: { value: [new THREE.Vector4(0, -1, 0, 0), new THREE.Vector4(0, -1, 0, 0), new THREE.Vector4(0, -1, 0, 0)] },
   };
-  private readonly cutU = { uCutaway: { value: 0 }, uCutTo: { value: new THREE.Vector3() }, uCutRange: { value: new THREE.Vector4() } };
+  private readonly cutU = { uCutaway: { value: 0 }, uCutTo: { value: new THREE.Vector3() }, uCutRange: { value: new THREE.Vector4() }, uCap: { value: 0 } };
+  /** 砂（底床・掘った区画・小石・巣穴）を抜く範囲（自由追従・腕の最短で抜いている間だけ w > 0） */
+  private readonly cutSandU = { value: new THREE.Vector4() };
+  /** 断面を塗るときに両面を描くマテリアル（砂と、抜ける岩・流木など） */
+  private capMats: THREE.ShaderMaterial[] = [];
   readonly plumbing: AquariumPlumbingFx;
   private readonly meshScene = new THREE.Scene();
   private readonly fxScene = new THREE.Scene();
@@ -459,9 +473,12 @@ export class AquariumRenderer {
     this.pipeline.post.uniforms.uSkyHorizon.value.set('#5c4f47');
 
     // E 側
-    const worldMat = this.meshMaterial(false);
+    // 砂も、自由追従・腕の最短で抜いている間だけ抜く（範囲は cutSandU。ふだんは w = 0）
+    const worldMat = this.meshMaterial(false, { OCCLUDER_CUT: '' });
+    worldMat.uniforms.uCutRange = this.cutSandU;
     // 薄い物を越えたカメラが手前を抜く物（岩・流木・枠・部屋の家具・台と濾過槽の中身）。砂・小石・発見物は抜かない
     const cutMat = this.meshMaterial(false, { OCCLUDER_CUT: '' });
+    this.capMats = [worldMat, cutMat];
     const cuttable = new Set([meshes.rocks, meshes.woods, meshes.frame, meshes.room, meshes.stand]);
     const geos = new Map<TriMesh, THREE.BufferGeometry>();
     for (const m of [meshes.terrain, meshes.pebbles, meshes.rocks, meshes.woods, meshes.frame, meshes.room, meshes.stand, explore.findsMesh]) {
@@ -1046,6 +1063,14 @@ export class AquariumRenderer {
     const cut = cam.cut;
     this.cutU.uCutTo.value.set(cut.to[0], cut.to[1], cut.to[2]);
     this.cutU.uCutRange.value.set(cut.near, cut.far, cut.radius, cam.mode === 'adventure' ? cut.on : 0);
+    // 砂も抜く（自由追従・腕の最短）間は、地形の中から見た裏面を断面の色で塗る（両面を描く。ふだんは表だけ）
+    const sandCut = cam.mode === 'adventure' ? cut.on * cut.sand : 0;
+    this.cutSandU.value.set(cut.near, cut.far, cut.radius, sandCut);
+    const cap = cam.mode === 'adventure' && (sandCut > 0.02 || cam.style === 'free') ? 1 : 0;
+    if (this.cutU.uCap.value !== cap) {
+      this.cutU.uCap.value = cap;
+      for (const m of this.capMats) m.side = cap ? THREE.DoubleSide : THREE.FrontSide;
+    }
     this.plumbing.boost.value = cam.mode === 'diorama' ? 1 : 0;
     const fade = cam.mode === 'adventure' ? cam.crabFade : 0;
     this.crabFadeU.value.set(fade, fade * 0.45);

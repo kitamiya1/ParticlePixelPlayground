@@ -6,6 +6,7 @@
 //   LT / L2 ………… 左のハサミを閉じる（押している間）      RT / R2 …… 右のハサミを閉じる（押している間）
 //   A / × …………… ジャンプ   B / ○ …… ダッシュ（押している間）   X / □ …… 掘る / 盛る（押している間）   Y / △ …… 掘る ↔ 盛る
 //   RB / R1 ………… カメラの切り替え   十字キー …… 左右 = カメラを回す・上下 = ズーム   右スティック押し込み …… カメラをカニの後ろへ
+//   左スティック押し込み …… 肩越し・一人称のカメラ ↔ 三人称（第 2 段階）
 //   Back / Share … 仲間を呼ぶ / 自由に暮らす   Start / Options … 操作の説明
 // - 遊び（デッドゾーン）：スティックは半径 0.18 を除いて 0〜1 へ広げ直す（円形）。トリガーは 0.35 で閉じ、0.2 で開く（ちらつかない）
 // - 標準でない配列（mapping が "standard" でない）は同じ番号で読むが、位置が違うことがあるので知らせる
@@ -21,6 +22,8 @@ export interface PadActions {
   toggleTool: () => void;
   toggleCamera: () => void;
   cameraBehind: () => void;
+  /** 肩越し・一人称 ↔ 三人称 */
+  toggleClose?: () => void;
   toggleBuddy: () => void;
   toggleHelp: () => void;
   toast: (msg: string) => void;
@@ -137,6 +140,7 @@ export class AquaGamepad {
     if (pressed(3)) this.act.toggleTool();
     if (pressed(5)) this.act.toggleCamera();
     if (pressed(11)) this.act.cameraBehind();
+    if (pressed(10)) this.act.toggleClose?.();
     if (pressed(8)) this.act.toggleBuddy();
     if (pressed(9)) this.act.toggleHelp();
     this.prev = pad.buttons.map((b) => b.pressed);
