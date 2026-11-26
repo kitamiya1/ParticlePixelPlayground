@@ -22,7 +22,8 @@ import { ROOM } from './AquariumStand';
 import { TANK, type AquariumWorld, type SurfaceMaterial } from './AquariumWorld';
 import type { CrabController } from './CrabController';
 
-export type PropKind = 'pebble' | 'shell' | 'stone';
+/** weed = ちぎった・抜いた水草（第 5 段階。形は円盤の集まり：AquaCatch.ts。静的なメッシュは持たない） */
+export type PropKind = 'pebble' | 'shell' | 'stone' | 'weed';
 
 export interface PropKindSpec {
   name: string;
@@ -41,10 +42,14 @@ export interface PropKindSpec {
 }
 
 export const PROP_KIND: Record<PropKind, PropKindSpec> = {
-  shell: { name: '貝殻', semi: [0.092, 0.024, 0.084], mass: 0.12, sinkG: 2.4, drag: 3.0, mu: 0.45, bounce: 0.1 },
-  pebble: { name: '小石', semi: [0.078, 0.052, 0.068], mass: 0.35, sinkG: 4.6, drag: 1.3, mu: 0.6, bounce: 0.15 },
-  // 重い石：水中でも持ち上がらない（重さ × 沈む強さ 8.4 > 握る力 8）が、砂の上なら引きずれる（摩擦 0.4 × 7 × 1.2 = 3.4）。陸では動かない
-  stone: { name: '重い石', semi: [0.17, 0.115, 0.15], mass: 1.2, sinkG: 7.0, drag: 1.0, mu: 0.4, bounce: 0.05 },
+  // 第 5 段階：全体に軽く（小石・貝殻を軽快に持ち運べる。重さの順は変えない）。以前：貝殻 0.12 / 2.4 / 3.0、小石 0.35 / 4.6 / 1.3 / 0.6、
+  // 重い石 1.2 / 7.0 / 1.0 / 0.4（重さ / 沈む強さ / 水の抵抗 / 摩擦）
+  shell: { name: '貝殻', semi: [0.092, 0.024, 0.084], mass: 0.08, sinkG: 2.0, drag: 3.2, mu: 0.4, bounce: 0.1 },
+  pebble: { name: '小石', semi: [0.078, 0.052, 0.068], mass: 0.22, sinkG: 3.8, drag: 1.5, mu: 0.5, bounce: 0.15 },
+  // 重い石：水中ならやっと持ち上がる（重さ × 沈む強さ 0.8 × 6.4 = 5.1 < 握る力 8。ゆっくり）。砂の上なら引きずれる。陸では持ち上がらない
+  stone: { name: '重い石', semi: [0.17, 0.115, 0.15], mass: 0.8, sinkG: 6.4, drag: 1.2, mu: 0.35, bounce: 0.05 },
+  // ちぎった・抜いた水草：とても軽く、水の抵抗が大きい（離すとゆっくり漂って沈む）
+  weed: { name: '水草', semi: [0.08, 0.05, 0.08], mass: 0.04, sinkG: 0.45, drag: 4.5, mu: 0.8, bounce: 0.02 },
 };
 
 /** 空気中の重力（カニと同じ） */
@@ -56,7 +61,7 @@ const SPRING_K = 140;
 const SPRING_ZETA = 0.55;
 export const GRIP_FORCE = 8;
 /** 反作用を受けるカニの重さ（小さいほど重い物に引っ張られる） */
-const CRAB_MASS = 0.6;
+const CRAB_MASS = 0.85;
 /** 挟める距離（構えた鋏の先から物の表面まで。押した瞬間と、押したまま空で閉じているとき） */
 export const GRAB_REACH = 0.26;
 /** 鋏の付け根から、伸ばしきった鋏の先までの長さ（CrabRig の腕と掌。少し余裕を引く）。これより遠い所は挟めない */
@@ -570,6 +575,8 @@ export interface GrabCreature {
   readonly rb: number;
   /** 握る力の上限（この力を越えて引き続けると滑る） */
   readonly grip: number;
+  /** 物より遠くから挟める分（省略 = CREATURE_BONUS：巣穴の触角。水草・エビ・小魚は 0） */
+  readonly bonus?: number;
   /** いま挟めるか（穴から見えている・抜けていない） */
   grabbable(): boolean;
   /** 見えている部分のうち from にいちばん近い点と、そこから表面までの距離（挟めないときは null） */
@@ -776,6 +783,23 @@ export class GrabSystem {
     return { on: this.state !== 'idle' || this.aiming, close: this.close, hold: this.state === 'holding', target: t, shake: this.warn };
   }
 
+  /**
+   * 物 pr をすぐ挟んだ状態にする（第 5 段階：引き抜いた・ちぎった水草を、そのまま挟んでいる物にする）。at = つかみ点（世界）
+   */
+  forceHold(pr: Prop, at: readonly number[]) {
+    if (this.state !== 'idle') this.release();
+    if (!this.props.props.includes(pr)) this.props.props.push(pr);
+    this.state = 'holding';
+    this.target = pr;
+    this.creature = null;
+    this.close = 1;
+    this.local = this.props.surfaceLocal(pr, at[0], at[1], at[2]);
+    pr.held = true;
+    pr.wake();
+    this.slipT = this.heavyT = 0;
+    this.events.push({ kind: 'grab', prop: pr });
+  }
+
   /** すぐ離す（瞬間移動・管に入った等）。kind = 離した理由（生き物が抜けたときは 'pop'） */
   release(kind: 'release' | 'slip' | 'pop' = 'release') {
     if (this.state === 'holding' && this.target) {
@@ -829,8 +853,9 @@ export class GrabSystem {
         const n = cr.nearest(o);
         if (!n) continue;
         const d0 = o === from ? n.d : (cr.nearest(from)?.d ?? n.d);
-        const d = d0 - CREATURE_BONUS;
-        if (d0 > reach + CREATURE_BONUS || (best && d >= best.d)) continue;
+        const bonus = cr.bonus ?? CREATURE_BONUS;
+        const d = d0 - bonus;
+        if (d0 > reach + bonus || (best && d >= best.d)) continue;
         if (this.reachable(claw, n.p, (x, y, z) => (cr.nearest([x, y, z])?.d ?? 1) > 0.03, CREATURE_ARM_EXTRA)) {
           best = { prop: null, creature: cr, d, at: n.p };
           break;
@@ -1012,7 +1037,8 @@ export class GrabSystem {
       // 重さ：握る力に対して物がどれだけ重いか（引きずっている・持ち上げている）
       const strain = clamp(fl / GRIP_FORCE, 0, 1);
       this.strain += (strain - this.strain) * (1 - Math.exp(-dt / 0.4));
-      this.tow = { ax: -F[0] / CRAB_MASS, ay: -F[1] / CRAB_MASS, az: -F[2] / CRAB_MASS, slow: 1 - 0.45 * strain * strain };
+      // （第 5 段階：重さによる歩きの遅れを弱めた。以前は 1 − 0.45 × strain²）
+      this.tow = { ax: -F[0] / CRAB_MASS, ay: -F[1] / CRAB_MASS, az: -F[2] / CRAB_MASS, slow: 1 - 0.28 * strain * strain };
       // 滑り落ちる：伸びすぎ・鋏が届かない状態が続いた
       // （鋏が大きく届かない = 鋏と物が離れて見える、ときは早めに滑らせる）
       const over = r.stretch > SLIP_STRETCH || claw.reachErr > SLIP_REACH;

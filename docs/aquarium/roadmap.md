@@ -193,4 +193,4 @@ PR → main → GitHub Pages で公開する。
 | 2 | カメラ：改良型三人称（基本）・肩越し / 一人称・自由追従（地形の切り抜き）を比較できるように。ガラス越し・箱庭は維持 | ✅ | [camera-styles/report.md](camera-styles/report.md) |
 | 3 | 水草をかき分ける（茎ごとの曲がり・戻り・ダッシュの揺れ・持っている物にも反応） | ✅ | [plant-part/report.md](plant-part/report.md) |
 | 4 | 接地 IK とプロシージャル歩行（8 本の脚が足場を探し、接地点で体を運ぶ。床・壁・天井を区別しない） | ✅（胴体の向きの切り替えは従来のまま） | [foot-ik/report.md](foot-ik/report.md) |
-| 5 | 石・貝殻の軽量化、水草を挟む・引く・切る、エビ・魚を捕まえる | 🔶 | — |
+| 5 | 石・貝殻の軽量化、水草を挟む・引く・切る、エビ・魚を捕まえる | ✅ | [props-life/report.md](props-life/report.md) |

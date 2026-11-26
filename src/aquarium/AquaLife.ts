@@ -1,6 +1,9 @@
 // 水槽の小さな生き物（ゲームロジック側。Three.js に依存しない）。見た目は AquariumRenderer がインスタンス描画する。
 // - 小魚：群れごとに水中の決まった輪を回る目標点を追い、群れの中の決まった位置へ寄る。
 //   カニが近づくと離れる向きへ速く逃げ、岩・流木・底床・水面・ガラスからは押し戻す。
+// - ハサミに挟まれている生き物（caught）は、ふだんの動きを止める（位置は AquaCatch の LifeGrab）。
+// - 気づくまでの間（第 5 段階）：近くに来てもすぐには逃げない（小魚 0.35 秒・エビ 0.28 秒）。ゆっくり忍び寄ると（速さ 0.7 未満）、
+//   逃げ始める距離が短い。その間にハサミが届けば捕まえられる
 // - エビ：決まった住みかのまわりの底（岩・流木の上を含む）を歩いて止まってを繰り返し、
 //   カニが近づくと後ろへ跳ねて逃げる（エビの尾の一打ちのような、短く速い後退 + 小さな跳ね上がり）。
 
@@ -18,6 +21,8 @@ export interface Fish {
   off: [number, number, number];
   /** 逃げている強さ（0..1。尾を速く振る） */
   fear: number;
+  /** カニが近くに来てからの時間（気づくまでの間。第 5 段階） */
+  alertT?: number;
 }
 
 interface School {
@@ -47,6 +52,8 @@ export interface Shrimp {
   tx: number;
   tz: number;
   airborne: boolean;
+  /** カニが近くに来てからの時間（気づくまでの間。第 5 段階） */
+  alertT?: number;
 }
 
 /** カニの位置（体の中心） */
@@ -54,7 +61,19 @@ export interface Threat {
   x: number;
   y: number;
   z: number;
+  /** カニの速さ（ゆっくり忍び寄ると、近くまで逃げない。第 5 段階） */
+  speed?: number;
 }
+
+/**
+ * 第 5 段階：気づくまでの間（秒。近くに来てもすぐには逃げない。その間にハサミが届けば捕まえられる）と、忍び寄る速さ・
+ * そのときの逃げ始める距離
+ */
+const NOTICE_FISH = 0.35;
+const NOTICE_SHRIMP = 0.28;
+const SNEAK_SPEED = 0.7;
+const SNEAK_FISH = 0.9;
+const SNEAK_SHRIMP = 0.55;
 
 const FLEE_FISH = 1.9;
 const FLEE_SHRIMP = 1.15;
@@ -62,6 +81,8 @@ const FLEE_SHRIMP = 1.15;
 export class AquaLife {
   readonly fish: Fish[] = [];
   readonly shrimp: Shrimp[] = [];
+  /** ハサミに挟まれている生き物（第 5 段階。ふだんの動きを止め、位置は AquaCatch の LifeGrab が決める） */
+  readonly caught = new Set<Fish | Shrimp>();
   private readonly schools: School[] = [];
   private readonly rng: Rng = mulberry32(77);
 
@@ -117,6 +138,7 @@ export class AquaLife {
     const w = this.world;
     for (const s of this.schools) s.a += (dt * s.speed * s.dir) / Math.max(1, (s.rx + s.rz) * 0.5);
     for (const f of this.fish) {
+      if (this.caught.has(f)) continue;
       const s = this.schools[f.school];
       // 群れの目標点（輪の上を回る） + 群れの中の位置。輪の進む向きへ並ぶよう、位置は少しずつ揺らす
       const tx = s.c[0] + Math.cos(s.a) * s.rx + f.off[0];
@@ -127,7 +149,9 @@ export class AquaLife {
       const ex = f.x - t.x, ey = f.y - t.y, ez = f.z - t.z;
       const ed = Math.hypot(ex, ey, ez);
       let fear = 0;
-      if (ed < FLEE_FISH) {
+      const fr = (t.speed ?? 9) < SNEAK_SPEED ? SNEAK_FISH : FLEE_FISH;
+      f.alertT = ed < fr ? (f.alertT ?? 0) + dt : 0;
+      if (ed < fr && f.alertT > NOTICE_FISH) {
         fear = 1 - ed / FLEE_FISH;
         const k = (fear * 9) / Math.max(ed, 0.1);
         dx += ex * k;
@@ -182,10 +206,13 @@ export class AquaLife {
     const w = this.world;
     const rng = this.rng;
     for (const s of this.shrimp) {
+      if (this.caught.has(s)) continue;
       s.phase += dt * (s.state === 'walk' ? 9 : s.state === 'dart' ? 18 : 2.5);
       const ex = s.x - t.x, ez = s.z - t.z, ey = s.y - t.y;
       const ed = Math.hypot(ex, ey, ez);
-      if (ed < FLEE_SHRIMP && s.state !== 'dart') {
+      const sr = (t.speed ?? 9) < SNEAK_SPEED ? SNEAK_SHRIMP : FLEE_SHRIMP;
+      s.alertT = ed < sr ? (s.alertT ?? 0) + dt : 0;
+      if (ed < sr && s.alertT > NOTICE_SHRIMP && s.state !== 'dart') {
         // 頭をカニへ向けたまま、尾の方（後ろ）へ跳ねて逃げる
         const l = Math.hypot(ex, ez) || 1;
         s.heading = Math.atan2(-ex, -ez);
