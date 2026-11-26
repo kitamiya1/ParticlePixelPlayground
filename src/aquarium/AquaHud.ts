@@ -38,6 +38,8 @@ export interface HudInfo {
   frame: string;
   digPerf: string;
   viewport: string;
+  /** ゲームパッド・音の状態 */
+  device: string;
 }
 
 export class AquaHud {
@@ -72,6 +74,8 @@ export class AquaHud {
         <div class="sub" id="h-perf"></div>
         <div class="sub" id="h-frame"></div>
         <div class="sub" id="h-digperf"></div>
+        <div class="sec">入力・音</div>
+        <div class="sub" id="h-dev"></div>
         <div class="sec">画面（ページの倍率の診断）</div>
         <div class="sub pre" id="h-vp"></div>
         <div class="sub pre log" id="h-vplog"></div>
@@ -80,7 +84,7 @@ export class AquaHud {
       </div>`;
     document.body.appendChild(d);
     this.detail = d;
-    for (const id of ['h-place', 'h-sand', 'h-sandn', 'h-tool', 'h-swimc', 'h-swim', 'h-dig', 'h-grab', 'h-warn', 'h-zone', 'h-cam', 'h-state', 'h-found', 'h-swimd', 'h-perf', 'h-frame', 'h-digperf', 'h-vp', 'h-vplog']) {
+    for (const id of ['h-place', 'h-sand', 'h-sandn', 'h-tool', 'h-swimc', 'h-swim', 'h-dig', 'h-grab', 'h-warn', 'h-zone', 'h-cam', 'h-state', 'h-found', 'h-swimd', 'h-perf', 'h-frame', 'h-digperf', 'h-dev', 'h-vp', 'h-vplog']) {
       this.el[id] = document.getElementById(id)!;
     }
     // 欄・ボタンの上の指・ホイールはゲームに渡さない
@@ -151,6 +155,7 @@ export class AquaHud {
     setText(e['h-perf'], h.perf);
     setText(e['h-frame'], h.frame);
     setText(e['h-digperf'], h.digPerf);
+    setText(e['h-dev'], h.device);
     setText(e['h-vp'], h.viewport);
     setText(e['h-vplog'], this.logText() || '拡大の記録はありません');
   }

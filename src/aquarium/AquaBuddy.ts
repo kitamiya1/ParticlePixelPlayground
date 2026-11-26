@@ -316,14 +316,27 @@ export class BuddySystem {
     this.vz = sz * 1.1 + this.pullDir[1] * (0.45 + 0.5 * power);
     this.vy = 2.6 + 0.6 * power;
     this.airborne = true;
+    // 宙返り：抜けた勢いで 1 回転して着地する（抜けたことが一目で分かる）。回り終わる時刻は落ちるまでの見込み
+    this.flipT = 0;
+    this.flipDur = Math.max(0.6, (2 * this.vy) / 5);
+    this.flipFrom = this.pitch;
     this.events.push({ kind: 'popped', x: bx, y: by, z: bz, power, dir: [this.pullDir[0], this.pullDir[1]] });
   }
 
+  /** 抜けた後の宙返りの経過・見込みの長さ（秒） */
+  private flipT = 0;
+  private flipDur = 1;
+  /** 抜けた瞬間の体の起こし具合（そこから回り始め、水平で終わる） */
+  private flipFrom = 0;
+
   private updateFlying(dt: number) {
     const w = this.world;
-    // 宙で回る（頭が上 → 前へ倒れて水平に）
-    this.pitch += (0 - this.pitch) * (1 - Math.exp(-dt * 3));
-    this.roll = Math.sin(this.phase * 0.9) * 0.4;
+    // 宙で 1 回転（後ろへ宙返り）してから水平に。手足（roll）をばたつかせる
+    this.flipT += dt;
+    const f = Math.min(1, this.flipT / this.flipDur);
+    const ease = f * f * (3 - 2 * f);
+    this.pitch = this.flipFrom * (1 - ease) - Math.PI * 2 * ease;
+    this.roll = Math.sin(this.phase * 0.9) * 0.4 + Math.sin(this.flipT * 22) * 0.15 * (1 - f);
     this.vy -= 5 * dt;
     this.vx *= Math.exp(-dt * 0.8);
     this.vz *= Math.exp(-dt * 0.8);

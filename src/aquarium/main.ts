@@ -12,7 +12,10 @@ import { AquaCamera, CAMERA_MODE_LABEL } from './AquaCamera';
 import { AquaLife } from './AquaLife';
 import { buildAquariumMeshes, buildAquariumSurfels, buildBuddyMesh, buildBurrowMesh, buildCrabMesh, buildFindsMesh, buildFishMesh, buildGlowMesh, buildPropMeshes, buildShrimpMesh } from './AquariumBuild';
 import { BUDDY_DESC, BUDDY_ID, BUDDY_NAME, BuddySystem, type BuddyPrompt } from './AquaBuddy';
-import { GrabSystem, PROP_KIND, PropSystem, type PropKind } from './AquaGrab';
+import { ARM_REACH, GrabSystem, PROP_KIND, PropSystem, type GrabSystem as GS, type PropKind, type Tow } from './AquaGrab';
+import { AquaAudio, AudioMenu } from './AquaAudio';
+import { AquaGamepad } from './AquaGamepad';
+import { CLAWS } from './crabModel';
 import { DecorProps, type DecorItemDef } from './AquaDecor';
 import type { PebbleInfo } from './AquariumBuild';
 import type { Find } from './AquariumSpots';
@@ -163,6 +166,16 @@ async function boot() {
   ]);
   grab.ghosts = () => decor.ghosts();
   grab.promote = (pr) => decor.promote(pr);
+  // 左の小さな鋏（ゲームパッドの左トリガー）：右と同じ仕組みの 2 本目。物の時間は 2 本で 1 回だけ進める（PropSystem.updateMany）
+  const grabL = new GrabSystem(world, props);
+  grabL.armReach = ARM_REACH / CLAWS.scale.R * CLAWS.scale.L;
+  grabL.creatures.push(buddy.tug);
+  grabL.ghosts = grab.ghosts;
+  grabL.promote = grab.promote;
+  grab.other = grabL;
+  grabL.other = grab;
+  // 効果音（最初に画面に触れた・キーを押したときに鳴らせるようになる）
+  const audio = new AquaAudio();
   view.digFx.pebbleLost = (k) => decor.pebbleLost(k);
   const buildMs = performance.now() - t0;
 
@@ -176,8 +189,8 @@ async function boot() {
     ? `<p>左のスティックで移動、右の「ジャンプ」で跳ぶ・「掘る」で砂を掘る・「挟む」をたたくとハサミを閉じて小石や貝殻を挟む（もう一度たたくと離す）。画面をドラッグで視点を回し、2 本指でズーム。</p><p class="hint">詳しい操作は、右上の「？」でいつでも見られます。</p>`
     : `<p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で移動、<kbd>Space</kbd> で跳ぶ、<kbd>F</kbd> で砂を掘る、<kbd>E</kbd> を押している間 ハサミで小石や貝殻を挟む（押したままマウスを動かすと腕の向きを変えられる）。ドラッグで視点を回し、ホイールでズーム。</p><p class="hint">詳しい操作は、右上の「？」でいつでも見られます。</p>`;
   const helpFull = touch
-    ? `<ul><li>左スティック：移動。ダッシュ：押している間</li><li>ジャンプ：跳ぶ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へスティックを倒し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（張り出しへはその向きへ押し続けると回り込む。跳んで天井に触れるとつかまる。ジャンプで離れる。逆さの間はカニの横の矢印がスティック↑の向き）</li><li>掘る：押している間 前の砂を掘る。押したまま指をずらすと、その向き（上・下・左右・斜め）を掘る。掘りながらスティックで好きな向きへ動ける</li><li>盛る：「掘る」ボタンの上の切り替えで「盛る」にすると、同じボタンで手持ちの砂を置ける（押している間 少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>画面ドラッグ：視点の回転。2 本指：カメラのズーム</li><li>カメラ：冒険 / ガラス越し（水槽の外から地下の穴を観察）/ 箱庭の切り替え</li><li>挟む：1 回たたくと右の大きなハサミを閉じ（ボタンが明るく「離す」になる）、もう一度たたくと開く。閉じたままジャンプ・ダッシュ・移動・視点の操作ができる。景色の小石・貝殻はどれでも挟める。挟んだまま歩く・泳ぐと引っ張られてついてくる。重い石は持ち上がらず引きずる（大きな石・岩・流木は動かず、カニの方が引き戻される）。閉じたまま近くの物へ寄ると、ハサミがそちらを向いて挟む。挟める所には輪が出る（明るい輪 = 届く、薄い輪 = 近い）</li><li>引っこ抜く：巣穴から見えている触角を「挟む」で挟み（閉じたまま穴へ近づくと、ハサミが触角を向く）、スティックで後ろへ下がって引っ張る（押しているだけでは抜けない）。暴れているときに引きすぎるとハサミが滑る（震えたら少しゆるめる）。力が抜けた隙に引くと出てくる。離すと穴へ戻っていく</li><li>仲間：右上のボタンで「呼ぶ（同行）/ 自由に暮らす」を切り替え</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li>右上の「？」：この説明</li><li>左上の「詳細」：区画・発見の数・FPS・画面の倍率の記録など（× で閉じる）</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`
-    : `<ul><li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る</li><li><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へ押し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（跳んで・泳いで天井に触れても張り付く。<kbd>Space</kbd> で離れる）</li><li><kbd>F</kbd> 長押し：掘る（押したままマウスを動かすと上下左右・斜めを狙う。掘りながら <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で好きな向きへ動ける）</li><li>右ボタンを押したままドラッグ：その向きを掘る</li><li><kbd>G</kbd> 掘る ↔ 盛る の切り替え。盛るのときは <kbd>F</kbd> 長押しで手持ちの砂を置く（少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>ドラッグ：視点回転　ホイール：ズーム</li><li><kbd>V</kbd> カメラ切替（冒険 / ガラス越し / 箱庭。ガラス越しはガラス際まで掘った穴を外から観察）　<kbd>R</kbd> スタート地点へ</li><li><kbd>E</kbd> 押している間：右の大きなハサミを閉じて、届く所の小石・貝殻を挟む（離すと放す）。景色の小石・貝殻はどれでも挟める。押したままマウスを動かすと腕（ハサミ）の向きを右・左・上・下へ変えられる。挟んだまま歩く・泳ぐと引っ張られてついてくる。重い石は持ち上がらず引きずる（大きな石・岩・流木は動かず、カニの方が引き戻される）。挟める所には輪が出る（明るい輪 = 届く、薄い輪 = 近い）</li><li>引っこ抜く：巣穴から見えている触角を <kbd>E</kbd> で挟み、押したまま <kbd>S</kbd> などで後ろへ下がって引っ張る（押しているだけでは抜けない）。暴れているときに引きすぎる（<kbd>Shift</kbd> で急に引く等）とハサミが滑る（震えたら少しゆるめる）。力が抜けた隙に引くと出てくる。離すと穴へ戻っていく　<kbd>Q</kbd> 仲間を呼ぶ / 自由に暮らす（右上のボタンでも）</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li><kbd>H</kbd> または右上の「？」：この説明の表示 / 非表示</li><li><kbd>I</kbd> または左上の「詳細」：区画・発見の数・FPS・画面の倍率の記録などの表示 / 非表示</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`;
+    ? `<ul><li>左スティック：移動。ダッシュ：押している間</li><li>ジャンプ：跳ぶ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へスティックを倒し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（張り出しへはその向きへ押し続けると回り込む。跳んで天井に触れるとつかまる。ジャンプで離れる。逆さの間はカニの横の矢印がスティック↑の向き）</li><li>掘る：押している間 前の砂を掘る。押したまま指をずらすと、その向き（上・下・左右・斜め）を掘る。掘りながらスティックで好きな向きへ動ける</li><li>盛る：「掘る」ボタンの上の切り替えで「盛る」にすると、同じボタンで手持ちの砂を置ける（押している間 少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>画面ドラッグ：視点の回転。2 本指：カメラのズーム</li><li>カメラ：冒険 / ガラス越し（水槽の外から地下の穴を観察）/ 箱庭の切り替え</li><li>挟む：1 回たたくと右の大きなハサミを閉じ（ボタンが明るく「離す」になる）、もう一度たたくと開く。閉じたままジャンプ・ダッシュ・移動・視点の操作ができる。景色の小石・貝殻はどれでも挟める。挟んだまま歩く・泳ぐと引っ張られてついてくる。重い石は持ち上がらず引きずる（大きな石・岩・流木は動かず、カニの方が引き戻される）。閉じたまま近くの物へ寄ると、ハサミがそちらを向いて挟む。挟める所には輪が出る（明るい輪 = 届く、薄い輪 = 近い）</li><li>引っこ抜く：巣穴から見えている触角を「挟む」で挟み（閉じたまま穴へ近づくと、ハサミが触角を向く）、スティックで後ろへ下がって引っ張る（押しているだけでは抜けない）。暴れているときに引きすぎるとハサミが滑る（震えたら少しゆるめる）。力が抜けた隙に引くと出てくる。離すと穴へ戻っていく</li><li>仲間：右上のボタンで「呼ぶ（同行）/ 自由に暮らす」を切り替え</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li>右上の「？」：この説明</li><li>ゲームパッド：左スティック 移動、右スティック 腕（両ハサミ）の向き、LT / L2 左ハサミ・RT / R2 右ハサミ（押している間）、A / × ジャンプ、B / ○ ダッシュ、X / □ 掘る・盛る（押している間は右スティックで掘る向き）、Y / △ 掘る ↔ 盛る、RB / R1 カメラ切替、LB / L1 を押したまま右スティック・十字キーでカメラ、Back 仲間、Start 説明</li><li>右上の「🔊」：音の消音・音量（最初に画面に触れると音が出せるようになる）</li><li>左上の「詳細」：区画・発見の数・FPS・画面の倍率の記録など（× で閉じる）</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`
+    : `<ul><li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る</li><li><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へ押し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（跳んで・泳いで天井に触れても張り付く。<kbd>Space</kbd> で離れる）</li><li><kbd>F</kbd> 長押し：掘る（押したままマウスを動かすと上下左右・斜めを狙う。掘りながら <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で好きな向きへ動ける）</li><li>右ボタンを押したままドラッグ：その向きを掘る</li><li><kbd>G</kbd> 掘る ↔ 盛る の切り替え。盛るのときは <kbd>F</kbd> 長押しで手持ちの砂を置く（少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>ドラッグ：視点回転　ホイール：ズーム</li><li><kbd>V</kbd> カメラ切替（冒険 / ガラス越し / 箱庭。ガラス越しはガラス際まで掘った穴を外から観察）　<kbd>R</kbd> スタート地点へ</li><li><kbd>E</kbd> 押している間：右の大きなハサミを閉じて、届く所の小石・貝殻を挟む（離すと放す）。景色の小石・貝殻はどれでも挟める。押したままマウスを動かすと腕（ハサミ）の向きを右・左・上・下へ変えられる。挟んだまま歩く・泳ぐと引っ張られてついてくる。重い石は持ち上がらず引きずる（大きな石・岩・流木は動かず、カニの方が引き戻される）。挟める所には輪が出る（明るい輪 = 届く、薄い輪 = 近い）</li><li>引っこ抜く：巣穴から見えている触角を <kbd>E</kbd> で挟み、押したまま <kbd>S</kbd> などで後ろへ下がって引っ張る（押しているだけでは抜けない）。暴れているときに引きすぎる（<kbd>Shift</kbd> で急に引く等）とハサミが滑る（震えたら少しゆるめる）。力が抜けた隙に引くと出てくる。離すと穴へ戻っていく　<kbd>Q</kbd> 仲間を呼ぶ / 自由に暮らす（右上のボタンでも）</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li><kbd>H</kbd> または右上の「？」：この説明の表示 / 非表示</li><li>ゲームパッド：左スティック 移動、右スティック 腕（両ハサミ）の向き、LT / L2 左ハサミ・RT / R2 右ハサミ（押している間）、A / × ジャンプ、B / ○ ダッシュ、X / □ 掘る・盛る（押している間は右スティックで掘る向き）、Y / △ 掘る ↔ 盛る、RB / R1 カメラ切替、LB / L1 を押したまま右スティック・十字キーでカメラ、Back 仲間、Start 説明</li><li>右上の「🔊」：音の消音・音量（最初に画面に触れると音が出せるようになる）</li><li><kbd>I</kbd> または左上の「詳細」：区画・発見の数・FPS・画面の倍率の記録などの表示 / 非表示</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`;
   let help: HelpPanel | null = null;
   const marker = document.createElement('div');
   marker.id = 'crab-marker';
@@ -226,6 +239,7 @@ async function boot() {
   input.onPress('KeyI', () => hud.toggle());
   input.onPress('KeyR', () => {
     grab.release();
+    grabL.release();
     touchUi?.setGrabLatched(false);
     crab.teleport(world.spawn.x, world.spawn.z);
   });
@@ -253,6 +267,7 @@ async function boot() {
     const p = places[name];
     if (p) {
       grab.release();
+      grabL.release();
       // スマホの「挟む」スイッチも開く（瞬間移動の後に閉じたままにしない）
       touchUi?.setGrabLatched(false);
     }
@@ -453,6 +468,17 @@ async function boot() {
   buddyBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
   buddyBtn.addEventListener('click', toggleBuddy);
   input.onPress('KeyQ', toggleBuddy);
+  // 右上の「音」（消音・音量・試し聞き）
+  const audioMenu = new AudioMenu(menu, audio);
+  // ゲームパッド（つないだら使える。割り当ては AquaGamepad.ts の先頭）
+  const pad = new AquaGamepad(input, {
+    toggleTool,
+    toggleCamera,
+    cameraBehind: () => camera.placeBehind(crab),
+    toggleBuddy,
+    toggleHelp: () => help?.toggle(),
+    toast,
+  });
   showBuddyBtn();
   // 巣穴の案内（近くで触角が見えているとき：挟めること。引っ張っている間は出さない = 手応えの印 tugCue に任せる）
   const prompt = document.createElement('div');
@@ -515,16 +541,31 @@ async function boot() {
     (climbCue.querySelector('.arrow') as HTMLElement).style.transform = `rotate(${ang.toFixed(3)}rad)`;
   };
   const onGrabEvents = () => {
-    for (const e of grab.drainEvents()) {
-      if (e.kind === 'slip' && e.prop === buddy.tug) {
-        toast('ハサミが滑った！ 強く引きすぎ（暴れている間は少しゆるめる）');
-        vibrate(40);
-      } else if (e.kind === 'slip' && e.prop === grab.fixed) toast(`ハサミが${grab.fixed.name}から外れた（強く引きすぎ）`);
-      else if (e.kind === 'slip') toast(`${e.prop?.name ?? '物'}がハサミから滑り落ちた`);
-      else if (e.kind === 'grab' && e.prop === grab.fixed) toast(`${grab.fixed.name}をつかんだ（動かない。離れようとすると引き戻される）`);
-      else if (e.kind === 'heavy') toast(crab.submerged > 0.5 ? `${e.prop?.name ?? '物'}は重くて、なかなか動かない…` : `${e.prop?.name ?? '物'}は重くて動かない（水の中なら少し軽くなる）`);
+    for (const G of [grab, grabL]) {
+      for (const e of G.drainEvents()) {
+        if (e.kind === 'slip') audio.slip();
+        else if (e.kind === 'grab') audio.click(true);
+        else if (e.kind === 'release') audio.click(false);
+        if (e.kind === 'slip' && e.prop === buddy.tug) {
+          toast('ハサミが滑った！ 強く引きすぎ（暴れている間は少しゆるめる）');
+          vibrate(40);
+        } else if (e.kind === 'slip' && e.prop === G.fixed) toast(`ハサミが${G.fixed.name}から外れた（強く引きすぎ）`);
+        else if (e.kind === 'slip') toast(`${e.prop?.name ?? '物'}がハサミから滑り落ちた`);
+        else if (e.kind === 'grab' && e.prop === G.fixed) toast(`${G.fixed.name}をつかんだ（動かない。離れようとすると引き戻される）`);
+        else if (e.kind === 'heavy') toast(crab.submerged > 0.5 ? `${e.prop?.name ?? '物'}は重くて、なかなか動かない…` : `${e.prop?.name ?? '物'}は重くて動かない（水の中なら少し軽くなる）`);
+      }
     }
   };
+  /** 巣穴の生き物を挟んでいる鋏（右・左。どちらも挟んでいなければ null） */
+  const tugClaw = (): GS | null => (grab.holdingCreature === buddy.tug ? grab : grabL.holdingCreature === buddy.tug ? grabL : null);
+  /** 2 本の鋏の手応えを合わせる（力は足し、速さの上限は小さい方） */
+  const mergeTow = (a: Tow | null, b: Tow | null): Tow | null => (!a ? b : !b ? a : { ax: a.ax + b.ax, ay: a.ay + b.ay, az: a.az + b.az, slow: Math.min(a.slow, b.slow) });
+  // 抜けた瞬間の「スポン！」の文字と衝撃の輪（穴の上。カニ・生き物を隠さないよう、穴より上にずらして短く出す）
+  const popWord = document.createElement('div');
+  popWord.id = 'pop-word';
+  popWord.innerHTML = '<i class="ring"></i><b>スポン！</b>';
+  document.body.appendChild(popWord);
+  let popAt: [number, number, number] | null = null, popT = 0, hitStop = 0;
   /** スマホの振動（対応している端末だけ。iPhone の Safari は対応していない） */
   const vibrate = (ms: number | number[]) => {
     // （画面に一度も触れていないうちは呼ばない：ブラウザが拒んで警告を出す）
@@ -537,7 +578,7 @@ async function boot() {
     prompt.style.transform = `translate(${q.x}px, ${q.y}px) translate(-50%, -100%)`;
     prompt.querySelector('.who')!.textContent = p.examined ? '？？？' : '穴の中で何かが動いている…';
     // ハサミが届くとき（挟む判定と同じ GrabSystem.hint）だけ「挟む」。届かなければ近づくよう促す
-    const reach = grab.hint === buddy.tug;
+    const reach = grab.hint === buddy.tug || grabL.hint === buddy.tug;
     prompt.classList.toggle('ready', reach);
     const html = !reach ? 'もっと近づいて、ハサミで触角を挟む' : touch ? '「挟む」で触角を挟む' : '<kbd>E</kbd> 挟む：見えている触角';
     const el = prompt.querySelector('.what')!;
@@ -550,10 +591,13 @@ async function boot() {
   const T = buddy.tug;
   let fxCrumble = 0, fxKick = 0, slackT = 0, sayT = 0, say = '';
   const updateTug = (dt: number) => {
-    const held = grab.holdingCreature === T;
+    const TG = tugClaw();
+    const held = !!TG;
     tugCue.classList.toggle('show', held);
     rig.tugShake = held ? T.env : 0;
     camera.focus = held ? [T.p[0], T.p[1], T.p[2]] : null;
+    // 音：砂のこすれ・踏ん張り（張力で大きく・高く）
+    audio.setTug(held ? { load: T.load, rub: T.rub, extV: T.extV, env: T.env } : null);
     if (!held) {
       slackT = 0;
       // 次に挟んだとき前の言葉が残らない
@@ -582,17 +626,17 @@ async function boot() {
     const g = T.p;
     const q = view.project(g[0], g[1], g[2]);
     const q2 = view.project(g[0] + away[0] * 0.45, g[1] + 0.12, g[2] + away[1] * 0.45);
-    if (!q || !q2) return;
-    const warn = grab.warn;
+    if (!q || !q2 || !TG) return;
+    const warn = TG.warn;
     const level = warn > 0.25 ? 'danger' : T.load > 1 ? 'move' : T.load > 0.55 ? 'hold' : 'slack';
     tugCue.dataset.level = level;
     tugCue.style.transform = `translate(${q.x}px, ${q.y}px)`;
-    tugCue.style.setProperty('--k', clamp(grab.load, 0, 1).toFixed(3));
+    tugCue.style.setProperty('--k', clamp(TG.load, 0, 1).toFixed(3));
     tugCue.style.setProperty('--w', warn.toFixed(3));
     const ang = Math.atan2(q2.y - q.y, q2.x - q.x);
     (tugCue.querySelector('.arrow') as HTMLElement).style.transform = `rotate(${ang.toFixed(3)}rad)`;
     // 張っていない時間（下がっていない）：案内を出す
-    slackT = grab.load < 0.3 && crab.speed < 0.2 ? slackT + dt : 0;
+    slackT = TG.load < 0.3 && crab.speed < 0.2 ? slackT + dt : 0;
     let next = '';
     if (warn > 0.3) next = '引きすぎ！ ゆるめて';
     else if (T.env > 0.5) next = T.stage === 'early' ? 'ぐいっ' : '暴れている！';
@@ -615,13 +659,25 @@ async function boot() {
         toast('何かの触角を挟んだ！ 後ろへ下がって引っ張ろう');
         saver.markImportant();
       } else if (e.kind === 'popped') {
-        // 抜けた瞬間：抵抗が急に消え、砂煙と泡が舞い、カニは勢い余って後ろへ転ぶ。カメラも少し揺れる
+        // 抜けた瞬間：抵抗が急に消え、「スポン！」の音と文字・衝撃の輪、砂煙・砂粒・泡の柱が舞い、カニは勢い余って後ろへ転ぶ。
+        // ほんの一瞬（0.07 秒）時間を遅くして手応えを強める。カメラの揺れは小さめ（カニ・生き物を見失わない）
         view.puff(e.x, e.y, e.z, true);
-        view.tugFx('crumble', e.x, e.y, e.z, 12, null);
+        view.tugFx('crumble', e.x, e.y, e.z, 18, null);
+        view.tugFx('bubble', e.x, e.y, e.z, 12);
         crab.tumble(e.dir[0], e.dir[1], e.power);
         camera.kick(e.dir[0] * 0.9 * e.power, 0.5, e.dir[1] * 0.9 * e.power);
+        audio.pop(e.power);
+        popAt = [e.x, e.y + 0.35, e.z];
+        popT = 0.9;
+        hitStop = 0.07;
+        popWord.classList.remove('show');
+        void popWord.offsetWidth; // 文字の動きを最初から
+        popWord.classList.add('show');
         vibrate([30, 40, 60]);
-      } else if (e.kind === 'land') view.puff(e.x, e.y, e.z, false);
+      } else if (e.kind === 'land') {
+        view.puff(e.x, e.y, e.z, false);
+        audio.bubble(undefined, 0.18);
+      }
       else if (e.kind === 'joined') {
         banner.className = 'show first hidden buddy';
         banner.querySelector('.kicker')!.textContent = '仲間になった！';
@@ -643,6 +699,9 @@ async function boot() {
           const dx = bx - crab.x, dz = bz - crab.z, l = Math.hypot(dx, dz) || 1;
           const k = t.stage === 'early' ? 0.12 : t.stage === 'mid' ? 0.22 : 0.3;
           camera.kick((dx / l) * k, -0.05, (dz / l) * k);
+          // 引き戻されたときの「ぐっ」（踏ん張る音）と泡
+          audio.grunt(t.stage === 'early' ? 0.3 : t.stage === 'mid' ? 0.6 : 0.9);
+          audio.bubble();
           if (t.stage !== 'early') vibrate(18);
         } else if (t.kind === 'stage' && t.stage === 'late') view.tugFx('crumble', bx, by, bz, 8, null);
         else if (t.kind === 'grab') view.tugFx('bubble', bx, by, bz, 3);
@@ -659,20 +718,28 @@ async function boot() {
   // （ブラウザのタブが裏にあって requestAnimationFrame が間引かれていても、実際の入力の状態で時間を進められる）
   // dig = true で掘るボタンを押したことにする。digAim = { x, y } で照準を決める（null = 実際の入力。自動検証用）
   // hold = true で「挟む」を押したことにする（自動検証用。巣穴の触角も挟める）
-  const debug: { freeze: boolean; fps: number; dig: boolean; hold: boolean; digAim: { x: number; y: number } | null; step: (n: number, dt?: number) => void } = { freeze: false, fps: 0, dig: false, hold: false, digAim: null, step: () => {} };
+  // holdL = true で左の鋏（ゲームパッドの左トリガー）を押したことにする（自動検証用）
+  const debug: { freeze: boolean; fps: number; dig: boolean; hold: boolean; holdL: boolean; digAim: { x: number; y: number } | null; step: (n: number, dt?: number) => void } = { freeze: false, fps: 0, dig: false, hold: false, holdL: false, digAim: null, step: () => {} };
   let time = 0;
   let last = performance.now();
   let acc = 0, frames = 0, hudT = 0, frameMax = 0, frameMaxShown = 0;
   const tick = (dtRaw: number) => {
-    const dt = debug.freeze ? 0 : Math.min(dtRaw, 0.05);
+    // 抜けた瞬間の「間」（hitStop の間だけ時間を 1/4 に）
+    const slow = hitStop > 0 ? 0.25 : 1;
+    if (hitStop > 0) hitStop -= Math.min(dtRaw, 0.05);
+    const dt = debug.freeze ? 0 : Math.min(dtRaw, 0.05) * slow;
     time += dt;
     if (!debug.freeze) {
-      // 挟む：PC は E（押している間）、スマホは「挟む」スイッチ（たたくと閉じ、もう一度で開く）。小石・貝殻・重い石も、
-      // 景色の小石・貝殻も、巣穴から見えている触角も、岩・流木も同じ操作
-      const grabHeld = input.touchGrabLatch || input.isDown('KeyE') || debug.hold;
+      // ゲームパッド：左スティック・ボタン・トリガー・右スティックを Input と左右の鋏へ
+      pad.poll(dtRaw);
+      // 挟む：PC は E（押している間）、スマホは「挟む」スイッチ（たたくと閉じ、もう一度で開く）、ゲームパッドは右トリガー。
+      // 小石・貝殻・重い石も、景色の小石・貝殻も、巣穴から見えている触角も、岩・流木も同じ操作。左の鋏は左トリガー
+      const grabHeld = input.touchGrabLatch || input.isDown('KeyE') || pad.clawR || debug.hold;
+      const grabHeldL = pad.clawL || debug.holdL;
       // 腕の向き（ゲームパッドの右スティック・E を押したままのマウス）
       const aim = input.armAim();
       grab.aiming = Math.hypot(aim.x, aim.y) > 0.15;
+      grabL.aiming = grab.aiming;
       // 狙いの補助（腕）：手で向けていない・閉じている・まだ挟んでいない間は、近くの挟める物の方へ腕を下げる・横へ向ける
       // （ふだんの構えは体の右 0.06・高さ 0.33。体の向きは下の face で物へ向く）
       const na = grab.near?.at;
@@ -685,23 +752,31 @@ async function boot() {
       rig.armAim.y = aim.y;
       // 仲間・巣穴（触角の出具合・引っ張っている間の体。引っ張っている間はカニを穴へ向け、穴の上に乗せない）
       const br = buddy.update(dt, crab);
-      showPrompt(grab.busy && !grab.holdingCreature ? null : br.prompt);
+      showPrompt((grab.busy && !grab.holdingCreature) || (grabL.busy && !grabL.holdingCreature) ? null : br.prompt);
       onBuddyEvents();
       // 狙いの補助：「挟む」を押している（閉じている）がまだ挟んでいない間は、鋏の側を近くの挟める物へ向け直す
       // （横歩きで横を向いていても届く。巣穴の触角は少し遠くからでも向く）。押していないときは向きを変えない（勝手につかまない）
       const [bx, , bz] = buddy.burrow;
       const nearAt = grab.near?.at ?? null;
-      const face = !grabHeld || grab.held || grab.aiming ? null
+      const face = !(grabHeld || grabHeldL) || grab.held || grabL.held || grab.aiming ? null
         : br.prompt?.kind === 'peek' && Math.hypot(crab.x - bx, crab.z - bz) < 0.9 ? { x: bx, z: bz }
         : nearAt ? { x: nearAt[0], z: nearAt[2] } : null;
       // 鋏が挟む方に使われている間は掘れない（掘るのも鋏を使うので）
-      crab.update(dt, { move: input.moveAxis(), run: input.isRunning(), jumpHeld: input.isJumpHeld(), cameraYaw: camera.yaw, dig: (input.isDigHeld() || debug.dig) && !grab.busy, digAim: debug.digAim ?? input.digAim(), pull: br.pull, face, tow: grab.tow });
+      crab.update(dt, { move: input.moveAxis(), run: input.isRunning(), jumpHeld: input.isJumpHeld(), cameraYaw: camera.yaw, dig: (input.isDigHeld() || debug.dig) && !grab.busy && !grabL.busy, digAim: debug.digAim ?? input.digAim(), pull: br.pull, face, tow: mergeTow(grab.tow, grabL.tow) });
       camera.update(dt, input, crab);
-      // 挟む：鋏の構え → 体と鋏の姿勢 → 物・生き物を進める（ばね）→ 動いた物へ鋏を伸ばし直す・生き物の体を置き直す
+      // 挟む：鋏の構え → 体と鋏の姿勢 → 左右の鋏の状態 → 物・生き物を進める（ばね。2 本で 1 回）→ 動いた物へ鋏を伸ばし直す・生き物の体を置き直す
       Object.assign(rig.grip, grab.rigGrip());
+      Object.assign(rig.gripL, grabL.rigGrip());
       rig.update(dt, crab);
-      grab.update(dt, grabHeld, crab, rig);
+      const reqR = grab.pre(dt, grabHeld, crab, rig);
+      const reqL = grabL.pre(dt, grabHeldL, crab, rig.left);
+      const reqs = [reqR, reqL].filter((r) => r !== null);
+      const res = props.updateMany(dt, crab, reqs);
+      const none = { force: [0, 0, 0] as [number, number, number], stretch: 0 };
+      grab.post(dt, crab, rig, reqR ? res[0] : none);
+      grabL.post(dt, crab, rig.left, reqL ? res[reqR ? 1 : 0] : none);
       Object.assign(rig.grip, grab.rigGrip());
+      Object.assign(rig.gripL, grabL.rigGrip());
       rig.reaimGrip();
       buddy.placeInBurrow();
       // 物理の物になった景色の小石・貝殻の頂点を動かす・遠くで止まった物を景色へ戻す
@@ -712,6 +787,13 @@ async function boot() {
       // スマホの「挟む」スイッチ：閉じているのにハサミが開いた（滑った・抜けた・水流に乗った・瞬間移動）ら、スイッチも開く
       if (input.touchGrabLatch && grab.state === 'idle') touchUi?.setGrabLatched(false);
       updateClimbCue();
+      // 「スポン！」の文字と輪：穴の上に置いて、0.9 秒で消える
+      if (popT > 0 && popAt) {
+        popT -= dtRaw;
+        const q = view.project(popAt[0], popAt[1], popAt[2]);
+        if (q) popWord.style.transform = `translate(${q.x}px, ${q.y}px)`;
+        if (popT <= 0) popWord.classList.remove('show');
+      }
       life.update(dt, { x: crab.x, y: crab.y + crab.radius, z: crab.z });
       tracker.update(dt, crab.x, crab.y + crab.radius, crab.z);
       for (const e of tracker.drainEvents()) {
@@ -778,10 +860,15 @@ async function boot() {
         ? { text: A.fillOk ? `盛れる：${DIG_MATERIAL_LABEL[A.material]}の上` : `盛れない：${FILL_BLOCK_LABEL[A.fillWhy ?? 'other']}`, ng: !A.fillOk }
         : A.active && A.face ? { text: diggable(A.material) ? `掘れる：${DIG_MATERIAL_LABEL[A.material]}` : `掘れない：${DIG_MATERIAL_LABEL[A.material]}`, ng: !diggable(A.material) } : null;
       // 挟む：挟んでいる物（重さで引っ張られているときは「重い」）・空振り
-      const held = grab.held, strain = grab.strain;
-      const grabChip = grab.state === 'idle' ? null : {
-        text: held ? `挟む：${held.name}${strain > 0.8 ? '（重い！）' : strain > 0.45 ? '（ずっしり）' : ''}` : grab.state === 'closing' ? '挟む…' : '挟む：空振り',
-        heavy: !!held && strain > 0.45,
+      // （左の鋏も使っているときは「右：… / 左：…」）
+      const clawText = (G: GS) => {
+        const held = G.held, strain = G.strain;
+        return held ? `${held.name}${strain > 0.8 ? '（重い！）' : strain > 0.45 ? '（ずっしり）' : ''}` : G.state === 'closing' ? '…' : '空振り';
+      };
+      const both = grabL.state !== 'idle';
+      const grabChip = grab.state === 'idle' && !both ? null : {
+        text: both ? `右：${grab.state === 'idle' ? '—' : clawText(grab)} / 左：${clawText(grabL)}` : `挟む：${clawText(grab)}`,
+        heavy: (!!grab.held && grab.strain > 0.45) || (!!grabL.held && grabL.strain > 0.45),
       };
       // 手持ちの砂（1 杯 = SAND.unit）
       const cups = Math.floor(crab.sandHeld / SAND.unit + 1e-6), capCups = Math.round(SAND.capacity / SAND.unit);
@@ -812,6 +899,7 @@ async function boot() {
         frame: `フレーム ${debug.fps > 0 ? (1000 / debug.fps).toFixed(1) : '-'} ms（0.5 秒の最大 ${(frameMaxShown * 1000).toFixed(1)} ms）`,
         digPerf: world.dig.count ? `穴 ${world.dig.count - nf} 個${nf ? `・砂山 ${nf} 個` : ''} ・ 区画 ${fs.chunks} ・ 作り直し ${fs.lastMs.toFixed(1)} ms（最大 ${fs.maxMs.toFixed(1)}）・ 待ち ${fs.pending}` : '地形の作り直し：まだ掘っていません',
         viewport: viewport.viewportText(),
+        device: ` ・ 音：（）`,
       });
       toolBtn.style.setProperty('--sand', (crab.sandHeld / SAND.capacity).toFixed(3));
       // 道具がほかの道（保存データの復元・自動検証）で変わったときも、切り替えとボタンの文字を合わせる
@@ -834,7 +922,7 @@ async function boot() {
   /** 起動から最初のフレームまで（生成 + 保存データの読み込み・復元） */
   const bootMs = performance.now() - t0;
   requestAnimationFrame(loop);
-  (window as unknown as Record<string, unknown>).__aqua = Object.assign(debug, { world, crab, rig, camera, view, settings, input, spots, finds, tracker, life, resetDiscovery, goto, places, sump: SUMP, save: { store, saver, menu: saveMenu, ctx: saveCtx, gather, restore: restoreInfo, loaded }, help, viewport, buddy, toggleBuddy, grab, props, decor, touchUi, buildMs, bootMs, buildPhases: built.ms, plantMs: plants.ms, plantCounts: plants.counts, plantTimes: plants.times });
+  (window as unknown as Record<string, unknown>).__aqua = Object.assign(debug, { world, crab, rig, camera, view, settings, input, spots, finds, tracker, life, resetDiscovery, goto, places, sump: SUMP, save: { store, saver, menu: saveMenu, ctx: saveCtx, gather, restore: restoreInfo, loaded }, help, viewport, buddy, toggleBuddy, grab, grabL, props, decor, touchUi, audio, audioMenu, pad, buildMs, bootMs, buildPhases: built.ms, plantMs: plants.ms, plantCounts: plants.counts, plantTimes: plants.times });
 }
 
 // 読み込み表示を先に描画させてから重い生成処理に入る

@@ -378,3 +378,33 @@ body.aqua #touch-ui .grab.press { transform: scale(0.94); }
 #climb-cue .arrow::before { content: ''; position: absolute; left: 30px; right: 8px; top: 0; height: 4px; border-radius: 2px; background: rgba(170, 240, 255, 0.85); }
 #climb-cue .arrow::after { content: ''; position: absolute; right: 0; top: -6px; border-left: 11px solid rgba(170, 240, 255, 0.95); border-top: 8px solid transparent; border-bottom: 8px solid transparent; }
 #climb-cue span { position: absolute; left: 0; top: 28px; transform: translateX(-50%); white-space: nowrap; font-size: 11px; color: #d8f6ff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); }
+
+/* 第 3 段階：抜けた瞬間の「スポン！」（穴の上。0.9 秒）と衝撃の輪 */
+#pop-word { position: fixed; left: 0; top: 0; width: 0; height: 0; display: none; pointer-events: none; z-index: 3; }
+#pop-word.show { display: block; }
+#pop-word b { position: absolute; left: 0; top: -28px; transform: translate(-50%, -50%); white-space: nowrap; font-size: 30px; font-weight: 900;
+  color: #fff4c8; letter-spacing: 0.04em; -webkit-text-stroke: 1.5px rgba(90, 40, 10, 0.9); text-shadow: 0 2px 0 rgba(90, 40, 10, 0.8), 0 0 12px rgba(255, 200, 90, 0.8);
+  animation: pop-word 0.9s cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+#pop-word .ring { position: absolute; left: 0; top: 0; width: 20px; height: 20px; border-radius: 50%; border: 3px solid rgba(255, 240, 190, 0.9);
+  transform: translate(-50%, -50%); animation: pop-ring 0.55s ease-out both; }
+@keyframes pop-word { 0% { opacity: 0; transform: translate(-50%, -30%) scale(0.3); } 18% { opacity: 1; transform: translate(-50%, -60%) scale(1.15); }
+  70% { opacity: 1; transform: translate(-50%, -75%) scale(1); } 100% { opacity: 0; transform: translate(-50%, -95%) scale(0.95); } }
+@keyframes pop-ring { 0% { opacity: 0.95; width: 12px; height: 12px; } 100% { opacity: 0; width: 130px; height: 130px; border-width: 1px; } }
+@media (max-width: 760px) { #pop-word b { font-size: 24px; } }
+/* 右上の「音」と設定の欄 */
+#menu .menu-btn.audio-btn { min-width: 38px; padding: 4px 8px; }
+#menu .menu-btn.audio-btn.on { background: rgba(46, 128, 121, 0.85); }
+#audio-panel { position: fixed; right: calc(12px + env(safe-area-inset-right)); top: calc(54px + env(safe-area-inset-top)); width: min(300px, calc(100vw - 24px));
+  display: none; z-index: 5; background: rgba(10, 22, 28, 0.94); border: 1px solid rgba(160, 220, 210, 0.3); border-radius: 8px; padding: 8px 12px 10px;
+  color: #e8fff8; font-size: 14px; line-height: 1.6; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+#audio-panel.show { display: block; }
+#audio-panel .head { display: flex; justify-content: space-between; align-items: center; }
+#audio-panel .close { min-width: 40px; min-height: 36px; background: transparent; border: 0; color: #e8fff8; font-size: 20px; }
+#audio-panel .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+/* iPhone の Safari は 16px 未満の入力欄に触れると画面を拡大するので、欄の文字は 16px（範囲・チェックは対象外だが念のため） */
+#audio-panel input { font-size: 16px; }
+#audio-panel input[type="range"] { flex: 1; min-height: 32px; touch-action: pan-x; }
+#audio-panel input[type="checkbox"] { width: 22px; height: 22px; }
+#audio-panel button[data-k="test"] { min-height: 38px; padding: 4px 12px; border-radius: 6px; font-size: 14px; background: #2e5e5a; color: #f2fff9; border: 1px solid rgba(255, 255, 255, 0.2); }
+#audio-panel .sub { color: #9fb8b2; font-size: 12px; }
+@media (max-width: 760px) { #audio-panel { top: calc(140px + env(safe-area-inset-top)); } }
