@@ -35,6 +35,19 @@ uniform float uTrample;
 uniform float uGrassFar;
 uniform float uDrawFrac;
 #endif
+#ifdef PLANT_BEND
+// 水槽ゲーム（第 3 段階）：植物をかき分ける。iPlant = 植物の番号（−1 = 曲がらない）。
+// uPlantInfo = (根元 xyz, 種類 × 100 + 高さ)、uPlantBend = (押された量 x, z・押された高さの割合・震え)（植物ごと、1 画素 = 1 本）。
+// uPlantMode = 0：植物ごとのばね（CPU が近くの植物だけ計算して uPlantBend に書く）、1：GPU だけ（uPush の球から毎回求める。状態なし）
+attribute float iPlant;
+uniform sampler2D uPlantInfo;
+uniform sampler2D uPlantBend;
+uniform float uPlantTexW;
+uniform float uPlantTexH;
+uniform float uPlantMode;
+uniform vec4 uPush[8];      // 押す球（中心, 半径）。半径 0 = 使わない
+uniform vec4 uPlantKeep[5]; // 種類ごと：(押された所より上に残る割合, 曲がりの上限, 太さ, 震えの強さ)
+#endif
 uniform float uSurfelRadius; // 直径 → 半径の換算と「円盤の大きさ」「密度補正」を掛けた係数
 uniform float uBillboard;
 uniform float uSnap;
@@ -62,6 +75,48 @@ void main() {
   vec4 wp = modelMatrix * vec4(p, 1.0);
   vec3 wn = normalize(mat3(modelMatrix) * n);
   vec3 baseColor = iColor;
+#ifdef PLANT_BEND
+  if (iPlant >= 0.0) {
+    vec2 puv = (vec2(mod(iPlant, uPlantTexW), floor(iPlant / uPlantTexW)) + 0.5) / vec2(uPlantTexW, uPlantTexH);
+    vec4 info = texture2D(uPlantInfo, puv);
+    float kind = floor(info.w / 100.0);
+    float H = info.w - kind * 100.0;
+    vec4 kp = uPlantKeep[int(kind + 0.5)];
+    vec4 bd = texture2D(uPlantBend, puv);
+    if (uPlantMode > 0.5) {
+      // GPU だけ：押す球から、根元の位置で押し出す量を毎回求める（ばね・戻りの遅れは無い。跡の球が少しずつ小さくなって戻る）
+      bd = vec4(0.0);
+      for (int k = 0; k < 8; k++) {
+        vec4 P = uPush[k];
+        if (P.w <= 0.0) continue;
+        float cy = clamp(P.y, info.y + 0.02, info.y + H);
+        float dy = P.y - cy;
+        float re = sqrt(max(0.0, P.w * P.w - dy * dy));
+        vec2 d = info.xz - P.xz;
+        float dl = length(d);
+        float pen = re + kp.z - dl;
+        if (re > 0.0 && pen > 0.0) {
+          bd.xy += (dl > 1e-3 ? d / dl : vec2(1.0, 0.0)) * pen;
+          bd.z = max(bd.z, (cy - info.y) / H);
+        }
+      }
+      float bl = length(bd.xy);
+      if (bl > kp.y) bd.xy *= kp.y / bl;
+    }
+    // 曲がり方：根元は固定、押された高さ（fc）まで 3 次の曲線で立ち上がり、そこより上は割合 kp.x まで戻る（水の中で葉先が起き上がる）
+    float f = clamp((iPos.y - info.y) / max(H, 0.05), 0.0, 1.0);
+    float fc = clamp(bd.z, 0.12, 1.0);
+    float u = clamp(f / fc, 0.0, 1.0);
+    float s = u * u * (3.0 - 2.0 * u);
+    if (f > fc) s = mix(1.0, kp.x, smoothstep(fc, min(1.0, fc + 0.45), f));
+    vec2 off = bd.xy * s;
+    wp.xz += off;
+    // 曲がった分だけ低くなる（長さを保つ近似）と、震え（ダッシュでかき分けたとき）
+    wp.y -= min(dot(off, off) / max(2.0 * H * max(f, 0.05), 0.05), 0.6 * H * f);
+    float fl = bd.w * kp.w * f;
+    wp.xz += vec2(sin(uTime * 17.0 + iPlant * 1.7), cos(uTime * 13.0 + iPlant * 2.3)) * fl * 0.05;
+  }
+#endif
 #ifdef USE_GRASS
   // 草の粒の風の影響度 = 葉の根元からの高さの割合^1.4。根元ほど地面の色へ寄せる
   float hW = iMisc.y;
@@ -260,6 +315,17 @@ export class SurfelRenderer {
       depthTest: true,
       depthWrite: true,
     });
+  }
+
+  /**
+   * 植物をかき分ける変形（PLANT_BEND）を有効にする（水槽ゲーム）。plantId = 円盤ごとの植物の番号（−1 = 曲がらない）、
+   * uniforms = uPlantInfo・uPlantBend などのユニフォーム（呼んだ側が値を書き換える）
+   */
+  enablePlantBend(plantId: Float32Array, uniforms: Record<string, THREE.IUniform>) {
+    this.worldGeo.setAttribute('iPlant', new THREE.InstancedBufferAttribute(plantId, 1));
+    Object.assign(this.worldMat.uniforms, uniforms);
+    this.worldMat.defines.PLANT_BEND = '';
+    this.worldMat.needsUpdate = true;
   }
 
   /**

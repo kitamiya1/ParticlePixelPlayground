@@ -34,6 +34,7 @@ import { HelpPanel } from './AquaHelp';
 import { ViewportGuard } from './AquaViewport';
 import { AquaHud } from './AquaHud';
 import { CAM_STYLE_LABEL, mountUiPrefs, UiPrefStore } from './AquaUiPrefs';
+import { PlantField, type Pusher } from './AquaPlants';
 
 /** いまの水槽の id（保存データの tanks の鍵。将来の隣の水槽は別の id） */
 const HOME_TANK = 'home';
@@ -154,6 +155,28 @@ async function boot() {
     buddy: { sys: buddy, mesh: buildBuddyMesh(), burrowMesh: buildBurrowMesh(world, built.light, BURROW_XZ[0], BURROW_XZ[1]) },
     props: { sys: props, meshes: buildPropMeshes() },
   }, { light: built.light, plantAnchors: plants.anchors });
+  // 水草をかき分ける（第 3 段階）：植物ごとのしなり（近くの植物だけばねで動かす。設定で GPU だけの方式と比べられる）
+  const plantField = new PlantField(plants.plants);
+  view.surfel.enablePlantBend(plants.plants.plantId, plantField.uniforms);
+  /** 水草を押す球：カニの体（脚の広がり）と、挟んでいる物・動いている物 */
+  const pushers: Pusher[] = [];
+  const updatePlants = (dt: number) => {
+    pushers.length = 0;
+    const R = crab.radius;
+    // 体：中心は体の中心より少し下（脚の付け根）、半径は脚の広がり。速さはカニの速さ
+    pushers.push({ x: crab.x, y: crab.y + R * 0.7, z: crab.z, r: R * 1.75, vx: crab.vx, vy: crab.vy, vz: crab.vz });
+    for (const pr of props.props) {
+      if (!pr.held && !pr.awake) continue;
+      const sp = Math.hypot(pr.v[0], pr.v[1], pr.v[2]);
+      if (!pr.held && sp < 0.05) continue;
+      pushers.push({ x: pr.p[0], y: pr.p[1], z: pr.p[2], r: pr.rb * 1.15, vx: pr.v[0], vy: pr.v[1], vz: pr.v[2] });
+      if (pushers.length >= 6) break;
+    }
+    // 見通しの線：冒険カメラ → カニの体の中心（密集した水草の中でもカニを見失わないよう、線にかかる草もそっとよける）
+    const P = camera.pose.pos;
+    const sight = camera.mode === 'adventure' ? { a: [P[0], P[1], P[2]] as [number, number, number], b: [crab.x, crab.y + R, crab.z] as [number, number, number], r: 0.32 } : null;
+    plantField.update(dt, pushers, sight);
+  };
   // 景色の小石（約 520 個）と水槽の中の発見物の貝殻・巻貝も、どれでも挟める（挟んだ瞬間だけ物理の物にする：AquaDecor）
   const decor = new DecorProps(props, [
     { geo: view.decorGeo.pebbles, items: built.meshes.pebbleList.map(pebbleDecor) },
@@ -276,6 +299,8 @@ async function boot() {
     lookUp: [-3, 38, -11],
     log: [(world.landmarks.logA[0] + world.landmarks.logB[0]) / 2, (world.landmarks.logA[2] + world.landmarks.logB[2]) / 2, world.landmarks.logA[1]],
     burrow: [BURROW_XZ[0] + 0.6, BURROW_XZ[1], 6],
+    // 水草の森の中（第 3 段階の検証）
+    forest: [-11.0, -6.6, 6],
   };
   const goto = (name: string) => {
     const p = places[name];
@@ -297,6 +322,7 @@ async function boot() {
   uiPrefs.onChange((p) => {
     touchUi?.setLook(p.btnScale, p.btnAlpha);
     camera.setStyle(p.camStyle);
+    plantField.setMode(p.plants);
     document.body.classList.toggle('aqua-guides', p.guides);
   });
   // 掘る ↔ 盛る：PC は G キー、スマホは掘るボタンの上の小さな切り替え（掘るボタン・F キーはどちらでも共用）
@@ -492,7 +518,7 @@ async function boot() {
   // 右上の「音」（消音・音量・試し聞き）
   const audioMenu = new AudioMenu(menu, audio);
   // 同じ欄に表示の設定（ボタンの大きさ・濃さ・案内）
-  mountUiPrefs(audioMenu.panel, uiPrefs, { touch, cam: true });
+  mountUiPrefs(audioMenu.panel, uiPrefs, { touch, cam: true, plants: true });
   // ゲームパッド（つないだら使える。割り当ては AquaGamepad.ts の先頭）
   const pad = new AquaGamepad(input, {
     toggleTool,
@@ -806,6 +832,7 @@ async function boot() {
       buddy.placeInBurrow();
       // 物理の物になった景色の小石・貝殻の頂点を動かす・遠くで止まった物を景色へ戻す
       decor.update({ x: crab.x, y: crab.y + crab.radius, z: crab.z });
+      updatePlants(dt);
       updateTug(dt);
       showGrabHint();
       onGrabEvents();
@@ -949,7 +976,7 @@ async function boot() {
   /** 起動から最初のフレームまで（生成 + 保存データの読み込み・復元） */
   const bootMs = performance.now() - t0;
   requestAnimationFrame(loop);
-  (window as unknown as Record<string, unknown>).__aqua = Object.assign(debug, { world, crab, rig, camera, view, settings, input, spots, finds, tracker, life, resetDiscovery, goto, places, sump: SUMP, save: { store, saver, menu: saveMenu, ctx: saveCtx, gather, restore: restoreInfo, loaded }, help, viewport, buddy, toggleBuddy, grab, grabL, props, decor, touchUi, audio, audioMenu, pad, buildMs, bootMs, buildPhases: built.ms, plantMs: plants.ms, plantCounts: plants.counts, plantTimes: plants.times });
+  (window as unknown as Record<string, unknown>).__aqua = Object.assign(debug, { world, crab, rig, camera, view, settings, input, spots, finds, tracker, life, resetDiscovery, goto, places, sump: SUMP, save: { store, saver, menu: saveMenu, ctx: saveCtx, gather, restore: restoreInfo, loaded }, help, viewport, buddy, toggleBuddy, grab, grabL, plantField, pushers, plantSet: plants.set, props, decor, touchUi, audio, audioMenu, pad, buildMs, bootMs, buildPhases: built.ms, plantMs: plants.ms, plantCounts: plants.counts, plantTimes: plants.times });
 }
 
 // 読み込み表示を先に描画させてから重い生成処理に入る
