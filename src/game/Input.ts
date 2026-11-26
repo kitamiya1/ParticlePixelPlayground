@@ -65,8 +65,17 @@ export class Input {
   touchDig = false;
   /** 画面の「調べる / 引っこ抜く」ボタン（水槽ゲーム用。押している間 true） */
   touchAct = false;
-  /** 画面の「挟む」ボタン（水槽ゲーム用。押している間 true） */
+  /** 画面の「挟む」ボタン（水槽ゲーム用。押している間 true。いまは切り替え式の touchGrabLatch を使う） */
   touchGrab = false;
+  /**
+   * 画面の「挟む」スイッチ（水槽ゲーム用。1 回たたくと閉じる = true、もう一度で開く = false）。押している指ではないので、
+   * releaseAll（回転・アプリの切り替え・指の取り消し）では変えない（ボタンの見た目とハサミの状態がずれない）
+   */
+  touchGrabLatch = false;
+  /** 腕の向き（水槽ゲーム用。x = 右, y = 上、長さ 0〜1。0 = ふだんの構え）。PC は E を押したままマウスを動かす */
+  armAimExtra: { x: number; y: number } | null = null;
+  /** E を押したときのマウスの位置（腕の向きの基準） */
+  private eOrigin: { x: number; y: number } | null = null;
   /** 画面の掘るボタンを押したままずらした照準（x = 右, y = 上、長さ 0〜1） */
   touchDigAim = { x: 0, y: 0 };
   /** マウスの右ボタンで掘る（水槽ゲームだけ true。false なら右ドラッグは従来どおり平行移動） */
@@ -102,11 +111,13 @@ export class Input {
       if (!e.repeat) this.actions.get(e.code)?.();
       // F を押したときのマウスの位置を、照準の基準にする
       if (e.code === 'KeyF' && !this.fOrigin) this.fOrigin = { ...this.mouse };
+      if (e.code === 'KeyE' && !this.eOrigin) this.eOrigin = { ...this.mouse };
       if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
       if (e.code === 'KeyF') this.fOrigin = null;
+      if (e.code === 'KeyE') this.eOrigin = null;
     });
     // マウスの位置（ボタンを押していなくても追う。F の照準に使う）
     window.addEventListener('pointermove', (e) => {
@@ -230,6 +241,7 @@ export class Input {
     this.mouseDigOn = false;
     this.mouseDigAim = { x: 0, y: 0 };
     this.fOrigin = null;
+    this.eOrigin = null;
     this.pinchDist = 0;
     for (const f of this.resetHooks) f();
   }
@@ -352,6 +364,16 @@ export class Input {
     if (this.touchDig) return { ...this.touchDigAim };
     if (this.mouseDigOn) return { ...this.mouseDigAim };
     if (this.fOrigin && this.isDown('KeyF')) return digAimFromOffset(this.mouse.x - this.fOrigin.x, this.mouse.y - this.fOrigin.y, DIG_AIM.mouseRadius);
+    return { x: 0, y: 0 };
+  }
+
+  /**
+   * 腕（右の大きなハサミ）の向き（x = 右, y = 上、長さ 0〜1）。ゲームパッドの右スティック等（armAimExtra）→ E を押したままの
+   * マウスのずれ（掘るの F と同じ扱い）の順。どれも無ければ 0（ふだんの構え）
+   */
+  armAim(): { x: number; y: number } {
+    if (this.armAimExtra && Math.hypot(this.armAimExtra.x, this.armAimExtra.y) > 0) return { ...this.armAimExtra };
+    if (this.eOrigin && this.isDown('KeyE')) return digAimFromOffset(this.mouse.x - this.eOrigin.x, this.mouse.y - this.eOrigin.y, DIG_AIM.mouseRadius);
     return { x: 0, y: 0 };
   }
 

@@ -428,6 +428,8 @@ export class AquariumRenderer {
   /** 起動時の三角形の数（穴掘りで増減する分は digFx.stats から足す） */
   private baseTris = 0;
   readonly digFx: AquariumDigFx;
+  /** 景色の小石・発見物の貝殻のメッシュ（AquaDecor が挟んだ物の頂点を書き換える） */
+  readonly decorGeo: { pebbles: THREE.BufferGeometry; finds: THREE.BufferGeometry };
   /** 描画中の円盤の割合（0..1。間引きで軽くする） */
   surfelDensity = 1;
   /** SurfelRenderer に渡す人型のリグ（キャラクターを持たないので使われない） */
@@ -473,6 +475,8 @@ export class AquariumRenderer {
     // 穴掘りで底床の区画を隠す・小石を消すので、底床と小石は頂点番号・位置を書き換えられるようにする
     geos.get(meshes.terrain)!.getIndex()!.setUsage(THREE.DynamicDrawUsage);
     (geos.get(meshes.pebbles)!.getAttribute('position') as THREE.BufferAttribute).setUsage(THREE.DynamicDrawUsage);
+    // 景色の小石・発見物の貝殻を挟んで動かす（AquaDecor が頂点と法線を書き換える）
+    this.decorGeo = { pebbles: geos.get(meshes.pebbles)!, finds: geos.get(explore.findsMesh)! };
     // 水槽台の外側の面（箱庭カメラで手前を透かす）と台の中の照明
     const outerMesh = new THREE.Mesh(triGeometry(meshes.cabinetOuter), this.meshMaterial(false, { CUTAWAY: '', OCCLUDER_CUT: '' }));
     const ledMesh = new THREE.Mesh(triGeometry(meshes.emissive), new THREE.ShaderMaterial({ vertexShader: meshVertex, fragmentShader: emissiveFragment }));

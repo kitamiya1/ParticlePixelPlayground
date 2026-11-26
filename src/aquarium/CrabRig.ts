@@ -45,6 +45,11 @@ const PINCH: [number, number, number] = [0, 0, 0.165 * GRIP_K];
  * 体の球（半径 0.24）の中心から 0.36 離れていて、挟んだ物が甲羅に食い込まない
  */
 const HOLD = { yaw: 0.3, pitch: -0.45, fold: 1.4 };
+/**
+ * 腕の向きで構え（anchor）をずらす量（体の座標。右・上・下・下へ向けたときに前へ・横へ向けたときに手前へ）。
+ * 付け根から 0.33 以内に収まる大きさ（伸ばしきれない所は IK が届く所まで）
+ */
+const ARM_AIM = { side: 0.13, up: 0.1, down: 0.12, fwd: 0.03, pull: 0.04 };
 /** IK の角の範囲 */
 const IK_MIN = [-0.9, -1.45, 0.05];
 const IK_MAX = [1.25, 1.35, 2.1];
@@ -110,6 +115,9 @@ export class CrabRig {
   readonly grip: RigGrip = { on: false, close: 0, hold: false, target: null, shake: 0 };
   /** 引っ張っている生き物が引き戻す強さ（0..1。main が AquaTug.env から書く。体が前へ揺すられる） */
   tugShake = 0;
+  /** 腕の向き（x = 右, y = 上、長さ 0〜1。Input.armAim）と、その平滑値 */
+  readonly armAim = { x: 0, y: 0 };
+  private readonly aimS = { x: 0, y: 0 };
   private gw = 0;
   private readonly ik = [HOLD.yaw, HOLD.pitch, HOLD.fold];
   /** 構えた鋏の先・いま描いている鋏の先・鋏の付け根（世界）と、鋏を目標へ伸ばしきれなかった距離 */
@@ -292,6 +300,13 @@ export class CrabRig {
     this.bodyW.multiplyMatrices(this.root, this.body);
     this.bodyInv.copy(this.bodyW).invert();
     const anchorL = clawTip(HOLD.yaw, HOLD.pitch, HOLD.fold, handTilt, [0, 0, 0]);
+    // 腕の向き（armAim）：構えた鋏の先を体の右・上・下へずらす（体を回さなくても横・上・下の物へ鋏を向けられる）
+    const ka = 1 - Math.exp(-dt * 12);
+    this.aimS.x += (this.armAim.x - this.aimS.x) * ka;
+    this.aimS.y += (this.armAim.y - this.aimS.y) * ka;
+    anchorL[0] -= this.aimS.x * ARM_AIM.side;
+    anchorL[1] += this.aimS.y * (this.aimS.y > 0 ? ARM_AIM.up : ARM_AIM.down);
+    anchorL[2] += ARM_AIM.fwd * Math.max(0, -this.aimS.y) - ARM_AIM.pull * Math.abs(this.aimS.x);
     this.toWorld(anchorL, this.anchor);
     this.toWorld([GRIP_SX * CLAWS.shoulder[0], CLAWS.shoulder[1], CLAWS.shoulder[2]], this.shoulder);
     if (this.gw > 0.001) {

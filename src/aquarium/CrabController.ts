@@ -168,6 +168,19 @@ const CLIMB_GRAB_T = 0.1;
 const CLIMB_INTO = 0.35;
 const CLIMB_SPEED = 1.6;
 const CLIMB_RUN = 2.5;
+/**
+ * 天井歩きの安定化（2026-11-26、iPhone の実機の報告「小さな出っ張りで意図せず裏返る」から）：
+ * - 面の向きは、体の中心と、面に沿って NORMAL_SAMPLE_R 離れた 6 点の法線を平均して決める（小さな出っ張り・くぼみで向きが跳ねない）。
+ *   同じ面（中心の法線と 0.7 以上そろう）に触れている点の数（cover、最大 7）が NORMAL_COVER_MIN 未満なら、狭い出っ張りとみなす
+ * - 張り付いている面の向きは、1 秒あたり CLIMB_TURN_RATE ラジアンより速くは変えない（1 フレームで向きが跳ねない。壁 → 天井で 0.26 秒以上）
+ * - 狭い出っ張りの上では、張り出した向き（法線の y < INVERT_NY）へは体を起こさない
+ * - 空中・水中から天井へ：ジャンプを押していれば CLIMB_GRAB_T、移動入力だけなら CEIL_GRAB_MOVE_T 触れ続けたら。どちらも広い面だけ
+ */
+const NORMAL_SAMPLE_R = 0.12;
+const NORMAL_COVER_MIN = 4;
+const CLIMB_TURN_RATE = 6;
+const INVERT_NY = -0.35;
+const CEIL_GRAB_MOVE_T = 0.3;
 
 export class CrabController {
   /** 足元の位置（球の中心は y + RADIUS） */
@@ -246,8 +259,15 @@ export class CrabController {
   private readonly moveF: [number, number, number] = [0, 0, 1];
   private readonly moveR: [number, number, number] = [1, 0, 0];
   private idleT = 0;
-  /** 張り付いている間に、逆さ（法線の y < −0.7）で過ごした時間・回り込んだ面の向きの範囲（自動検証用） */
-  readonly ceilStats = { invertedT: 0, minNY: 1, grabsAir: 0 };
+  /**
+   * 張り付いている間に、逆さ（法線の y < −0.7）で過ごした時間・回り込んだ面の向きの範囲・空中から張り付いた回数・
+   * 狭い出っ張りなので張り付かなかった / 起こさなかった回数・面の向きを変える速さの上限で止めた回数（自動検証用）
+   */
+  readonly ceilStats = { invertedT: 0, minNY: 1, grabsAir: 0, narrowSkips: 0, turnCapped: 0 };
+  /** 張り付いている間のスティックの前・右に当たる面に沿う向き（画面の案内の矢印。読むだけ） */
+  get climbBasis(): { f: readonly number[]; r: readonly number[] } {
+    return { f: this.moveF, r: this.moveR };
+  }
   /** 壁へ向かって押し続けている時間（CLIMB_GRAB_T で張り付く）・張り付かない残り時間・張り出しで進めない時間 */
   private grabT = 0;
   private grabWait = 0;
@@ -947,11 +967,20 @@ export class CrabController {
     }
     // 空中・水中から天井へ：触れている面の向きを体の中心で測る（入力の向きは天井の向きと関係ない）
     // （泳いでいる間はジャンプの長押し＝遊泳なので、それだけでは張り付かない：移動入力で天井へ向かったときだけ）
-    if (!this.grounded && this.coyote <= 0 && ((hasInput && mag > 0.3) || (inp.jumpHeld && !this.swimming))) {
-      const n = w.climbNormal(px, py, pz);
+    const jumpIntent = inp.jumpHeld && !this.swimming;
+    if (!this.grounded && this.coyote <= 0 && ((hasInput && mag > 0.3) || jumpIntent)) {
+      const sn = this.surfaceNormal(px, py, pz);
+      const n = sn.n;
       if (n[1] < CEIL_GRAB_NY) {
+        // 狭い出っ張り（小石ほどの突起・岩の角）には張り付かない
+        if (sn.cover < NORMAL_COVER_MIN) {
+          if (this.grabT > 0) this.ceilStats.narrowSkips++;
+          this.grabT = 0;
+          return;
+        }
         this.grabT += dt;
-        if (this.grabT >= CLIMB_GRAB_T) {
+        // 張り付く意思：ジャンプを押している（跳んでつかまる）なら短く、移動入力だけなら長く触れ続けたとき
+        if (this.grabT >= (jumpIntent ? CLIMB_GRAB_T : CEIL_GRAB_MOVE_T)) {
           this.ceilStats.grabsAir++;
           this.swimming = false;
           this.beginClimb(n, inp.cameraYaw);
@@ -965,7 +994,17 @@ export class CrabController {
       return;
     }
     const ux = mx / mag, uz = mz / mag;
-    const n = w.climbNormal(px + ux * 0.1, py, pz + uz * 0.1);
+    let n = w.climbNormal(px + ux * 0.1, py, pz + uz * 0.1);
+    // 張り出した面（下向き）へ床から張り付くときは、平均した向きで決め、狭い出っ張りなら張り付かない
+    if (n[1] < 0) {
+      const sn = this.surfaceNormal(px + ux * 0.1, py, pz + uz * 0.1);
+      if (sn.cover < NORMAL_COVER_MIN) {
+        this.ceilStats.narrowSkips++;
+        this.grabT = 0;
+        return;
+      }
+      n = sn.n;
+    }
     const hl = Math.hypot(n[0], n[2]);
     const into = hl > 1e-3 ? -(ux * n[0] + uz * n[2]) / hl : 0;
     const minNY = floorNY === DUG_FLOOR_NY ? GRAB_MIN_NY_DUG : GRAB_MIN_NY;
@@ -1228,20 +1267,29 @@ export class CrabController {
       pz += m[2] * (RADIUS - d);
     }
     const d = w.climbSolid(px, py, pz);
-    const m = w.climbNormal(px, py, pz);
+    // 面の向き：まわりの点の法線を平均する（小さな出っ張り・くぼみで体の向きが跳ねない）
+    const sn = this.surfaceNormal(px, py, pz);
+    const m = sn.n;
+    let cover = sn.cover;
     // 凹んだ角：進む向きの少し先に別の面があれば、その面の向きも混ぜる（壁を登って天井に頭が当たったら、天井の向きへ早めに起こす）
     const vl = Math.hypot(this.vx, this.vy, this.vz);
     if (vl > 0.3) {
       const ax = px + (this.vx / vl) * 0.16, ay = py + (this.vy / vl) * 0.16, az = pz + (this.vz / vl) * 0.16;
       const da = w.climbSolid(ax, ay, az);
       if (da < RADIUS + 0.04) {
-        const ma = w.climbNormal(ax, ay, az);
+        const sa = this.surfaceNormal(ax, ay, az);
+        const ma = sa.n;
         const wgt = clamp((RADIUS + 0.04 - da) / 0.12, 0, 1);
         for (let q = 0; q < 3; q++) m[q] += ma[q] * wgt;
         const ml = Math.hypot(m[0], m[1], m[2]) || 1;
         m[0] /= ml; m[1] /= ml; m[2] /= ml;
+        cover = Math.max(cover, sa.cover);
       }
     }
+    // 狭い出っ張り（cover が小さい）の上では、張り出した向きへは起こさない（かすめた突起で裏返らない）。
+    // 広い張り出し・天井へは、位置が面に沿って回り込むのに合わせて向きも変える（体の向きが実際の面から遅れない）
+    const narrowFlip = cover < NORMAL_COVER_MIN && m[1] < INVERT_NY && n[1] >= INVERT_NY;
+    if (narrowFlip) this.ceilStats.narrowSkips++;
     // 押しても進めない（凹凸に引っかかった・継ぎ目の棚の段）：しばらく続いたら縁を回り込む道を探す
     const moved = Math.hypot(px - this.x, py - cy, pz - this.z);
     this.stuckT = hasInput && moved < 0.25 * sp * dt ? this.stuckT + dt : 0;
@@ -1264,11 +1312,60 @@ export class CrabController {
       this.groundN[1] = m[1];
       this.groundN[2] = m[2];
       if (this.vy > 0) this.vy = 0;
-    } else {
-      const kn = 1 - Math.exp(-dt * 14);
-      this.setClimbN(n[0] + (m[0] - n[0]) * kn, n[1] + (m[1] - n[1]) * kn, n[2] + (m[2] - n[2]) * kn);
+    } else if (!narrowFlip) {
+      this.turnClimbN(m, dt);
     }
     return [px, py, pz];
+  }
+
+  /**
+   * 張り付いている面の向きを目標 m へ寄せる：なめらかに追うが、1 秒あたり CLIMB_TURN_RATE ラジアンより速くは回さない
+   * （壁から天井へ回り込むとき、体が自然に起き上がる。面が切り替わる瞬間に向きが跳ねない）
+   */
+  private turnClimbN(m: readonly number[], dt: number) {
+    const n = this.climbN;
+    const c = clamp(n[0] * m[0] + n[1] * m[1] + n[2] * m[2], -1, 1);
+    const ang = Math.acos(c);
+    if (ang < 1e-4) return;
+    let step = ang * (1 - Math.exp(-dt * 14));
+    if (step > CLIMB_TURN_RATE * dt) {
+      step = CLIMB_TURN_RATE * dt;
+      this.ceilStats.turnCapped++;
+    }
+    // 回転の軸 n × m（ほぼ逆向きなら、体の前を軸に）
+    let ax = n[1] * m[2] - n[2] * m[1], ay = n[2] * m[0] - n[0] * m[2], az = n[0] * m[1] - n[1] * m[0];
+    let al = Math.hypot(ax, ay, az);
+    if (al < 1e-5) {
+      [ax, ay, az] = this.bodyF;
+      al = Math.hypot(ax, ay, az) || 1;
+    }
+    const v = [n[0], n[1], n[2]];
+    rotateAbout(v, [ax / al, ay / al, az / al], step);
+    this.setClimbN(v[0], v[1], v[2]);
+  }
+
+  /**
+   * 面の向きを、点のまわりで平均して測る：中心と、面に沿って NORMAL_SAMPLE_R 離れた 6 点のうち、面の近くにある点の法線の平均。
+   * cover = 中心の法線とそろう（0.7 以上）面に触れている点の数（中心を含め最大 7。小さいほど狭い出っ張り）
+   */
+  surfaceNormal(px: number, py: number, pz: number): { n: [number, number, number]; cover: number } {
+    const w = this.world;
+    const n0 = w.climbNormal(px, py, pz);
+    const t1 = tangentUnit(Math.abs(n0[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0], n0);
+    const t2: [number, number, number] = [n0[1] * t1[2] - n0[2] * t1[1], n0[2] * t1[0] - n0[0] * t1[2], n0[0] * t1[1] - n0[1] * t1[0]];
+    let sx = n0[0], sy = n0[1], sz = n0[2], cover = 1;
+    for (let k = 0; k < 6; k++) {
+      const a = (k * Math.PI) / 3, ca = Math.cos(a) * NORMAL_SAMPLE_R, sa = Math.sin(a) * NORMAL_SAMPLE_R;
+      const qx = px + t1[0] * ca + t2[0] * sa, qy = py + t1[1] * ca + t2[1] * sa, qz = pz + t1[2] * ca + t2[2] * sa;
+      if (w.climbSolid(qx, qy, qz) > RADIUS + 0.1) continue;
+      const m = w.climbNormal(qx, qy, qz);
+      sx += m[0];
+      sy += m[1];
+      sz += m[2];
+      if (m[0] * n0[0] + m[1] * n0[1] + m[2] * n0[2] > 0.7) cover++;
+    }
+    const l = Math.hypot(sx, sy, sz) || 1;
+    return { n: [sx / l, sy / l, sz / l], cover };
   }
 
   /**

@@ -78,6 +78,11 @@ export class AquariumDigFx {
   private readonly plantsByChunk = new Map<number, { x: number; y: number; z: number; idx: number[]; done: boolean }[]>();
   private readonly pebblesByChunk = new Map<number, number[]>();
   private readonly hiddenPebble: Uint8Array;
+  /**
+   * 根元の砂が無くなった景色の小石（番号）を、消す代わりに物理の物にして落とす（AquaDecor.pebbleLost。true = 引き受けた）。
+   * 無い・false なら従来どおり消す
+   */
+  pebbleLost: ((k: number) => boolean) | null = null;
   private readonly grains: Grain[] = [];
   private readonly maxGrains = 1400;
   private readonly grainGeo: THREE.BufferGeometry;
@@ -232,6 +237,11 @@ export class AquariumDigFx {
         if (this.hiddenPebble[k]) continue;
         const p = d.pebbles.list[k];
         if (w.sandSolid(p.x, p.bottom - 0.02, p.z) <= 0 && w.sandSolid(p.x, p.y, p.z) > -0.2) continue;
+        // 物理の物にして落とせた：消さない（この後は AquaDecor が頂点を動かす）
+        if (this.pebbleLost?.(k)) {
+          this.hiddenPebble[k] = 1;
+          continue;
+        }
         // 頂点を 1 点に集めて三角形を潰す
         for (let v = p.v0; v < p.v0 + p.vn; v++) pos.setXYZ(v, p.x, p.y, p.z);
         pos.addUpdateRange(p.v0 * 3, p.vn * 3);
