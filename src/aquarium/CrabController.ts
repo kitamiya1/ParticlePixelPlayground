@@ -110,6 +110,12 @@ export interface CrabInput {
    * 使わず、穴へ向いて、穴から PULL_STAND（+ 進み具合で少し後ろへ）の所に踏ん張る
    */
   pull?: { x: number; z: number; t: number } | null;
+  /**
+   * 鋏で挟んでいる物の手応え（AquaGrab.tow）。a = 物が鋏を引く力の反作用の加速度（世界）、slow = 速さの上限に掛ける割合。
+   * 横の力は歩いていても効き（重い物を引きずると遅くなり、勢いのついた物に引き戻される）、縦の力は接地していない
+   * ときだけ効く（重い物を挟んで泳ぐと沈みやすい。立っているカニは持ち上げない）。壁・天井に張り付いている間は使わない
+   */
+  tow?: { ax: number; ay: number; az: number; slow: number } | null;
 }
 
 /** 引っ張るときに立つ距離（穴の中心から体の中心まで。AquaBuddy.PULL_STAND と同じ） */
@@ -595,6 +601,8 @@ export class CrabController {
         maxSpeed = DIG_MOVE_SPEED;
         accel = 10;
       }
+      // 挟んでいる物が重いほど遅く歩く
+      if (inp.tow) maxSpeed *= inp.tow.slow;
       let tvx = mx * maxSpeed, tvz = mz * maxSpeed;
       // 引っ張っている間：穴から PULL_STAND（抜けてくるほど少し後ろへ下がる）の所へ寄る
       if (this.pulling) {
@@ -611,6 +619,12 @@ export class CrabController {
         this.hopT = 0;
         this.vx += (tvx - this.vx) * k;
         this.vz += (tvz - this.vz) * k;
+      }
+      // 挟んでいる物の反作用（管の中は水の流れに任せる）
+      if (inp.tow && !ride) {
+        this.vx += inp.tow.ax * dt;
+        this.vz += inp.tow.az * dt;
+        if (!this.grounded) this.vy += inp.tow.ay * dt;
       }
 
       // 縦方向：重力・浮力・水の抵抗・遊泳の推力
@@ -835,7 +849,9 @@ export class CrabController {
       const move = Math.atan2(this.vx, this.vz);
       const a = wrap(move + Math.PI / 2 - this.heading), b = wrap(move - Math.PI / 2 - this.heading);
       const d = Math.abs(a) < Math.abs(b) ? a : b;
-      this.heading = wrap(this.heading + d * (1 - Math.exp(-(this.grounded ? 7 : 3) * dt)));
+      // 鋏で物を挟んでいる間はゆっくり向きを変える（速く回ると鋏の先が大きく振れ、物が振り落とされる）
+      const turn = (this.grounded ? 7 : 3) * (inp.tow ? 0.35 : 1);
+      this.heading = wrap(this.heading + d * (1 - Math.exp(-turn * dt)));
     }
     // 体の向き基準の速度（+x = 左, +z = 前）
     if (this.climbing || this.frameMode) {

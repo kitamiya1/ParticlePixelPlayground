@@ -19,6 +19,7 @@ import { LAMP_DIR, TANK, type AquariumWorld } from './AquariumWorld';
 import { buildStandMeshes, SLEEVE_PAD } from './AquariumStandBuild';
 import { DIG, type DigView } from './AquariumDig';
 import { crabParts } from './crabModel';
+import { PROP_KIND, type PropKind } from './AquaGrab';
 
 const u8 = (v: number) => Math.max(0, Math.min(255, Math.round(v * 255)));
 
@@ -1211,6 +1212,49 @@ export function buildBuddyMesh(): TriMesh {
     return mb.vertex(x, y, z, nx, ny, nz, u8(c[0]), u8(c[1]), u8(c[2]), antenna, smoothstep(0.02, -0.22, z));
   });
   return mb.finish();
+}
+
+/**
+ * 挟める物（AquaGrab の Prop）：小石・貝殻・重い石。大きさ 1 の物の座標（中心 = 当たり判定の楕円体の中心）で作り、
+ * 描画側で位置・向き・大きさを掛ける。形は当たり判定の楕円体（PROP_KIND の semi）にほぼ合わせる（砂やガラスに埋まって
+ * 見えない・浮いて見えない）。色は頂点に持つ（aMisc.x = 1, aMisc.y = 0：creatureVertex の尾の動きを使わない）
+ */
+export function buildPropMeshes(): Record<PropKind, TriMesh> {
+  const out = {} as Record<PropKind, TriMesh>;
+  for (const kind of Object.keys(PROP_KIND) as PropKind[]) {
+    const [a, b, c] = PROP_KIND[kind].semi;
+    const mb = new MeshBuilder();
+    let sdf: Sdf;
+    let color: (x: number, y: number, z: number, ny: number) => RGB;
+    if (kind === 'shell') {
+      // 二枚貝の殻：上は放射状の筋の入ったふくらみ、下は浅いお椀（伏せた殻）。付け根（−z）を少し尖らせる
+      sdf = (x, y, z) => {
+        const top = sdEllipsoid(x, y, z, 0, -b * 0.85, 0, a, b * 1.75, c);
+        return Math.max(top, -y - b * 0.95) + Math.max(0, -z - c * 0.45) * 0.3 - Math.max(0, Math.sin(Math.atan2(x, z + c * 0.5) * 18)) * 0.0025;
+      };
+      const c0 = hex('#f1dcc0'), c1 = hex('#d88a5a'), c2 = hex('#fbf1de');
+      color = (x, y, z, ny) => (ny < -0.5 ? c2 : mixRGB(c0, c1, (Math.sin(Math.atan2(x, z + c * 0.5) * 18) * 0.5 + 0.5) * 0.55 + Math.max(0, -z / c) * 0.25));
+    } else {
+      // 石：つぶれた楕円体に、ゆるい凹凸。小石は明るい黄土色に斑点（景色の暗い小石と見分けられるように）、重い石は青灰色
+      const bump = kind === 'stone' ? 0.012 : 0.005;
+      sdf = (x, y, z) => sdEllipsoid(x, y, z, 0, 0, 0, a, b, c) - noise3((x / a) * 1.4, (y / a) * 1.4, (z / a) * 1.4, kind === 'stone' ? 31 : 17) * bump;
+      const base = kind === 'stone' ? [hex('#66707a'), hex('#8e989e')] : [hex('#b09068'), hex('#dcc49a')];
+      const fleck = kind === 'stone' ? hex('#3e4448') : hex('#5e5244');
+      color = (x, y, z, ny) => {
+        const m = noise3(x * 40, y * 40, z * 40, 5) * 0.5 + 0.5;
+        let col = mixRGB(base[0], base[1], clamp(m * 1.2 + ny * 0.15, 0, 1));
+        if (noise3(x * 95, y * 95, z * 95, 9) > 0.55) col = mixRGB(col, fleck, 0.6);
+        return col;
+      };
+    }
+    const m = Math.max(a, b, c) + 0.03;
+    surfaceNets(sdf, { min: [-m, -m, -m], max: [m, m, m] }, kind === 'stone' ? 0.016 : 0.009, mb, (x, y, z, nx, ny, nz) => {
+      const col = color(x, y, z, ny);
+      return mb.vertex(x, y, z, nx, ny, nz, u8(col[0]), u8(col[1]), u8(col[2]), 1, 0);
+    });
+    out[kind] = mb.finish();
+  }
+  return out;
 }
 
 /** 巣穴の口：地表の小さな盛り上がりの輪と、中の暗い穴（地形の高さに沿わせる） */

@@ -65,6 +65,8 @@ export class Input {
   touchDig = false;
   /** 画面の「調べる / 引っこ抜く」ボタン（水槽ゲーム用。押している間 true） */
   touchAct = false;
+  /** 画面の「挟む」ボタン（水槽ゲーム用。押している間 true） */
+  touchGrab = false;
   /** 画面の掘るボタンを押したままずらした照準（x = 右, y = 上、長さ 0〜1） */
   touchDigAim = { x: 0, y: 0 };
   /** マウスの右ボタンで掘る（水槽ゲームだけ true。false なら右ドラッグは従来どおり平行移動） */
@@ -218,7 +220,7 @@ export class Input {
     this.keys.clear();
     this.touches.clear();
     this.touchMove = { x: 0, y: 0 };
-    this.touchRun = this.touchJump = this.touchDig = this.touchAct = false;
+    this.touchRun = this.touchJump = this.touchDig = this.touchAct = this.touchGrab = false;
     this.touchDigAim = { x: 0, y: 0 };
     this.mouseDigOn = false;
     this.mouseDigAim = { x: 0, y: 0 };

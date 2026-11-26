@@ -262,3 +262,24 @@ body.aqua #touch-ui .dig.fill.on { background: rgba(200, 255, 154, 0.92); color:
 #hud .sandn { font-size: 11px; color: #f2e2b8; margin-left: 6px; white-space: nowrap; }
 #hud .tag.tool { background: #7a5a2e; margin-left: 6px; }
 #hud .tag.tool.fill { background: #5a7a2e; }
+
+/* 挟む（右の大きな鋏）：タッチの「挟む」ボタン。ダッシュと掘るボタンの左（スティックの右）。押したまま指をずらすと視点を回せる。
+   届く物があるときは縁を明るくする（ready）。幅の狭い縦長の画面ではスティックと重なるので、掘る ↔ 盛る の切り替えの上へ */
+body.aqua #touch-ui .grab { position: fixed; right: calc(214px + env(safe-area-inset-right)); bottom: calc(64px + env(safe-area-inset-bottom));
+  width: 78px; height: 78px; border-radius: 50%; font-size: 15px; font-weight: 700; color: #fff1ea; background: rgba(150, 64, 44, 0.78);
+  border: 2px solid rgba(255, 214, 196, 0.45); touch-action: none; user-select: none; -webkit-user-select: none; z-index: 3; }
+body.aqua #touch-ui .grab span { position: relative; pointer-events: none; }
+body.aqua #touch-ui .grab.ready { border-color: rgba(255, 236, 160, 0.95); box-shadow: 0 0 0 3px rgba(255, 220, 140, 0.35); }
+body.aqua #touch-ui .grab.on { background: rgba(255, 158, 120, 0.94); color: #2a120a; }
+body.aqua #touch-ui .grab.look span { opacity: 0.55; }
+@media (max-width: 460px) {
+  body.aqua #touch-ui .grab { right: calc(122px + env(safe-area-inset-right)); bottom: calc(236px + env(safe-area-inset-bottom)); width: 80px; height: 80px; }
+}
+/* 挟む：届く物の案内（PC。物の上に小さく出す）と、HUD の挟んでいる物 */
+#grab-hint { position: fixed; left: 0; top: 0; display: none; pointer-events: none; z-index: 2; white-space: nowrap; font-size: 12px; color: #fff1ea;
+  background: rgba(40, 18, 12, 0.72); border: 1px solid rgba(255, 190, 160, 0.5); border-radius: 6px; padding: 1px 7px; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8); }
+#grab-hint.show { display: block; }
+#grab-hint kbd { display: inline-block; min-width: 16px; padding: 0 3px; border-radius: 3px; background: rgba(255, 255, 255, 0.18); font: inherit; font-size: 11px; text-align: center; }
+#hud .tag.grab { background: #8a3e2a; margin-left: 6px; }
+#hud .tag.grab.heavy { background: #a8562a; }
+#hud .tag.grab.off { display: none; }

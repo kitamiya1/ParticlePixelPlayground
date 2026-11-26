@@ -26,7 +26,15 @@ export interface TouchControlsOptions {
    * ふだんは隠れていて、setAct で文字を入れたときだけ出る
    */
   act?: boolean;
+  /**
+   * 挟むボタン（押している間 Input.touchGrab = true。水槽ゲームの「挟む」）。押したまま指をずらすと視点を回せる
+   * （挟んだまま、左のスティックで歩きながら右の指で見回せる。指がボタンの外へ出ても続く）
+   */
+  grab?: boolean;
 }
+
+/** 挟むボタンを押したまま指をずらしたとき、視点の回転に使い始めるずれ（CSS px） */
+const GRAB_LOOK_DEAD = 10;
 
 export class TouchControls {
   readonly root: HTMLElement;
@@ -40,7 +48,8 @@ export class TouchControls {
       <button class="jump" type="button">ジャンプ</button>` : ''}${opts.dig ? `
       <button class="dig" type="button"><i class="aim"></i><span>掘る</span></button>` : ''}${opts.onCamera ? `
       <button class="cam" type="button">カメラ</button>` : ''}${opts.act ? `
-      <button class="act" type="button"><i class="ring"></i><span></span></button>` : ''}`;
+      <button class="act" type="button"><i class="ring"></i><span></span></button>` : ''}${opts.grab ? `
+      <button class="grab" type="button"><span>挟む</span></button>` : ''}`;
     document.body.appendChild(this.root);
     const act = this.root.querySelector<HTMLButtonElement>('.act');
     if (act) this.bindHold(act, (on) => (this.input.touchAct = on));
@@ -50,6 +59,8 @@ export class TouchControls {
     if (jump) this.bindHold(jump, (on) => (this.input.touchJump = on));
     const dig = this.root.querySelector<HTMLButtonElement>('.dig');
     if (dig) this.bindDig(dig);
+    const grab = this.root.querySelector<HTMLButtonElement>('.grab');
+    if (grab) this.bindGrab(grab);
     const cam = this.root.querySelector<HTMLButtonElement>('.cam');
     if (cam && opts.onCamera) {
       const fn = opts.onCamera;
@@ -151,6 +162,56 @@ export class TouchControls {
     });
     btn.addEventListener('contextmenu', (e) => e.preventDefault());
     this.input.onReset(clear);
+  }
+
+  /**
+   * 挟むボタン：押している間は挟む。押したまま指をずらすと（GRAB_LOOK_DEAD を越えたら）、その動きで視点を回す
+   * （画面のドラッグと同じ Input.dragDX / dragDY）。1 本の指だけを使い、2 本目で押し直したら新しい指に付け替える
+   */
+  private bindGrab(btn: HTMLButtonElement) {
+    let id = -1;
+    let ox = 0, oy = 0, lx = 0, ly = 0, look = false;
+    const clear = () => {
+      id = -1;
+      look = false;
+      this.input.touchGrab = false;
+      btn.classList.remove('on', 'look');
+    };
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      if (id !== -1) this.input.release(id);
+      const mine = e.pointerId;
+      id = mine;
+      ox = lx = e.clientX;
+      oy = ly = e.clientY;
+      look = false;
+      capture(btn, mine);
+      this.input.claim(e, {
+        move: (ev) => {
+          if (id !== mine) return;
+          if (!look && Math.hypot(ev.clientX - ox, ev.clientY - oy) > GRAB_LOOK_DEAD) {
+            look = true;
+            btn.classList.add('look');
+          }
+          if (look) {
+            this.input.dragDX += ev.clientX - lx;
+            this.input.dragDY += ev.clientY - ly;
+          }
+          lx = ev.clientX;
+          ly = ev.clientY;
+        },
+        end: () => id === mine && clear(),
+      });
+      this.input.touchGrab = true;
+      btn.classList.add('on');
+    });
+    btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    this.input.onReset(clear);
+  }
+
+  /** 挟むボタンに「届く物がある」印を付ける（押す前の案内） */
+  setGrabReady(ready: boolean) {
+    this.root.querySelector('.grab')?.classList.toggle('ready', ready);
   }
 
   private bindStick(base: HTMLElement) {
