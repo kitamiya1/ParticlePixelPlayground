@@ -151,7 +151,8 @@ export class TouchControls {
       this.input.claim(e, {
         move: (ev) => {
           if (id !== mine) return;
-          this.input.touchDigAim = digAimFromOffset(ev.clientX - ox, ev.clientY - oy, DIG_AIM.touchRadius);
+          const k = this.input.pointerScale;
+          this.input.touchDigAim = digAimFromOffset((ev.clientX - ox) * k, (ev.clientY - oy) * k, DIG_AIM.touchRadius);
           show();
         },
         end: () => id === mine && clear(),
@@ -189,13 +190,14 @@ export class TouchControls {
       this.input.claim(e, {
         move: (ev) => {
           if (id !== mine) return;
-          if (!look && Math.hypot(ev.clientX - ox, ev.clientY - oy) > GRAB_LOOK_DEAD) {
+          const k = this.input.pointerScale;
+          if (!look && Math.hypot(ev.clientX - ox, ev.clientY - oy) * k > GRAB_LOOK_DEAD) {
             look = true;
             btn.classList.add('look');
           }
           if (look) {
-            this.input.dragDX += ev.clientX - lx;
-            this.input.dragDY += ev.clientY - ly;
+            this.input.dragDX += (ev.clientX - lx) * k;
+            this.input.dragDY += (ev.clientY - ly) * k;
           }
           lx = ev.clientX;
           ly = ev.clientY;
@@ -219,8 +221,10 @@ export class TouchControls {
     let id = -1;
     const update = (e: PointerEvent) => {
       const r = base.getBoundingClientRect();
-      let dx = e.clientX - (r.left + r.width / 2);
-      let dy = e.clientY - (r.top + r.height / 2);
+      // （ページが拡大されたまま画面を置き直している間は、指のずれが小さく届くので pointerScale で戻す）
+      const k = this.input.pointerScale;
+      let dx = (e.clientX - (r.left + r.width / 2)) * k;
+      let dy = (e.clientY - (r.top + r.height / 2)) * k;
       const len = Math.hypot(dx, dy);
       if (!Number.isFinite(len)) return;
       if (len > STICK_RADIUS) {

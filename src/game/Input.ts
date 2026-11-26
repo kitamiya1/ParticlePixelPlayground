@@ -71,6 +71,11 @@ export class Input {
   touchDigAim = { x: 0, y: 0 };
   /** マウスの右ボタンで掘る（水槽ゲームだけ true。false なら右ドラッグは従来どおり平行移動） */
   mouseDig = false;
+  /**
+   * 指・マウスの動き（clientX/Y の差）に掛ける倍率（ふだん 1）。水槽ゲームでページ自体が拡大されたまま、画面を見えている
+   * 範囲へ置き直している間（AquaViewport）は、指の動きが拡大の分だけ小さく届くので、その倍率を入れて元の大きさに戻す
+   */
+  pointerScale = 1;
   /** マウスの右ボタンで掘っている間・その照準 */
   private mouseDigOn = false;
   private mouseDigAim = { x: 0, y: 0 };
@@ -168,7 +173,7 @@ export class Input {
       let lastX = e.clientX, lastY = e.clientY;
       this.claim(e, {
         move: (ev) => {
-          const dx = ev.clientX - lastX, dy = ev.clientY - lastY;
+          const dx = (ev.clientX - lastX) * this.pointerScale, dy = (ev.clientY - lastY) * this.pointerScale;
           lastX = ev.clientX;
           lastY = ev.clientY;
           if (mode === 1) {
@@ -290,7 +295,7 @@ export class Input {
   private touchMoved(id: number, e: PointerEvent) {
     const t = this.touches.get(id);
     if (!t) return;
-    const dx = e.clientX - t.x, dy = e.clientY - t.y;
+    const dx = (e.clientX - t.x) * this.pointerScale, dy = (e.clientY - t.y) * this.pointerScale;
     t.x = e.clientX;
     t.y = e.clientY;
     if (this.touches.size === 1) {
@@ -303,8 +308,8 @@ export class Input {
       const dist = Math.hypot(a.x - b.x, a.y - b.y);
       const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
       if (this.pinchDist > 0 && dist > 0) this.wheel += Math.log(this.pinchDist / dist) / Math.log(1.12);
-      this.panDX += mid.x - this.pinchMid.x;
-      this.panDY += mid.y - this.pinchMid.y;
+      this.panDX += (mid.x - this.pinchMid.x) * this.pointerScale;
+      this.panDY += (mid.y - this.pinchMid.y) * this.pointerScale;
       this.pinchDist = dist;
       this.pinchMid = mid;
     }

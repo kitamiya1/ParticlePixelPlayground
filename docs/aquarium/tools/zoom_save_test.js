@@ -1,4 +1,4 @@
-// ページの拡大の知らせ（AquaViewport.ts）の「保存して読み込み直す」「進捗を書き出す」と、保存の説明が実際の保存の状態と
+// ページの拡大の知らせ（AquaViewport.ts）の「保存して開き直す」（以前の「保存して読み込み直す」。2026-11-26 から URL を新しく開く）「進捗を書き出す」と、保存の説明が実際の保存の状態と
 // 一致するかの検証（Playwright + CDP。Chromium のスマホの模擬：390×844・タッチ）。
 // ページの拡大は Emulation.setPageScaleFactor（2.2 倍）で作る。読み込み直したかは window.__mark が消えたかで見る。
 // 1. 保存済み → 保存して読み込み直す（読み込み直す）
@@ -34,13 +34,13 @@ async (page) => {
   };
   const st = (p, label) => p.evaluate((label) => {
     const n = document.getElementById('zoom-fix'), a = window.__aqua;
-    const sv = n.querySelector('[data-k="save"]'), rb = n.querySelector('[data-k="reload"]');
+    const sv = n.querySelector('[data-k="save"]'), rb = n.querySelector('[data-k="reopen"]');
     return { label, alive: window.__mark === 1, shown: n.classList.contains('show'), kind: sv.dataset.state, text: sv.textContent, reload: rb.textContent, danger: rb.classList.contains('danger'), saver: a.save.saver.state, guard: { ...a.viewport.stats } };
   }, label);
   // 押して、読み込み直したか（load が来たか）を返す
   const tapReload = async (p, ms = 2500) => {
     const loaded = p.waitForEvent('load', { timeout: ms }).then(() => true, () => false);
-    await p.locator('#zoom-fix [data-k="reload"]').tap();
+    await p.locator('#zoom-fix [data-k="reopen"]').tap();
     const r = await loaded;
     if (r) await boot(p);
     return r;

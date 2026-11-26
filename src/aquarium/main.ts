@@ -26,6 +26,7 @@ import { SAVE_FORMAT, SAVE_VERSION, SaveStore, type LoadResult, type SaveContext
 import { AutoSaver, SaveMenu } from './AquaSaveUi';
 import { HelpPanel } from './AquaHelp';
 import { ViewportGuard } from './AquaViewport';
+import { AquaHud } from './AquaHud';
 
 /** いまの水槽の id（保存データの tanks の鍵。将来の隣の水槽は別の id） */
 const HOME_TANK = 'home';
@@ -122,28 +123,16 @@ async function boot() {
 
   // ---------------- 画面の表示 ----------------
   const touch = isTouchDevice();
-  const hud = document.createElement('div');
-  hud.id = 'hud';
-  hud.innerHTML = `
-    <div class="card"><div class="title">水槽探検</div>
-      <div class="row"><span class="place" id="h-place">—</span></div>
-      <div class="row"><span class="tag" id="h-zone">水中</span><span class="tag cam" id="h-cam"></span><span id="h-state"></span><span class="tag dig off" id="h-dig"></span><span class="tag grab off" id="h-grab"></span></div>
-      <div class="row"><span class="sub">発見</span><span id="h-found"></span></div>
-      <div class="row"><span class="sub">遊泳</span><span class="bar"><i id="h-swim"></i></span></div>
-      <div class="row"><span class="sub">砂</span><span class="bar sand"><i id="h-sand"></i></span><span class="sandn" id="h-sandn"></span><span class="tag tool" id="h-tool"></span></div>
-      <div class="sub" id="h-perf"></div>
-      <div class="sub" id="h-digperf"></div>
-      <div class="sub"><a href="./index.html">描画方式の比較へ</a></div>
-    </div>`;
-  document.body.appendChild(hud);
-  const $ = (id: string) => document.getElementById(id)!;
+  const diagMode = new URLSearchParams(location.search).has('diag');
+  // 左上の表示：ふだんは小さく（場所・砂・必要なときの状態）。FPS などは「詳細」の欄（?diag では開いた状態で始める）
+  const hud = new AquaHud({ forceDetail: diagMode });
   // 操作の説明（右上の「？」で開く。初回だけ自動で出し、「×」で閉じたら次からは出さない）。欄は右上のメニューを作った後に作る
   const helpBrief = touch
     ? `<p>左のスティックで移動、右の「ジャンプ」で跳ぶ・「掘る」で砂を掘る・「挟む」を押している間 ハサミで小石や貝殻を挟む。画面をドラッグで視点を回し、2 本指でズーム。</p><p class="hint">詳しい操作は、右上の「？」でいつでも見られます。</p>`
     : `<p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で移動、<kbd>Space</kbd> で跳ぶ、<kbd>F</kbd> で砂を掘る、<kbd>E</kbd> を押している間 ハサミで小石や貝殻を挟む。ドラッグで視点を回し、ホイールでズーム。</p><p class="hint">詳しい操作は、右上の「？」でいつでも見られます。</p>`;
   const helpFull = touch
-    ? `<ul><li>左スティック：移動。ダッシュ：押している間</li><li>ジャンプ：跳ぶ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へスティックを倒し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（跳んで・泳いで天井に触れても張り付く。ジャンプで離れる）</li><li>掘る：押している間 前の砂を掘る。押したまま指をずらすと、その向き（上・下・左右・斜め）を掘る。掘りながらスティックで好きな向きへ動ける</li><li>盛る：「掘る」ボタンの上の切り替えで「盛る」にすると、同じボタンで手持ちの砂を置ける（押している間 少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>画面ドラッグ：視点の回転。2 本指：カメラのズーム</li><li>カメラ：冒険 / ガラス越し（水槽の外から地下の穴を観察）/ 箱庭の切り替え</li><li>挟む：押している間、右の大きなハサミを閉じて、届く所の小石・貝殻を挟む（離すと放す）。挟んだまま歩く・泳ぐと引っ張られてついてくる。重い石は持ち上がらず引きずる（陸の上では動かない）。押したまま指をずらすと視点を回せる。ボタンの縁が明るいときは届く物がある</li><li>引っこ抜く：巣穴から見えている触角を「挟む」で挟み、挟んだままスティックで後ろへ下がって引っ張る（押しているだけでは抜けない）。暴れているときに引きすぎるとハサミが滑る（震えたら少しゆるめる）。力が抜けた隙に引くと出てくる。離すと穴へ戻っていく</li><li>仲間：右上のボタンで「呼ぶ（同行）/ 自由に暮らす」を切り替え</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li>右上の「？」：この説明</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`
-    : `<ul><li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る</li><li><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へ押し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（跳んで・泳いで天井に触れても張り付く。<kbd>Space</kbd> で離れる）</li><li><kbd>F</kbd> 長押し：掘る（押したままマウスを動かすと上下左右・斜めを狙う。掘りながら <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で好きな向きへ動ける）</li><li>右ボタンを押したままドラッグ：その向きを掘る</li><li><kbd>G</kbd> 掘る ↔ 盛る の切り替え。盛るのときは <kbd>F</kbd> 長押しで手持ちの砂を置く（少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>ドラッグ：視点回転　ホイール：ズーム</li><li><kbd>V</kbd> カメラ切替（冒険 / ガラス越し / 箱庭。ガラス越しはガラス際まで掘った穴を外から観察）　<kbd>R</kbd> スタート地点へ</li><li><kbd>E</kbd> 押している間：右の大きなハサミを閉じて、届く所の小石・貝殻を挟む（離すと放す）。挟んだまま歩く・泳ぐと引っ張られてついてくる。重い石は持ち上がらず引きずる（陸の上では動かない）。挟んだままマウスのドラッグで見回せる</li><li>引っこ抜く：巣穴から見えている触角を <kbd>E</kbd> で挟み、押したまま <kbd>S</kbd> などで後ろへ下がって引っ張る（押しているだけでは抜けない）。暴れているときに引きすぎる（<kbd>Shift</kbd> で急に引く等）とハサミが滑る（震えたら少しゆるめる）。力が抜けた隙に引くと出てくる。離すと穴へ戻っていく　<kbd>Q</kbd> 仲間を呼ぶ / 自由に暮らす（右上のボタンでも）</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li><kbd>H</kbd> または右上の「？」：この説明の表示 / 非表示</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`;
+    ? `<ul><li>左スティック：移動。ダッシュ：押している間</li><li>ジャンプ：跳ぶ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へスティックを倒し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（跳んで・泳いで天井に触れても張り付く。ジャンプで離れる）</li><li>掘る：押している間 前の砂を掘る。押したまま指をずらすと、その向き（上・下・左右・斜め）を掘る。掘りながらスティックで好きな向きへ動ける</li><li>盛る：「掘る」ボタンの上の切り替えで「盛る」にすると、同じボタンで手持ちの砂を置ける（押している間 少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>画面ドラッグ：視点の回転。2 本指：カメラのズーム</li><li>カメラ：冒険 / ガラス越し（水槽の外から地下の穴を観察）/ 箱庭の切り替え</li><li>挟む：押している間、右の大きなハサミを閉じて、届く所の小石・貝殻を挟む（離すと放す）。挟んだまま歩く・泳ぐと引っ張られてついてくる。重い石は持ち上がらず引きずる（陸の上では動かない）。押したまま指をずらすと視点を回せる。ボタンの縁が明るいときは届く物がある</li><li>引っこ抜く：巣穴から見えている触角を「挟む」で挟み、挟んだままスティックで後ろへ下がって引っ張る（押しているだけでは抜けない）。暴れているときに引きすぎるとハサミが滑る（震えたら少しゆるめる）。力が抜けた隙に引くと出てくる。離すと穴へ戻っていく</li><li>仲間：右上のボタンで「呼ぶ（同行）/ 自由に暮らす」を切り替え</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li>右上の「？」：この説明</li><li>左上の「詳細」：区画・発見の数・FPS・画面の倍率の記録など（× で閉じる）</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`
+    : `<ul><li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る</li><li><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へ押し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（跳んで・泳いで天井に触れても張り付く。<kbd>Space</kbd> で離れる）</li><li><kbd>F</kbd> 長押し：掘る（押したままマウスを動かすと上下左右・斜めを狙う。掘りながら <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で好きな向きへ動ける）</li><li>右ボタンを押したままドラッグ：その向きを掘る</li><li><kbd>G</kbd> 掘る ↔ 盛る の切り替え。盛るのときは <kbd>F</kbd> 長押しで手持ちの砂を置く（少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>ドラッグ：視点回転　ホイール：ズーム</li><li><kbd>V</kbd> カメラ切替（冒険 / ガラス越し / 箱庭。ガラス越しはガラス際まで掘った穴を外から観察）　<kbd>R</kbd> スタート地点へ</li><li><kbd>E</kbd> 押している間：右の大きなハサミを閉じて、届く所の小石・貝殻を挟む（離すと放す）。挟んだまま歩く・泳ぐと引っ張られてついてくる。重い石は持ち上がらず引きずる（陸の上では動かない）。挟んだままマウスのドラッグで見回せる</li><li>引っこ抜く：巣穴から見えている触角を <kbd>E</kbd> で挟み、押したまま <kbd>S</kbd> などで後ろへ下がって引っ張る（押しているだけでは抜けない）。暴れているときに引きすぎる（<kbd>Shift</kbd> で急に引く等）とハサミが滑る（震えたら少しゆるめる）。力が抜けた隙に引くと出てくる。離すと穴へ戻っていく　<kbd>Q</kbd> 仲間を呼ぶ / 自由に暮らす（右上のボタンでも）</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li><kbd>H</kbd> または右上の「？」：この説明の表示 / 非表示</li><li><kbd>I</kbd> または左上の「詳細」：区画・発見の数・FPS・画面の倍率の記録などの表示 / 非表示</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`;
   let help: HelpPanel | null = null;
   const marker = document.createElement('div');
   marker.id = 'crab-marker';
@@ -189,6 +178,7 @@ async function boot() {
   };
   input.onPress('KeyV', toggleCamera);
   input.onPress('KeyH', () => help?.toggle());
+  input.onPress('KeyI', () => hud.toggle());
   input.onPress('KeyR', () => {
     grab.release();
     crab.teleport(world.spawn.x, world.spawn.z);
@@ -260,9 +250,9 @@ async function boot() {
     ...props.props.map((p) => ({ x: p.p[0], y: p.p[1], z: p.p[2], r: p.rb + 0.04 })),
   ];
 
+  // （レイアウトの大きさで測る：ページが拡大されたまま画面を見えている範囲へ置き直している間も、描画の大きさは変えない）
   const resize = () => {
-    const r = canvas.getBoundingClientRect();
-    view.setSize(Math.max(1, Math.floor(r.width)), Math.max(1, Math.floor(r.height)));
+    view.setSize(Math.max(1, Math.floor(canvas.clientWidth)), Math.max(1, Math.floor(canvas.clientHeight)));
   };
   window.addEventListener('resize', resize);
   new ResizeObserver(resize).observe(canvas);
@@ -375,16 +365,21 @@ async function boot() {
   const viewport = new ViewportGuard({
     input,
     relayout: resize,
-    // 「保存して読み込み直す」は保存できたときだけ読み込み直す（失敗・競合・?nosave では読み込み直さず、書き出しを勧める）
+    // 「保存して開き直す」は保存できたときだけ開き直す（失敗・競合・?nosave では開き直さず、書き出しを勧める）。
+    // 同じページの読み込み直し（reload）は Safari が前の倍率を引き継ぐので、URL を新しく開く（location.replace）
     save: {
       info: () => ({ state: saver.state, lastSavedAt: saver.lastSavedAt, unsavedFor: saver.unsavedFor, error: saver.store.stats.lastError, noSave }),
       flush: () => saver.flush(),
       exportFile: () => saveMenu.exportFile(saver.store.conflict ? '-このタブ' : ''),
-      reload: () => location.reload(),
+      suspend: () => (saver.suspended = true),
+      navigate: (url) => location.replace(url),
     },
-    diag: new URLSearchParams(location.search).has('diag'),
+    toast,
+    diag: diagMode,
     camInfo: () => `${camera.mode} zoom ${camera[camera.mode].zoom.toFixed(2)}`,
   });
+  hud.logText = () => viewport.logText();
+  hud.onClearLog = () => viewport.clearLog();
   // 控えから戻したときは、すぐ保存先（IndexedDB）へ書く
   if (store.info.fromJournal) saver.markImportant();
   // ---------------- 仲間（スナモグリ） ----------------
@@ -581,7 +576,7 @@ async function boot() {
   const debug: { freeze: boolean; fps: number; dig: boolean; hold: boolean; digAim: { x: number; y: number } | null; step: (n: number, dt?: number) => void } = { freeze: false, fps: 0, dig: false, hold: false, digAim: null, step: () => {} };
   let time = 0;
   let last = performance.now();
-  let acc = 0, frames = 0, hudT = 0;
+  let acc = 0, frames = 0, hudT = 0, frameMax = 0, frameMaxShown = 0;
   const tick = (dtRaw: number) => {
     const dt = debug.freeze ? 0 : Math.min(dtRaw, 0.05);
     time += dt;
@@ -654,60 +649,64 @@ async function boot() {
     acc += dtRaw;
     frames++;
     hudT += dtRaw;
+    frameMax = Math.max(frameMax, dtRaw);
     if (acc >= 0.5) {
       debug.fps = frames / acc;
       acc = 0;
       frames = 0;
+      frameMaxShown = frameMax;
+      frameMax = 0;
     }
     if (hudT > 0.15) {
       hudT = 0;
       const under = crab.submerged > 0.5;
       const region = crab.region;
-      const zone = $('h-zone');
-      // 区画（水槽・濾過槽は水中 / 陸上も）
-      zone.textContent = region === 'tank' ? (under ? '水中' : '陸上') : region === 'sump' ? `濾過槽・${under ? '水中' : '陸上'}` : REGION_LABEL[region];
-      zone.classList.toggle('land', !under);
-      $('h-cam').textContent = CAMERA_MODE_LABEL[camera.mode];
-      const place = $('h-place');
-      place.textContent = tracker.current ? tracker.current.name : `${REGION_LABEL[crab.region]}のどこか`;
-      place.classList.toggle('hidden', tracker.current?.kind === 'hidden');
-      $('h-found').textContent = `${tracker.visited.size} / ${tracker.total}　（ひみつ ${tracker.hiddenFound} / ${tracker.hiddenTotal}）`;
-      $('h-state').textContent = CRAB_STATE_LABEL[crab.state];
-      ($('h-swim') as HTMLElement).style.width = `${Math.round(crab.swimStamina * 100)}%`;
-      $('h-perf').textContent = `${debug.fps.toFixed(0)} FPS ・ E ${(view.stats.tris / 1000).toFixed(0)}k 三角形 + C ${(view.stats.surfels / 1000).toFixed(0)}k 円盤`;
-      // 穴掘り：照準の先の物（掘れる / 掘れない）と、掘った量・作り直しの時間
+      // 穴掘り：照準の先の物（掘れる / 掘れない）。盛るときは届かない・砂が足りないも出す（盛れない理由が分かるように）
       // （照準の先に何も無いときは文字を出さない。カニが空振りする動きで分かる）
-      const A = crab.digAim, dg = $('h-dig');
-      // 盛るときは届かない・砂が足りないも出す（盛れない理由が分かるように）
+      const A = crab.digAim;
       const showFill = A.active && A.tool === 'fill' && (A.face || A.fillWhy === 'empty');
-      dg.classList.toggle('off', !(A.active && A.face) && !showFill);
-      if (showFill) {
-        dg.textContent = A.fillOk ? `盛れる：${DIG_MATERIAL_LABEL[A.material]}の上` : `盛れない：${FILL_BLOCK_LABEL[A.fillWhy ?? 'other']}`;
-        dg.classList.toggle('ng', !A.fillOk);
-      } else if (A.active && A.face) {
-        dg.textContent = diggable(A.material) ? `掘れる：${DIG_MATERIAL_LABEL[A.material]}` : `掘れない：${DIG_MATERIAL_LABEL[A.material]}`;
-        dg.classList.toggle('ng', !diggable(A.material));
-      }
+      const dig = showFill
+        ? { text: A.fillOk ? `盛れる：${DIG_MATERIAL_LABEL[A.material]}の上` : `盛れない：${FILL_BLOCK_LABEL[A.fillWhy ?? 'other']}`, ng: !A.fillOk }
+        : A.active && A.face ? { text: diggable(A.material) ? `掘れる：${DIG_MATERIAL_LABEL[A.material]}` : `掘れない：${DIG_MATERIAL_LABEL[A.material]}`, ng: !diggable(A.material) } : null;
       // 挟む：挟んでいる物（重さで引っ張られているときは「重い」）・空振り
-      const gt = $('h-grab'), held = grab.held;
-      gt.classList.toggle('off', grab.state === 'idle');
-      if (grab.state !== 'idle') {
-        const strain = grab.strain;
-        gt.textContent = held ? `挟む：${held.name}${strain > 0.8 ? '（重い！）' : strain > 0.45 ? '（ずっしり）' : ''}` : grab.state === 'closing' ? '挟む…' : '挟む：空振り';
-        gt.classList.toggle('heavy', !!held && strain > 0.45);
-      }
-      // 手持ちの砂（1 杯 = SAND.unit）。いっぱいなら印
+      const held = grab.held, strain = grab.strain;
+      const grabChip = grab.state === 'idle' ? null : {
+        text: held ? `挟む：${held.name}${strain > 0.8 ? '（重い！）' : strain > 0.45 ? '（ずっしり）' : ''}` : grab.state === 'closing' ? '挟む…' : '挟む：空振り',
+        heavy: !!held && strain > 0.45,
+      };
+      // 手持ちの砂（1 杯 = SAND.unit）
       const cups = Math.floor(crab.sandHeld / SAND.unit + 1e-6), capCups = Math.round(SAND.capacity / SAND.unit);
-      ($('h-sand') as HTMLElement).style.width = `${Math.round((crab.sandHeld / SAND.capacity) * 100)}%`;
-      $('h-sandn').textContent = `${cups} / ${capCups}${cups >= capCups ? ' 満杯' : ''}`;
-      $('h-tool').textContent = crab.tool === 'fill' ? '盛る' : '掘る';
-      $('h-tool').classList.toggle('fill', crab.tool === 'fill');
+      const st = saver.state;
+      const fs = view.digFx.stats;
+      const nf = world.dig.fillCount;
+      hud.update({
+        place: tracker.current ? tracker.current.name : `${REGION_LABEL[crab.region]}のどこか`,
+        placeHidden: tracker.current?.kind === 'hidden',
+        sand: crab.sandHeld / SAND.capacity,
+        cups,
+        capCups,
+        fill: crab.tool === 'fill',
+        swim: crab.swimStamina,
+        // 遊泳の体力は、泳いでいる・減っている間だけ小さな表示に出す
+        swimShow: crab.state === 'swim' || crab.swimStamina < 0.98,
+        dig,
+        grab: grabChip,
+        // 警告：保存できていない・別のタブと競合（ふだんはセーブのボタンの印だけ）
+        warn: st === 'error' ? '保存できていません（セーブ）' : st === 'conflict' ? '別のタブと競合中（保存していません）' : null,
+        // 区画（水槽・濾過槽は水中 / 陸上も）
+        zone: region === 'tank' ? (under ? '水中' : '陸上') : region === 'sump' ? `濾過槽・${under ? '水中' : '陸上'}` : REGION_LABEL[region],
+        land: !under,
+        cam: CAMERA_MODE_LABEL[camera.mode],
+        state: CRAB_STATE_LABEL[crab.state],
+        found: `${tracker.visited.size} / ${tracker.total}　（ひみつ ${tracker.hiddenFound} / ${tracker.hiddenTotal}）`,
+        perf: `${debug.fps.toFixed(0)} FPS ・ E ${(view.stats.tris / 1000).toFixed(0)}k 三角形 + C ${(view.stats.surfels / 1000).toFixed(0)}k 円盤`,
+        frame: `フレーム ${debug.fps > 0 ? (1000 / debug.fps).toFixed(1) : '-'} ms（0.5 秒の最大 ${(frameMaxShown * 1000).toFixed(1)} ms）`,
+        digPerf: world.dig.count ? `穴 ${world.dig.count - nf} 個${nf ? `・砂山 ${nf} 個` : ''} ・ 区画 ${fs.chunks} ・ 作り直し ${fs.lastMs.toFixed(1)} ms（最大 ${fs.maxMs.toFixed(1)}）・ 待ち ${fs.pending}` : '地形の作り直し：まだ掘っていません',
+        viewport: viewport.viewportText(),
+      });
       toolBtn.style.setProperty('--sand', (crab.sandHeld / SAND.capacity).toFixed(3));
       // 道具がほかの道（保存データの復元・自動検証）で変わったときも、切り替えとボタンの文字を合わせる
       if (toolBtn.classList.contains('fill') !== (crab.tool === 'fill')) showTool();
-      const fs = view.digFx.stats;
-      const nf = world.dig.fillCount;
-      $('h-digperf').textContent = world.dig.count ? `穴 ${world.dig.count - nf} 個${nf ? `・砂山 ${nf} 個` : ''} ・ 区画 ${fs.chunks} ・ 作り直し ${fs.lastMs.toFixed(1)} ms（最大 ${fs.maxMs.toFixed(1)}）・ 待ち ${fs.pending}` : '';
     }
   };
   debug.step = (n: number, dt = 1 / 60) => {
