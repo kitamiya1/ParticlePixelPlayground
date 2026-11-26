@@ -26,6 +26,8 @@ export interface HudInfo {
   dig: { text: string; ng: boolean } | null;
   /** 挟む（null = 出さない） */
   grab: { text: string; heavy: boolean } | null;
+  /** 案内を出す設定（false なら照準・挟む物の文字は詳細の欄だけ） */
+  guides: boolean;
   /** 警告（保存できていない等。null = 出さない） */
   warn: string | null;
   // ---- 詳細の欄 ----
@@ -69,6 +71,8 @@ export class AquaHud {
       <div class="hd-body">
         <div class="row"><span class="k">区画</span><span class="tag" id="h-zone">水中</span><span class="tag cam" id="h-cam"></span><span id="h-state"></span></div>
         <div class="row"><span class="k">発見</span><span id="h-found"></span></div>
+        <div class="row"><span class="k">照準</span><span id="h-digd">—</span></div>
+        <div class="row"><span class="k">ハサミ</span><span id="h-grabd">—</span></div>
         <div class="row"><span class="k">遊泳</span><span class="bar"><i id="h-swimd"></i></span></div>
         <div class="sec">性能</div>
         <div class="sub" id="h-perf"></div>
@@ -84,7 +88,7 @@ export class AquaHud {
       </div>`;
     document.body.appendChild(d);
     this.detail = d;
-    for (const id of ['h-place', 'h-sand', 'h-sandn', 'h-tool', 'h-swimc', 'h-swim', 'h-dig', 'h-grab', 'h-warn', 'h-zone', 'h-cam', 'h-state', 'h-found', 'h-swimd', 'h-perf', 'h-frame', 'h-digperf', 'h-dev', 'h-vp', 'h-vplog']) {
+    for (const id of ['h-place', 'h-sand', 'h-sandn', 'h-tool', 'h-swimc', 'h-swim', 'h-dig', 'h-grab', 'h-warn', 'h-zone', 'h-cam', 'h-state', 'h-found', 'h-digd', 'h-grabd', 'h-swimd', 'h-perf', 'h-frame', 'h-digperf', 'h-dev', 'h-vp', 'h-vplog']) {
       this.el[id] = document.getElementById(id)!;
     }
     // 欄・ボタンの上の指・ホイールはゲームに渡さない
@@ -140,17 +144,21 @@ export class AquaHud {
     e['h-tool'].classList.toggle('fill', h.fill);
     e['h-swimc'].classList.toggle('off', !h.swimShow);
     e['h-swim'].style.width = `${Math.round(h.swim * 100)}%`;
-    chip(e['h-dig'], h.dig?.text ?? null, 'ng', !!h.dig?.ng);
-    chip(e['h-grab'], h.grab?.text ?? null, 'heavy', !!h.grab?.heavy);
+    // 照準の先の物・挟んでいる物の名前は、案内を出す設定のときだけ（ふだんは物の動き・音で分かるようにする）
+    const dig = h.guides ? h.dig : null, grab = h.guides ? h.grab : null;
+    chip(e['h-dig'], dig?.text ?? null, 'ng', !!dig?.ng);
+    chip(e['h-grab'], grab?.text ?? null, 'heavy', !!grab?.heavy);
     chip(e['h-warn'], h.warn, '', false);
     // 2 行目（状態）が空なら隠す（ふだんは 1 行だけ）
-    this.root.classList.toggle('has-st', h.swimShow || !!h.dig || !!h.grab || !!h.warn);
+    this.root.classList.toggle('has-st', h.swimShow || !!dig || !!grab || !!h.warn);
     if (!this.open) return;
     setText(e['h-zone'], h.zone);
     e['h-zone'].classList.toggle('land', h.land);
     setText(e['h-cam'], h.cam);
     setText(e['h-state'], h.state);
     setText(e['h-found'], h.found);
+    setText(e['h-digd'], h.dig?.text ?? '—');
+    setText(e['h-grabd'], h.grab?.text ?? '—');
     e['h-swimd'].style.width = `${Math.round(h.swim * 100)}%`;
     setText(e['h-perf'], h.perf);
     setText(e['h-frame'], h.frame);

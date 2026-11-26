@@ -30,18 +30,61 @@ export interface TouchControlsOptions {
    * 挟むスイッチ（たたくたびに Input.touchGrabLatch を切り替える。水槽ゲームの「挟む」）。押したまま指をずらすと視点を回せる
    */
   grab?: boolean;
+  /**
+   * 文字の代わりに簡単な印（アイコン）で出す（水槽ゲーム）。見た目の円（.face）と指の当たる範囲（ボタン自体）を分け、
+   * 見た目を小さく・薄くしても押しやすさを保つ。大きさと濃さは setLook で変える
+   */
+  icons?: boolean;
 }
 
 /** 挟むボタンを押したまま指をずらしたとき、視点の回転に使い始めるずれ（CSS px） */
 const GRAB_LOOK_DEAD = 10;
 
+/** 印（24 × 24 の線画。色は文字の色） */
+export const TOUCH_ICONS = {
+  jump: '<path d="M6 14l6-6 6 6"/><path d="M6 19h12"/>',
+  run: '<path d="M5 6l6 6-6 6"/><path d="M12 6l6 6-6 6"/>',
+  dig: '<path d="M12 3v9"/><path d="M8.5 8.5L12 12l3.5-3.5"/><path d="M3 14.5c2.5 6 15.5 6 18 0"/>',
+  fill: '<path d="M12 3v8"/><path d="M8.5 7.5L12 11l3.5-3.5"/><path d="M3 20.5c3-6.5 15-6.5 18 0"/>',
+  cam: '<rect x="3" y="7.5" width="18" height="12" rx="2.5"/><circle cx="12" cy="13.5" r="3.2"/><path d="M8.5 7.5l1.6-2.6h3.8l1.6 2.6"/>',
+  clawOpen: '<path d="M12 21v-5.5"/><path d="M12 15.5C7.5 15.5 5 12 5.5 4.5"/><path d="M12 15.5c3.8 0 6.2-2.6 6.2-8"/>',
+  clawShut: '<path d="M12 21v-5.5"/><path d="M12 15.5c-4 0-6.4-3-5.6-8.4 2.2-2.4 5.2-2 6.1 1.4"/><path d="M12 15.5c4 0 6.4-3 5.6-8.4-2.2-2.4-5.2-2-6.1 1.4"/>',
+} as const;
+
+/** 印の SVG（class は表示の切り替え用） */
+export function touchIcon(name: keyof typeof TOUCH_ICONS, cls = ''): string {
+  return `<svg viewBox="0 0 24 24" aria-hidden="true"${cls ? ` class="${cls}"` : ''}>${TOUCH_ICONS[name]}</svg>`;
+}
+
+/** スティックのノブが動ける半径（見た目の大きさ 1 のとき。setLook の大きさを掛ける） */
+const STICK_RADIUS_BASE = STICK_RADIUS;
+
 export class TouchControls {
   readonly root: HTMLElement;
+  /** ボタンの見た目の大きさ（1 = 以前の大きさ）と背景の濃さ（0..1） */
+  scale = 1;
+  alpha = 0.25;
+  private stickR = STICK_RADIUS_BASE;
+  private readonly icons: boolean;
 
   constructor(private readonly input: Input, opts: TouchControlsOptions = {}) {
     this.root = document.createElement('div');
     this.root.id = 'touch-ui';
-    this.root.innerHTML = `
+    this.icons = !!opts.icons;
+    if (this.icons) {
+      // 見た目の円（.face）の中に印。ボタン自体は透明で、円より少し大きく指を受ける
+      const f = (inner: string) => `<span class="face">${inner}</span>`;
+      this.root.classList.add('icons');
+      this.root.innerHTML = `
+      <div class="stick"><i class="ring"></i><div class="knob"></div></div>
+      <button class="tb run" type="button" aria-label="${opts.runLabel ?? '走る'}">${f(touchIcon('run'))}</button>${opts.jump ? `
+      <button class="tb jump" type="button" aria-label="ジャンプ">${f(touchIcon('jump'))}</button>` : ''}${opts.dig ? `
+      <button class="tb dig" type="button" aria-label="掘る">${f(`<i class="aim"></i>${touchIcon('dig', 'i-dig')}${touchIcon('fill', 'i-fill')}`)}</button>` : ''}${opts.onCamera ? `
+      <button class="tb cam" type="button" aria-label="カメラの切り替え">${f(touchIcon('cam'))}</button>` : ''}${opts.act ? `
+      <button class="act" type="button"><i class="ring"></i><span></span></button>` : ''}${opts.grab ? `
+      <button class="tb grab" type="button" aria-pressed="false" aria-label="挟む">${f(`${touchIcon('clawOpen', 'i-open')}${touchIcon('clawShut', 'i-shut')}`)}</button>` : ''}`;
+    } else {
+      this.root.innerHTML = `
       <div class="stick"><div class="knob"></div></div>
       <button class="run" type="button">${opts.runLabel ?? '走る'}</button>${opts.jump ? `
       <button class="jump" type="button">ジャンプ</button>` : ''}${opts.dig ? `
@@ -49,7 +92,9 @@ export class TouchControls {
       <button class="cam" type="button">カメラ</button>` : ''}${opts.act ? `
       <button class="act" type="button"><i class="ring"></i><span></span></button>` : ''}${opts.grab ? `
       <button class="grab" type="button" aria-pressed="false"><i class="lock"></i><span>挟む</span></button>` : ''}`;
+    }
     document.body.appendChild(this.root);
+    if (this.icons) window.addEventListener('resize', () => this.layout());
     const act = this.root.querySelector<HTMLButtonElement>('.act');
     if (act) this.bindHold(act, (on) => (this.input.touchAct = on));
     this.bindStick(this.root.querySelector<HTMLElement>('.stick')!);
@@ -69,6 +114,32 @@ export class TouchControls {
       });
       cam.addEventListener('contextmenu', (e) => e.preventDefault());
     }
+  }
+
+  /**
+   * ボタンの見た目の大きさ（scale：1 = 以前の大きさ）と背景の濃さ（alpha：0..1）を変える（印のボタンだけ）。
+   * 指の当たる範囲は見た目の円より一回り大きいまま。スティックのノブの動ける半径も大きさに合わせる
+   */
+  setLook(scale: number, alpha: number) {
+    this.scale = scale;
+    this.alpha = alpha;
+    this.stickR = STICK_RADIUS_BASE * (this.icons ? scale : 1);
+    if (!this.icons) return;
+    this.root.style.setProperty('--s', scale.toFixed(3));
+    this.root.style.setProperty('--a', alpha.toFixed(3));
+    this.layout();
+  }
+
+  /**
+   * 狭い縦長の画面：挟むボタンがスティックと重なる幅なら、掘るボタンの上へ移す（.narrow）。
+   * 必要な幅 = スティック（中心 82・半径 64）と挟むボタン（右から中心 253・半径 39）の外側 + 指の当たる余白
+   */
+  layout() {
+    if (!this.icons) return;
+    // （位置は max(大きさ, 0.72) 倍：aquarium.css の --ps）
+    const ps = Math.max(this.scale, 0.72);
+    const need = (82 + 253) * ps + (64 + 39) * this.scale + 36;
+    this.root.classList.toggle('narrow', window.innerWidth < need);
   }
 
   /**
@@ -129,7 +200,8 @@ export class TouchControls {
     let ox = 0, oy = 0;
     const show = () => {
       const a = this.input.touchDigAim;
-      if (mark) mark.style.transform = id === -1 ? '' : `translate(${(a.x * 22).toFixed(1)}px, ${(-a.y * 22).toFixed(1)}px)`;
+      const m = 22 * (this.icons ? this.scale : 1);
+      if (mark) mark.style.transform = id === -1 ? '' : `translate(${(a.x * m).toFixed(1)}px, ${(-a.y * m).toFixed(1)}px)`;
       btn.classList.toggle('on', id !== -1);
       btn.classList.toggle('aiming', id !== -1 && Math.hypot(a.x, a.y) > 0);
     };
@@ -224,8 +296,13 @@ export class TouchControls {
     const on = this.input.touchGrabLatch;
     btn.classList.toggle('on', on);
     btn.setAttribute('aria-pressed', String(on));
-    const span = btn.querySelector('span');
     const label = on ? '離す' : '挟む';
+    // 印のボタンは閉じた / 開いたハサミの印を CSS で切り替える（文字は読み上げ用の名前だけ）
+    if (this.icons) {
+      if (btn.getAttribute('aria-label') !== label) btn.setAttribute('aria-label', label);
+      return;
+    }
+    const span = btn.querySelector('span');
     if (span && span.textContent !== label) span.textContent = label;
   }
 
@@ -251,14 +328,15 @@ export class TouchControls {
       let dy = (e.clientY - (r.top + r.height / 2)) * k;
       const len = Math.hypot(dx, dy);
       if (!Number.isFinite(len)) return;
-      if (len > STICK_RADIUS) {
-        dx *= STICK_RADIUS / len;
-        dy *= STICK_RADIUS / len;
+      const R = this.stickR;
+      if (len > R) {
+        dx *= R / len;
+        dy *= R / len;
       }
       knob.style.transform = `translate(${dx}px, ${dy}px)`;
       // 中心付近の小さなぶれは無視する
-      const dead = len / STICK_RADIUS < 0.12;
-      this.input.touchMove = dead ? { x: 0, y: 0 } : { x: dx / STICK_RADIUS, y: -dy / STICK_RADIUS };
+      const dead = len / R < 0.12;
+      this.input.touchMove = dead ? { x: 0, y: 0 } : { x: dx / R, y: -dy / R };
     };
     const clear = () => {
       id = -1;

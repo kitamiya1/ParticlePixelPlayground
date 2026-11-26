@@ -7,7 +7,7 @@ import './aquarium.css';
 import { clamp } from '../core/math';
 import { Input } from '../game/Input';
 import { DEFAULT_SETTINGS, type RenderSettings } from '../settings';
-import { isTouchDevice, TouchControls } from '../ui/TouchControls';
+import { isTouchDevice, TouchControls, touchIcon } from '../ui/TouchControls';
 import { AquaCamera, CAMERA_MODE_LABEL } from './AquaCamera';
 import { AquaLife } from './AquaLife';
 import { buildAquariumMeshes, buildAquariumSurfels, buildBuddyMesh, buildBurrowMesh, buildCrabMesh, buildFindsMesh, buildFishMesh, buildGlowMesh, buildPropMeshes, buildShrimpMesh } from './AquariumBuild';
@@ -33,6 +33,7 @@ import { AutoSaver, SaveMenu } from './AquaSaveUi';
 import { HelpPanel } from './AquaHelp';
 import { ViewportGuard } from './AquaViewport';
 import { AquaHud } from './AquaHud';
+import { mountUiPrefs, UiPrefStore } from './AquaUiPrefs';
 
 /** いまの水槽の id（保存データの tanks の鍵。将来の隣の水槽は別の id） */
 const HOME_TANK = 'home';
@@ -184,13 +185,19 @@ async function boot() {
   const diagMode = new URLSearchParams(location.search).has('diag');
   // 左上の表示：ふだんは小さく（場所・砂・必要なときの状態）。FPS などは「詳細」の欄（?diag では開いた状態で始める）
   const hud = new AquaHud({ forceDetail: diagMode });
+  // 表示の設定（ボタンの大きさ・濃さ、案内の輪や文字を出すか）。?diag では案内も出す
+  const uiPrefs = new UiPrefStore(diagMode ? { guides: true } : {});
+  /** 操作・対象物についての知らせ（案内を出す設定のときだけ。保存の失敗などの警告は toast で常に出す） */
+  const guideToast = (msg: string) => {
+    if (uiPrefs.prefs.guides) toast(msg);
+  };
   // 操作の説明（右上の「？」で開く。初回だけ自動で出し、「×」で閉じたら次からは出さない）。欄は右上のメニューを作った後に作る
   const helpBrief = touch
-    ? `<p>左のスティックで移動、右の「ジャンプ」で跳ぶ・「掘る」で砂を掘る・「挟む」をたたくとハサミを閉じて小石や貝殻を挟む（もう一度たたくと離す）。画面をドラッグで視点を回し、2 本指でズーム。</p><p class="hint">詳しい操作は、右上の「？」でいつでも見られます。</p>`
+    ? `<p>左のスティックで移動、右の ↑ で跳ぶ・» でダッシュ・↓ の印で砂を掘る・ハサミの印をたたくとハサミを閉じて小石や貝殻を挟む（もう一度たたくと離す）。画面をドラッグで視点を回し、2 本指でズーム。</p><p class="hint">詳しい操作は、右上の「？」でいつでも見られます。</p>`
     : `<p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で移動、<kbd>Space</kbd> で跳ぶ、<kbd>F</kbd> で砂を掘る、<kbd>E</kbd> を押している間 ハサミで小石や貝殻を挟む（押したままマウスを動かすと腕の向きを変えられる）。ドラッグで視点を回し、ホイールでズーム。</p><p class="hint">詳しい操作は、右上の「？」でいつでも見られます。</p>`;
   const helpFull = touch
-    ? `<ul><li>左スティック：移動。ダッシュ：押している間</li><li>ジャンプ：跳ぶ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へスティックを倒し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（張り出しへはその向きへ押し続けると回り込む。跳んで天井に触れるとつかまる。ジャンプで離れる。逆さの間はカニの横の矢印がスティック↑の向き）</li><li>掘る：押している間 前の砂を掘る。押したまま指をずらすと、その向き（上・下・左右・斜め）を掘る。掘りながらスティックで好きな向きへ動ける</li><li>盛る：「掘る」ボタンの上の切り替えで「盛る」にすると、同じボタンで手持ちの砂を置ける（押している間 少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>画面ドラッグ：視点の回転。2 本指：カメラのズーム</li><li>カメラ：冒険 / ガラス越し（水槽の外から地下の穴を観察）/ 箱庭の切り替え</li><li>挟む：1 回たたくと右の大きなハサミを閉じ（ボタンが明るく「離す」になる）、もう一度たたくと開く。閉じたままジャンプ・ダッシュ・移動・視点の操作ができる。景色の小石・貝殻はどれでも挟める。挟んだまま歩く・泳ぐと引っ張られてついてくる。重い石は持ち上がらず引きずる（大きな石・岩・流木は動かず、カニの方が引き戻される）。閉じたまま近くの物へ寄ると、ハサミがそちらを向いて挟む。挟める所には輪が出る（明るい輪 = 届く、薄い輪 = 近い）</li><li>引っこ抜く：巣穴から見えている触角を「挟む」で挟み（閉じたまま穴へ近づくと、ハサミが触角を向く）、スティックで後ろへ下がって引っ張る（押しているだけでは抜けない）。暴れているときに引きすぎるとハサミが滑る（震えたら少しゆるめる）。力が抜けた隙に引くと出てくる。離すと穴へ戻っていく</li><li>仲間：右上のボタンで「呼ぶ（同行）/ 自由に暮らす」を切り替え</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li>右上の「？」：この説明</li><li>ゲームパッド：左スティック 移動、右スティック 腕（両ハサミ）の向き、LT / L2 左ハサミ・RT / R2 右ハサミ（押している間）、A / × ジャンプ、B / ○ ダッシュ、X / □ 掘る・盛る（押している間は右スティックで掘る向き）、Y / △ 掘る ↔ 盛る、RB / R1 カメラ切替、LB / L1 を押したまま右スティック・十字キーでカメラ、Back 仲間、Start 説明</li><li>右上の「🔊」：音の消音・音量（最初に画面に触れると音が出せるようになる）</li><li>左上の「詳細」：区画・発見の数・FPS・画面の倍率の記録など（× で閉じる）</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`
-    : `<ul><li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る</li><li><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へ押し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（跳んで・泳いで天井に触れても張り付く。<kbd>Space</kbd> で離れる）</li><li><kbd>F</kbd> 長押し：掘る（押したままマウスを動かすと上下左右・斜めを狙う。掘りながら <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で好きな向きへ動ける）</li><li>右ボタンを押したままドラッグ：その向きを掘る</li><li><kbd>G</kbd> 掘る ↔ 盛る の切り替え。盛るのときは <kbd>F</kbd> 長押しで手持ちの砂を置く（少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>ドラッグ：視点回転　ホイール：ズーム</li><li><kbd>V</kbd> カメラ切替（冒険 / ガラス越し / 箱庭。ガラス越しはガラス際まで掘った穴を外から観察）　<kbd>R</kbd> スタート地点へ</li><li><kbd>E</kbd> 押している間：右の大きなハサミを閉じて、届く所の小石・貝殻を挟む（離すと放す）。景色の小石・貝殻はどれでも挟める。押したままマウスを動かすと腕（ハサミ）の向きを右・左・上・下へ変えられる。挟んだまま歩く・泳ぐと引っ張られてついてくる。重い石は持ち上がらず引きずる（大きな石・岩・流木は動かず、カニの方が引き戻される）。挟める所には輪が出る（明るい輪 = 届く、薄い輪 = 近い）</li><li>引っこ抜く：巣穴から見えている触角を <kbd>E</kbd> で挟み、押したまま <kbd>S</kbd> などで後ろへ下がって引っ張る（押しているだけでは抜けない）。暴れているときに引きすぎる（<kbd>Shift</kbd> で急に引く等）とハサミが滑る（震えたら少しゆるめる）。力が抜けた隙に引くと出てくる。離すと穴へ戻っていく　<kbd>Q</kbd> 仲間を呼ぶ / 自由に暮らす（右上のボタンでも）</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li><kbd>H</kbd> または右上の「？」：この説明の表示 / 非表示</li><li>ゲームパッド：左スティック 移動、右スティック 腕（両ハサミ）の向き、LT / L2 左ハサミ・RT / R2 右ハサミ（押している間）、A / × ジャンプ、B / ○ ダッシュ、X / □ 掘る・盛る（押している間は右スティックで掘る向き）、Y / △ 掘る ↔ 盛る、RB / R1 カメラ切替、LB / L1 を押したまま右スティック・十字キーでカメラ、Back 仲間、Start 説明</li><li>右上の「🔊」：音の消音・音量（最初に画面に触れると音が出せるようになる）</li><li><kbd>I</kbd> または左上の「詳細」：区画・発見の数・FPS・画面の倍率の記録などの表示 / 非表示</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`;
+    ? `<ul><li>ボタンの印：↑ ジャンプ、» ダッシュ、地面と↓ 掘る（盛るのときは山と↓）、ハサミ 挟む（閉じた印 = 挟んでいる）、カメラ 切り替え、小さな横長 掘る ↔ 盛る</li><li>左スティック：移動。ダッシュ：押している間</li><li>ジャンプ：跳ぶ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へスティックを倒し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（張り出しへはその向きへ押し続けると回り込む。跳んで天井に触れるとつかまる。ジャンプで離れる。「案内を出す」にすると、逆さの間はカニの横の矢印がスティック↑の向き）</li><li>掘る：押している間 前の砂を掘る。押したまま指をずらすと、その向き（上・下・左右・斜め）を掘る。掘りながらスティックで好きな向きへ動ける</li><li>盛る：「掘る」ボタンの上の切り替えで「盛る」にすると、同じボタンで手持ちの砂を置ける（押している間 少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>画面ドラッグ：視点の回転。2 本指：カメラのズーム</li><li>カメラ：冒険 / ガラス越し（水槽の外から地下の穴を観察）/ 箱庭の切り替え</li><li>挟む：1 回たたくと右の大きなハサミを閉じ（ボタンが明るく「離す」になる）、もう一度たたくと開く。閉じたままジャンプ・ダッシュ・移動・視点の操作ができる。景色の小石・貝殻はどれでも挟める。挟んだまま歩く・泳ぐと引っ張られてついてくる。重い石は持ち上がらず引きずる（大きな石・岩・流木は動かず、カニの方が引き戻される）。閉じたまま近くの物へ寄ると、ハサミがそちらを向いて挟む。ふだんは輪や名前を出さない（触れて・挟んでみると、動き・重さ・音で分かる。「🔊」の欄の「案内を出す」で、挟める所の輪・物の名前を出せる）</li><li>引っこ抜く：巣穴から見えている触角を「挟む」で挟み（閉じたまま穴へ近づくと、ハサミが触角を向く）、スティックで後ろへ下がって引っ張る（押しているだけでは抜けない）。暴れているときに引きすぎるとハサミが滑る（震えたら少しゆるめる）。力が抜けた隙に引くと出てくる。離すと穴へ戻っていく</li><li>仲間：右上のボタンで「呼ぶ（同行）/ 自由に暮らす」を切り替え</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li>右上の「？」：この説明</li><li>ゲームパッド：左スティック 移動、右スティック 腕（両ハサミ）の向き、LT / L2 左ハサミ・RT / R2 右ハサミ（押している間）、A / × ジャンプ、B / ○ ダッシュ、X / □ 掘る・盛る（押している間は右スティックで掘る向き）、Y / △ 掘る ↔ 盛る、RB / R1 カメラ切替、LB / L1 を押したまま右スティック・十字キーでカメラ、Back 仲間、Start 説明</li><li>右上の「🔊」：音と設定（消音・音量、操作ボタンの大きさ・濃さ、案内の表示。最初に画面に触れると音が出せるようになる）</li><li>左上の「詳細」：区画・発見の数・FPS・画面の倍率の記録など（× で閉じる）</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`
+    : `<ul><li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る</li><li><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へ押し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（跳んで・泳いで天井に触れても張り付く。<kbd>Space</kbd> で離れる）</li><li><kbd>F</kbd> 長押し：掘る（押したままマウスを動かすと上下左右・斜めを狙う。掘りながら <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で好きな向きへ動ける）</li><li>右ボタンを押したままドラッグ：その向きを掘る</li><li><kbd>G</kbd> 掘る ↔ 盛る の切り替え。盛るのときは <kbd>F</kbd> 長押しで手持ちの砂を置く（少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>ドラッグ：視点回転　ホイール：ズーム</li><li><kbd>V</kbd> カメラ切替（冒険 / ガラス越し / 箱庭。ガラス越しはガラス際まで掘った穴を外から観察）　<kbd>R</kbd> スタート地点へ</li><li><kbd>E</kbd> 押している間：右の大きなハサミを閉じて、届く所の小石・貝殻を挟む（離すと放す）。景色の小石・貝殻はどれでも挟める。押したままマウスを動かすと腕（ハサミ）の向きを右・左・上・下へ変えられる。挟んだまま歩く・泳ぐと引っ張られてついてくる。重い石は持ち上がらず引きずる（大きな石・岩・流木は動かず、カニの方が引き戻される）。ふだんは輪や名前を出さない（触れて・挟んでみると、動き・重さ・音で分かる。「🔊」の欄の「案内を出す」で、挟める所の輪・物の名前を出せる）</li><li>引っこ抜く：巣穴から見えている触角を <kbd>E</kbd> で挟み、押したまま <kbd>S</kbd> などで後ろへ下がって引っ張る（押しているだけでは抜けない）。暴れているときに引きすぎる（<kbd>Shift</kbd> で急に引く等）とハサミが滑る（震えたら少しゆるめる）。力が抜けた隙に引くと出てくる。離すと穴へ戻っていく　<kbd>Q</kbd> 仲間を呼ぶ / 自由に暮らす（右上のボタンでも）</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li><kbd>H</kbd> または右上の「？」：この説明の表示 / 非表示</li><li>ゲームパッド：左スティック 移動、右スティック 腕（両ハサミ）の向き、LT / L2 左ハサミ・RT / R2 右ハサミ（押している間）、A / × ジャンプ、B / ○ ダッシュ、X / □ 掘る・盛る（押している間は右スティックで掘る向き）、Y / △ 掘る ↔ 盛る、RB / R1 カメラ切替、LB / L1 を押したまま右スティック・十字キーでカメラ、Back 仲間、Start 説明</li><li>右上の「🔊」：音と設定（消音・音量、操作ボタンの大きさ・濃さ、案内の表示。最初に画面に触れると音が出せるようになる）</li><li><kbd>I</kbd> または左上の「詳細」：区画・発見の数・FPS・画面の倍率の記録などの表示 / 非表示</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`;
   let help: HelpPanel | null = null;
   const marker = document.createElement('div');
   marker.id = 'crab-marker';
@@ -277,26 +284,32 @@ async function boot() {
   let touchUi: TouchControls | null = null;
   if (touch) {
     // （巣穴の生き物も「挟む」で挟んで引っ張る。以前の「調べる / 引っこ抜く」ボタンは使わない）
-    touchUi = new TouchControls(input, { runLabel: 'ダッシュ', jump: true, dig: true, onCamera: toggleCamera, grab: true });
+    touchUi = new TouchControls(input, { runLabel: 'ダッシュ', jump: true, dig: true, onCamera: toggleCamera, grab: true, icons: true });
     document.body.classList.add('touch');
   }
+  uiPrefs.onChange((p) => {
+    touchUi?.setLook(p.btnScale, p.btnAlpha);
+    document.body.classList.toggle('aqua-guides', p.guides);
+  });
   // 掘る ↔ 盛る：PC は G キー、スマホは掘るボタンの上の小さな切り替え（掘るボタン・F キーはどちらでも共用）
+  // （切り替えは掘る・盛るの 2 つの印。いま使う方が明るい。下の細い帯が手持ちの砂の量）
   const toolBtn = document.createElement('button');
   toolBtn.type = 'button';
-  toolBtn.className = 'tool';
+  toolBtn.className = 'tb tool';
+  toolBtn.innerHTML = `<span class="face">${touchIcon('dig', 'i-dig')}${touchIcon('fill', 'i-fill')}</span>`;
   const showTool = () => {
     const fill = crab.tool === 'fill';
-    toolBtn.innerHTML = `<b class="${fill ? '' : 'on'}">掘る</b><b class="${fill ? 'on' : ''}">盛る</b>`;
     toolBtn.classList.toggle('fill', fill);
-    const dl = touchUi?.root.querySelector<HTMLElement>('.dig span');
-    if (dl) dl.textContent = fill ? '盛る' : '掘る';
-    touchUi?.root.querySelector('.dig')?.classList.toggle('fill', fill);
+    toolBtn.setAttribute('aria-label', fill ? '盛る（たたくと掘るへ）' : '掘る（たたくと盛るへ）');
+    const dg = touchUi?.root.querySelector('.dig');
+    dg?.classList.toggle('fill', fill);
+    dg?.setAttribute('aria-label', fill ? '盛る' : '掘る');
     document.body.classList.toggle('tool-fill', fill);
   };
   const toggleTool = () => {
     crab.toggleTool();
     showTool();
-    toast(crab.tool === 'fill' ? `盛る：手持ちの砂を置く（${touch ? '「盛る」ボタン' : 'F キー'}を押している間）` : '掘る：砂を掘って集める');
+    guideToast(crab.tool === 'fill' ? `盛る：手持ちの砂を置く（${touch ? '「盛る」ボタン' : 'F キー'}を押している間）` : '掘る：砂を掘って集める');
   };
   if (touchUi) {
     touchUi.root.appendChild(toolBtn);
@@ -470,6 +483,8 @@ async function boot() {
   input.onPress('KeyQ', toggleBuddy);
   // 右上の「音」（消音・音量・試し聞き）
   const audioMenu = new AudioMenu(menu, audio);
+  // 同じ欄に表示の設定（ボタンの大きさ・濃さ・案内）
+  mountUiPrefs(audioMenu.panel, uiPrefs, { touch });
   // ゲームパッド（つないだら使える。割り当ては AquaGamepad.ts の先頭）
   const pad = new AquaGamepad(input, {
     toggleTool,
@@ -547,12 +562,12 @@ async function boot() {
         else if (e.kind === 'grab') audio.click(true);
         else if (e.kind === 'release') audio.click(false);
         if (e.kind === 'slip' && e.prop === buddy.tug) {
-          toast('ハサミが滑った！ 強く引きすぎ（暴れている間は少しゆるめる）');
+          guideToast('ハサミが滑った！ 強く引きすぎ（暴れている間は少しゆるめる）');
           vibrate(40);
-        } else if (e.kind === 'slip' && e.prop === G.fixed) toast(`ハサミが${G.fixed.name}から外れた（強く引きすぎ）`);
-        else if (e.kind === 'slip') toast(`${e.prop?.name ?? '物'}がハサミから滑り落ちた`);
-        else if (e.kind === 'grab' && e.prop === G.fixed) toast(`${G.fixed.name}をつかんだ（動かない。離れようとすると引き戻される）`);
-        else if (e.kind === 'heavy') toast(crab.submerged > 0.5 ? `${e.prop?.name ?? '物'}は重くて、なかなか動かない…` : `${e.prop?.name ?? '物'}は重くて動かない（水の中なら少し軽くなる）`);
+        } else if (e.kind === 'slip' && e.prop === G.fixed) guideToast(`ハサミが${G.fixed.name}から外れた（強く引きすぎ）`);
+        else if (e.kind === 'slip') guideToast(`${e.prop?.name ?? '物'}がハサミから滑り落ちた`);
+        else if (e.kind === 'grab' && e.prop === G.fixed) guideToast(`${G.fixed.name}をつかんだ（動かない。離れようとすると引き戻される）`);
+        else if (e.kind === 'heavy') guideToast(crab.submerged > 0.5 ? `${e.prop?.name ?? '物'}は重くて、なかなか動かない…` : `${e.prop?.name ?? '物'}は重くて動かない（水の中なら少し軽くなる）`);
       }
     }
   };
@@ -656,7 +671,7 @@ async function boot() {
   const onBuddyEvents = () => {
     for (const e of buddy.drainEvents()) {
       if (e.kind === 'examined') {
-        toast('何かの触角を挟んだ！ 後ろへ下がって引っ張ろう');
+        guideToast('何かの触角を挟んだ！ 後ろへ下がって引っ張ろう');
         saver.markImportant();
       } else if (e.kind === 'popped') {
         // 抜けた瞬間：抵抗が急に消え、「スポン！」の音と文字・衝撃の輪、砂煙・砂粒・泡の柱が舞い、カニは勢い余って後ろへ転ぶ。
@@ -682,7 +697,8 @@ async function boot() {
         banner.className = 'show first hidden buddy';
         banner.querySelector('.kicker')!.textContent = '仲間になった！';
         banner.querySelector('.name')!.textContent = BUDDY_NAME;
-        banner.querySelector('.desc')!.textContent = `${BUDDY_DESC}。${touch ? '右上のボタン' : 'Q キー・右上のボタン'}で呼ぶと、ついてくる`;
+        // （呼び方の説明は案内を出す設定のときだけ。ふだんは仲間の名前と一言）
+        banner.querySelector('.desc')!.textContent = uiPrefs.prefs.guides ? `${BUDDY_DESC}。${touch ? '右上のボタン' : 'Q キー・右上のボタン'}で呼ぶと、ついてくる` : BUDDY_DESC;
         bannerT = 5.5;
         showBuddyBtn();
         saver.markImportant();
@@ -885,8 +901,10 @@ async function boot() {
         swim: crab.swimStamina,
         // 遊泳の体力は、泳いでいる・減っている間だけ小さな表示に出す
         swimShow: crab.state === 'swim' || crab.swimStamina < 0.98,
+        // 照準の先の物・挟んでいる物の文字は、案内を出す設定のときだけ小さな表示に（ふだんは詳細の欄だけ）
         dig,
         grab: grabChip,
+        guides: uiPrefs.prefs.guides,
         // 警告：保存できていない・別のタブと競合（ふだんはセーブのボタンの印だけ）
         warn: st === 'error' ? '保存できていません（セーブ）' : st === 'conflict' ? '別のタブと競合中（保存していません）' : null,
         // 区画（水槽・濾過槽は水中 / 陸上も）
