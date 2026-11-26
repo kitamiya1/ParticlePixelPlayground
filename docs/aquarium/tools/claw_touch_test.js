@@ -18,7 +18,7 @@ async (page) => {
   const center = (sel) => p.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, sel);
   const st = () => p.evaluate(() => {
     const a = __aqua, b = document.querySelector('#touch-ui .grab');
-    return { latch: a.input.touchGrabLatch, on: b.classList.contains('on'), label: b.querySelector('span').textContent, aria: b.getAttribute('aria-pressed'), grab: a.grab.state, pointers: a.input.activePointers, run: a.input.touchRun, jump: a.input.touchJump, move: { ...a.input.touchMove } };
+    return { latch: a.input.touchGrabLatch, on: b.classList.contains('on'), label: b.querySelector('span:not(.face)')?.textContent || b.getAttribute('aria-label'), aria: b.getAttribute('aria-pressed'), grab: a.grab.state, pointers: a.input.activePointers, run: a.input.touchRun, jump: a.input.touchJump, move: { ...a.input.touchMove } };
   });
   const tap = async (sel, id = 1) => { const c = await center(sel); await touch('touchStart', [[c[0], c[1], id]]); await touch('touchEnd', []); await p.waitForTimeout(120); };
   const check = (name, ok, info) => out.push({ name, ok: !!ok, info });

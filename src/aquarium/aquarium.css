@@ -1,8 +1,8 @@
-/* 水槽探検ゲームの画面（既存の style.css の上に重ねる。設定パネルは無いので画面全体を使う） */
+/* 豌ｴ讒ｽ謗｢讀懊ご繝ｼ繝縺ｮ逕ｻ髱｢・域里蟄倥・ style.css 縺ｮ荳翫↓驥阪・繧九りｨｭ螳壹ヱ繝阪Ν縺ｯ辟｡縺・・縺ｧ逕ｻ髱｢蜈ｨ菴薙ｒ菴ｿ縺・ｼ・*/
 body.aqua #app { inset: 0; }
 body.aqua #loading { color: #9fc7c0; }
 
-/* 左上の小さな表示（AquaHud.ts）：1 行目 = 場所・砂・（盛るのとき）道具・「詳細」、2 行目 = 必要なときだけの状態・警告 */
+/* 蟾ｦ荳翫・蟆上＆縺ｪ陦ｨ遉ｺ・・quaHud.ts・会ｼ・ 陦檎岼 = 蝣ｴ謇繝ｻ遐ゅ・・育屁繧九・縺ｨ縺搾ｼ蛾％蜈ｷ繝ｻ縲瑚ｩｳ邏ｰ縲阪・ 陦檎岼 = 蠢・ｦ√↑縺ｨ縺阪□縺代・迥ｶ諷九・隴ｦ蜻・*/
 #hud { position: fixed; left: calc(10px + env(safe-area-inset-left)); top: calc(8px + env(safe-area-inset-top)); display: flex; flex-direction: column;
   align-items: flex-start; gap: 4px; pointer-events: none; z-index: 2; font-variant-numeric: tabular-nums; font-size: 12px; line-height: 1.4;
   max-width: calc(100vw - 150px - env(safe-area-inset-left) - env(safe-area-inset-right)); }
@@ -21,19 +21,19 @@ body.aqua #loading { color: #9fc7c0; }
 #hud .hud-more { pointer-events: auto; min-height: 26px; padding: 0 10px; border-radius: 13px; font-size: 12px; color: #e8fff8;
   background: rgba(46, 128, 121, 0.55); border: 1px solid rgba(160, 220, 210, 0.35); touch-action: manipulation; white-space: nowrap; }
 #hud .hud-more.on { background: rgba(46, 128, 121, 0.95); }
-/* 詳しい表示の欄（「詳細」で開く）：中でスクロール（pan-y。ピンチの拡大は許さない）。操作のボタン（下）に掛からない高さ */
+/* 隧ｳ縺励＞陦ｨ遉ｺ縺ｮ谺・ｼ医瑚ｩｳ邏ｰ縲阪〒髢九￥・会ｼ壻ｸｭ縺ｧ繧ｹ繧ｯ繝ｭ繝ｼ繝ｫ・・an-y縲ゅヴ繝ｳ繝√・諡｡螟ｧ縺ｯ險ｱ縺輔↑縺・ｼ峨よ桃菴懊・繝懊ち繝ｳ・井ｸ具ｼ峨↓謗帙°繧峨↑縺・ｫ倥＆ */
 #hud-detail { position: fixed; left: calc(10px + env(safe-area-inset-left)); top: calc(44px + env(safe-area-inset-top)); display: none; flex-direction: column;
   width: min(360px, calc(100vw - 20px - env(safe-area-inset-left) - env(safe-area-inset-right))); z-index: 5;
   max-height: calc(100vh - 60px - env(safe-area-inset-top)); max-height: calc(100dvh - 60px - env(safe-area-inset-top));
   background: rgba(10, 22, 28, 0.92); border: 1px solid rgba(160, 220, 210, 0.3); border-radius: 8px; color: #e8fff8; font-size: 12px; line-height: 1.5;
   touch-action: pan-y; overscroll-behavior: contain; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; font-variant-numeric: tabular-nums; }
 #hud-detail.show { display: flex; }
-/* 縦長の画面：右上の縦に並んだボタン（セーブ・？・仲間）を隠さない幅 */
+/* 邵ｦ髟ｷ縺ｮ逕ｻ髱｢・壼承荳翫・邵ｦ縺ｫ荳ｦ繧薙□繝懊ち繝ｳ・医そ繝ｼ繝悶・・溘・莉ｲ髢難ｼ峨ｒ髫縺輔↑縺・ｹ・*/
 @media (max-width: 760px) { #hud-detail { width: calc(100vw - 104px - env(safe-area-inset-left) - env(safe-area-inset-right)); } }
 body.aqua.touch #hud-detail { max-height: calc(100vh - 220px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   max-height: calc(100dvh - 220px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
 @media (orientation: landscape) {
-  /* 横持ち：下のスティックに掛からないよう、背の低い画面では欄を細く長くせず上半分に収める */
+  /* 讓ｪ謖√■・壻ｸ九・繧ｹ繝・ぅ繝・け縺ｫ謗帙°繧峨↑縺・ｈ縺・∬レ縺ｮ菴弱＞逕ｻ髱｢縺ｧ縺ｯ谺・ｒ邏ｰ縺城聞縺上○縺壻ｸ雁濠蛻・↓蜿弱ａ繧・*/
   body.aqua.touch #hud-detail { max-height: calc(100vh - 206px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
     max-height: calc(100dvh - 206px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); min-height: 110px; }
 }
@@ -57,9 +57,9 @@ body.aqua.touch #hud-detail { max-height: calc(100vh - 220px - env(safe-area-ins
 #hud-detail .res { color: #ffe08a; font-size: 11px; }
 #hud-detail a { color: #8fd4ff; }
 
-/* 操作の説明：右上の × で閉じ、右上のメニューの「？」で開き直す（AquaHelp.ts）。長い説明は欄の中でスクロールする。
-   欄は指を受ける（pointer-events: auto。ゲームの指は Canvas と操作のボタンだけが受けるので、欄の上の指は視点の回転・
-   移動にならない）。中でスクロールする欄は先祖の touch-action: none が効かないので、pan-y でピンチの拡大を止める */
+/* 謫堺ｽ懊・隱ｬ譏趣ｼ壼承荳翫・ ﾃ・縺ｧ髢峨§縲∝承荳翫・繝｡繝九Η繝ｼ縺ｮ縲鯉ｼ溘阪〒髢九″逶ｴ縺呻ｼ・quaHelp.ts・峨る聞縺・ｪｬ譏弱・谺・・荳ｭ縺ｧ繧ｹ繧ｯ繝ｭ繝ｼ繝ｫ縺吶ｋ縲・
+   谺・・謖・ｒ蜿励￠繧具ｼ・ointer-events: auto縲ゅご繝ｼ繝縺ｮ謖・・ Canvas 縺ｨ謫堺ｽ懊・繝懊ち繝ｳ縺縺代′蜿励￠繧九・縺ｧ縲∵ｬ・・荳翫・謖・・隕也せ縺ｮ蝗櫁ｻ｢繝ｻ
+   遘ｻ蜍輔↓縺ｪ繧峨↑縺・ｼ峨ゆｸｭ縺ｧ繧ｹ繧ｯ繝ｭ繝ｼ繝ｫ縺吶ｋ谺・・蜈育･悶・ touch-action: none 縺悟柑縺九↑縺・・縺ｧ縲｝an-y 縺ｧ繝斐Φ繝√・諡｡螟ｧ繧呈ｭ｢繧√ｋ */
 body.aqua #help { pointer-events: auto; display: flex; flex-direction: column; z-index: 5; padding: 0; line-height: 1.6; font-size: 12px;
   left: calc(12px + env(safe-area-inset-left)); top: auto; bottom: calc(12px + env(safe-area-inset-bottom));
   width: min(560px, calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right))); max-width: none;
@@ -81,8 +81,8 @@ body.aqua #help.closed { display: none; }
   border: 1px solid rgba(255, 255, 255, 0.2); touch-action: manipulation; }
 #menu .menu-btn.help-btn { min-width: 38px; padding: 4px 10px; }
 #menu .menu-btn.help-btn.on { background: rgba(46, 128, 121, 0.85); }
-/* スマホ：短い案内はスティックの上（右の「調べる」ボタンに掛からない幅）。詳しい説明は画面の上から、縦横どちらでも
-   画面に収まる高さ（はみ出す分は中でスクロール） */
+/* 繧ｹ繝槭・・夂洒縺・｡亥・縺ｯ繧ｹ繝・ぅ繝・け縺ｮ荳奇ｼ亥承縺ｮ縲瑚ｪｿ縺ｹ繧九阪・繧ｿ繝ｳ縺ｫ謗帙°繧峨↑縺・ｹ・ｼ峨りｩｳ縺励＞隱ｬ譏弱・逕ｻ髱｢縺ｮ荳翫°繧峨∫ｸｦ讓ｪ縺ｩ縺｡繧峨〒繧・
+   逕ｻ髱｢縺ｫ蜿弱∪繧矩ｫ倥＆・医・縺ｿ蜃ｺ縺吝・縺ｯ荳ｭ縺ｧ繧ｹ繧ｯ繝ｭ繝ｼ繝ｫ・・*/
 body.aqua.touch #help.brief { top: auto; bottom: calc(196px + env(safe-area-inset-bottom)); width: min(290px, 62vw);
   max-height: calc(100vh - 208px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   max-height: calc(100dvh - 208px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
@@ -90,7 +90,7 @@ body.aqua.touch #help.full { top: calc(12px + env(safe-area-inset-top)); bottom:
   width: min(460px, calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)));
   max-height: calc(100vh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
-/* 縦長の画面：下の操作のボタンは隠さない */
+/* 邵ｦ髟ｷ縺ｮ逕ｻ髱｢・壻ｸ九・謫堺ｽ懊・繝懊ち繝ｳ縺ｯ髫縺輔↑縺・*/
 @media (orientation: portrait) {
   body.aqua.touch #help.full { max-height: calc(100vh - 250px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
     max-height: calc(100dvh - 250px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
@@ -101,26 +101,18 @@ body.aqua.touch #help.full { top: calc(12px + env(safe-area-inset-top)); bottom:
   color: #ffe1c8; font-weight: 700; font-size: 12px; text-align: center; text-shadow: 0 1px 2px #000; }
 #crab-marker::after { content: ''; display: block; width: 0; height: 0; margin: 2px auto 0; border: 7px solid transparent; border-top: 9px solid #ff8a5a; border-bottom: 0; }
 
-/* タッチ：右下にジャンプ（大）・ダッシュ、上にカメラ切り替え */
-body.aqua #touch-ui .jump { position: fixed; right: calc(20px + env(safe-area-inset-right)); bottom: calc(30px + env(safe-area-inset-bottom));
-  width: 96px; height: 96px; border-radius: 50%; font-size: 15px; font-weight: 700; background: rgba(46, 128, 121, 0.72);
-  border: 2px solid rgba(255, 255, 255, 0.4); touch-action: none; user-select: none; -webkit-user-select: none; z-index: 3; }
-body.aqua #touch-ui .jump.on { background: rgba(124, 214, 196, 0.9); color: #0b1e2a; }
-body.aqua #touch-ui .run { right: calc(128px + env(safe-area-inset-right)); bottom: calc(22px + env(safe-area-inset-bottom)); width: 72px; height: 72px; font-size: 13px; }
-body.aqua #touch-ui .cam { position: fixed; right: calc(20px + env(safe-area-inset-right)); bottom: calc(140px + env(safe-area-inset-bottom));
-  width: 72px; height: 44px; border-radius: 22px; font-size: 13px; background: rgba(74, 90, 122, 0.8); border: 2px solid rgba(255, 255, 255, 0.35);
-  touch-action: none; user-select: none; -webkit-user-select: none; z-index: 3; }
+/* 繧ｿ繝・メ縺ｮ謫堺ｽ懊・繧ｿ繝ｳ・壹ヵ繧｡繧､繝ｫ縺ｮ譛ｫ蟆ｾ・医梧桃菴懊・繧ｿ繝ｳ・育ｬｬ 1 谿ｵ髫趣ｼ峨搾ｼ・*/
 @media (max-width: 760px) {
   body.aqua #touch-ui { display: block; }
   body.aqua #help { display: flex; }
 }
 
-/* 探索：いまいる場所（長い名前は省略） */
+/* 謗｢邏｢・壹＞縺ｾ縺・ｋ蝣ｴ謇・磯聞縺・錐蜑阪・逵∫払・・*/
 #hud .place { font-weight: 700; color: #e8fff8; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 15em; }
 #hud .place.hidden { color: #ffe08a; }
 #help .hint { color: #b9ece0; }
 
-/* 場所の名前（場所が変わったとき）と、初めて訪れたときの発見の表示 */
+/* 蝣ｴ謇縺ｮ蜷榊燕・亥ｴ謇縺悟､峨ｏ縺｣縺溘→縺搾ｼ峨→縲∝・繧√※險ｪ繧後◆縺ｨ縺阪・逋ｺ隕九・陦ｨ遉ｺ */
 #place-banner { position: fixed; left: 50%; top: calc(18px + env(safe-area-inset-top)); transform: translate(-50%, -12px); opacity: 0;
   transition: opacity 0.5s, transform 0.5s; pointer-events: none; z-index: 3; text-align: center; max-width: min(92vw, 560px);
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85); }
@@ -132,26 +124,26 @@ body.aqua #touch-ui .cam { position: fixed; right: calc(20px + env(safe-area-ins
 #place-banner.hidden .kicker { color: #ffe08a; }
 #place-banner.hidden.first { border-color: rgba(255, 224, 138, 0.45); }
 
-/* 見晴らしで景色を眺めている間の小さな表示 */
+/* 隕区匐繧峨＠縺ｧ譎ｯ濶ｲ繧堤惻繧√※縺・ｋ髢薙・蟆上＆縺ｪ陦ｨ遉ｺ */
 #vista-tag { position: fixed; right: calc(16px + env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom)); opacity: 0; transition: opacity 0.6s;
   pointer-events: none; z-index: 2; font-size: 12px; color: #e8fff8; background: rgba(10, 22, 28, 0.55); padding: 3px 12px; border-radius: 12px; white-space: nowrap; }
 #vista-tag.show { opacity: 1; }
 
-/* 箱庭カメラ：訪れた場所の名前 */
+/* 邂ｱ蠎ｭ繧ｫ繝｡繝ｩ・夊ｨｪ繧後◆蝣ｴ謇縺ｮ蜷榊燕 */
 #spot-labels { display: none; }
 #spot-labels.show { display: block; }
 .spot-label { position: fixed; left: 0; top: 0; display: none; pointer-events: none; z-index: 1; font-size: 11px; color: #e8fff8; white-space: nowrap;
   background: rgba(10, 22, 28, 0.6); border: 1px solid rgba(160, 220, 210, 0.3); border-radius: 3px; padding: 0 5px; }
 .spot-label.hidden { color: #ffe08a; border-color: rgba(255, 224, 138, 0.45); }
 
-/* 左上の表示が小さくなったので、場所の名前は上の中央（横持ちでは左上の表示の下・右上のボタンの間） */
+/* 蟾ｦ荳翫・陦ｨ遉ｺ縺悟ｰ上＆縺上↑縺｣縺溘・縺ｧ縲∝ｴ謇縺ｮ蜷榊燕縺ｯ荳翫・荳ｭ螟ｮ・域ｨｪ謖√■縺ｧ縺ｯ蟾ｦ荳翫・陦ｨ遉ｺ縺ｮ荳九・蜿ｳ荳翫・繝懊ち繝ｳ縺ｮ髢難ｼ・*/
 @media (max-height: 500px) {
   #place-banner { top: calc(44px + env(safe-area-inset-top)); }
   #place-banner .name { font-size: 18px; }
   #place-banner .desc { font-size: 12px; }
 }
 @media (max-width: 760px) {
-  /* 縦長の画面では左上の表示・右上の縦のボタンの下に出す（重ならないように） */
+  /* 邵ｦ髟ｷ縺ｮ逕ｻ髱｢縺ｧ縺ｯ蟾ｦ荳翫・陦ｨ遉ｺ繝ｻ蜿ｳ荳翫・邵ｦ縺ｮ繝懊ち繝ｳ縺ｮ荳九↓蜃ｺ縺呻ｼ磯㍾縺ｪ繧峨↑縺・ｈ縺・↓・・*/
   #place-banner { top: calc(140px + env(safe-area-inset-top)); }
   #place-banner .name { font-size: 18px; }
   #place-banner .desc { font-size: 12px; }
@@ -159,23 +151,12 @@ body.aqua #touch-ui .cam { position: fixed; right: calc(20px + env(safe-area-ins
   .spot-label { font-size: 10px; }
 }
 
-/* 穴掘り：タッチの「掘る」ボタン（ジャンプの左上。ジャンプと同時に押すと上へ掘る）と、掘れる / 掘れない の表示 */
-body.aqua #touch-ui .dig { position: fixed; right: calc(122px + env(safe-area-inset-right)); bottom: calc(106px + env(safe-area-inset-bottom));
-  width: 80px; height: 80px; border-radius: 50%; font-size: 15px; font-weight: 700; background: rgba(150, 112, 60, 0.78);
-  border: 2px solid rgba(255, 236, 190, 0.5); color: #fff6e0; touch-action: none; user-select: none; -webkit-user-select: none; z-index: 3; }
-body.aqua #touch-ui .dig.on { background: rgba(255, 214, 140, 0.92); color: #2a1d10; }
-/* 掘るボタンの照準の印：押している間、指をずらした向きへ動く（上 = 上を掘る） */
-body.aqua #touch-ui .dig span { position: relative; pointer-events: none; }
-body.aqua #touch-ui .dig .aim { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%;
-  border: 3px solid rgba(42, 29, 16, 0.85); background: rgba(255, 246, 224, 0.55); pointer-events: none; opacity: 0; }
-body.aqua #touch-ui .dig.on .aim { opacity: 0.55; }
-body.aqua #touch-ui .dig.aiming .aim { opacity: 1; }
-body.aqua #touch-ui .dig.aiming span { opacity: 0.35; }
+/* 遨ｴ謗倥ｊ・壽侍繧後ｋ / 謗倥ｌ縺ｪ縺・縺ｮ陦ｨ遉ｺ・域｡亥・繧貞・縺呵ｨｭ螳壹・縺ｨ縺搾ｼ・*/
 #hud .tag.dig { background: #8a6a3a; }
 #hud .tag.dig.ng { background: #8a4a3a; }
 #hud .tag.dig.off { display: none; }
 
-/* 右上のメニュー（セーブ・仲間）。押せる大きさ（高さ 34px 以上）で、スマホでも指で押せる */
+/* 蜿ｳ荳翫・繝｡繝九Η繝ｼ・医そ繝ｼ繝悶・莉ｲ髢難ｼ峨よ款縺帙ｋ螟ｧ縺阪＆・磯ｫ倥＆ 34px 莉･荳奇ｼ峨〒縲√せ繝槭・縺ｧ繧よ欠縺ｧ謚ｼ縺帙ｋ */
 #menu { position: fixed; right: calc(12px + env(safe-area-inset-right)); top: calc(12px + env(safe-area-inset-top)); display: flex; gap: 6px; z-index: 4;
   flex-wrap: wrap; justify-content: flex-end; max-width: 60vw; }
 #menu .menu-btn { min-height: 34px; padding: 4px 12px; border-radius: 17px; font-size: 13px; font-weight: 700; color: #e8fff8;
@@ -183,13 +164,13 @@ body.aqua #touch-ui .dig.aiming span { opacity: 0.35; }
 #menu .menu-btn:active { background: rgba(46, 128, 121, 0.85); }
 #save-panel { position: fixed; right: calc(12px + env(safe-area-inset-right)); top: calc(54px + env(safe-area-inset-top)); width: min(340px, calc(100vw - 24px));
   display: none; z-index: 5; background: rgba(10, 22, 28, 0.94); border: 1px solid rgba(160, 220, 210, 0.3); border-radius: 8px; padding: 10px 12px;
-  /* 中でスクロールする欄は、先祖の touch-action: none が効かない（スクロールする要素で区切られる）。pan-y で 1 本指の
-     スクロールだけを許し、ピンチでページが拡大しないようにする（manipulation はピンチでの拡大を許してしまう） */
+  /* 荳ｭ縺ｧ繧ｹ繧ｯ繝ｭ繝ｼ繝ｫ縺吶ｋ谺・・縲∝・逾悶・ touch-action: none 縺悟柑縺九↑縺・ｼ医せ繧ｯ繝ｭ繝ｼ繝ｫ縺吶ｋ隕∫ｴ縺ｧ蛹ｺ蛻・ｉ繧後ｋ・峨Ｑan-y 縺ｧ 1 譛ｬ謖・・
+     繧ｹ繧ｯ繝ｭ繝ｼ繝ｫ縺縺代ｒ險ｱ縺励√ヴ繝ｳ繝√〒繝壹・繧ｸ縺梧僑螟ｧ縺励↑縺・ｈ縺・↓縺吶ｋ・・anipulation 縺ｯ繝斐Φ繝√〒縺ｮ諡｡螟ｧ繧定ｨｱ縺励※縺励∪縺・ｼ・*/
   line-height: 1.55; font-size: 13px; color: #e8fff8; touch-action: pan-y;
-  /* 背の低い画面（横持ちのスマホ）でも確認のボタンまで届くよう、はみ出す分は中でスクロール */
+  /* 閭後・菴弱＞逕ｻ髱｢・域ｨｪ謖√■縺ｮ繧ｹ繝槭・・峨〒繧ら｢ｺ隱阪・繝懊ち繝ｳ縺ｾ縺ｧ螻翫￥繧医≧縲√・縺ｿ蜃ｺ縺吝・縺ｯ荳ｭ縺ｧ繧ｹ繧ｯ繝ｭ繝ｼ繝ｫ */
   max-height: calc(100vh - 66px - env(safe-area-inset-top)); max-height: calc(100dvh - 66px - env(safe-area-inset-top)); overflow-y: auto; overscroll-behavior: contain; }
 #save-panel.show { display: block; }
-/* 保存の状態：セーブのボタンの印（緑 = 保存済み、黄 = 未保存・保存中、赤 = 保存できていない・競合、灰 = 保存しない） */
+/* 菫晏ｭ倥・迥ｶ諷具ｼ壹そ繝ｼ繝悶・繝懊ち繝ｳ縺ｮ蜊ｰ・育ｷ・= 菫晏ｭ俶ｸ医∩縲・ｻ・= 譛ｪ菫晏ｭ倥・菫晏ｭ倅ｸｭ縲∬ｵ､ = 菫晏ｭ倥〒縺阪※縺・↑縺・・遶ｶ蜷医∫・ = 菫晏ｭ倥＠縺ｪ縺・ｼ・*/
 #menu .menu-btn.save .dot { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: #7cd6c4; vertical-align: 1px; }
 #menu .menu-btn.save[data-state="pending"] .dot, #menu .menu-btn.save[data-state="saving"] .dot { background: #ffd27a; }
 #menu .menu-btn.save[data-state="error"] .dot, #menu .menu-btn.save[data-state="conflict"] .dot { background: #ff6a5a; }
@@ -199,9 +180,9 @@ body.aqua #touch-ui .dig.aiming span { opacity: 0.35; }
 #save-panel .state[data-state="pending"], #save-panel .state[data-state="saving"] { color: #ffd27a; }
 #save-panel .state[data-state="error"], #save-panel .state[data-state="conflict"] { color: #ff8a7a; }
 #save-panel .btns button:disabled { opacity: 0.45; }
-/* 競合の知らせ：画面の上の中央。閉じずに残す（このタブは保存しない） */
+/* 遶ｶ蜷医・遏･繧峨○・夂判髱｢縺ｮ荳翫・荳ｭ螟ｮ縲る哩縺倥★縺ｫ谿九☆・医％縺ｮ繧ｿ繝悶・菫晏ｭ倥＠縺ｪ縺・ｼ・*/
 #save-alert { position: fixed; left: max(12px, calc(50% - 260px)); top: calc(48px + env(safe-area-inset-top)); display: none; z-index: 6;
-  /* 左上の小さな表示の下、右上のボタンの左に収める */
+  /* 蟾ｦ荳翫・蟆上＆縺ｪ陦ｨ遉ｺ縺ｮ荳九∝承荳翫・繝懊ち繝ｳ縺ｮ蟾ｦ縺ｫ蜿弱ａ繧・*/
   width: min(520px, calc(100vw - 24px - 110px)); background: rgba(60, 22, 18, 0.95); border: 1px solid rgba(255, 138, 122, 0.7); border-radius: 8px;
   padding: 8px 12px; color: #fff1ec; font-size: 13px; line-height: 1.5; touch-action: manipulation; }
 #save-alert.show { display: block; }
@@ -223,8 +204,8 @@ body.aqua #touch-ui .dig.aiming span { opacity: 0.35; }
   pointer-events: none; z-index: 6; background: rgba(10, 22, 28, 0.85); color: #f2fff9; padding: 6px 16px; border-radius: 16px; font-size: 13px; white-space: nowrap; }
 #aqua-toast.show { opacity: 1; transform: translate(-50%, 0); }
 #menu .menu-btn .nm2 { display: none; }
-/* 縦長の画面：知らせは左上の表示・場所の名前の下（下は操作のボタンがあるので避ける）。右上のボタンは縦に並べ、
-   左上の表示（幅約 250px）に重ならないよう短い名前にする */
+/* 邵ｦ髟ｷ縺ｮ逕ｻ髱｢・夂衍繧峨○縺ｯ蟾ｦ荳翫・陦ｨ遉ｺ繝ｻ蝣ｴ謇縺ｮ蜷榊燕縺ｮ荳具ｼ井ｸ九・謫堺ｽ懊・繝懊ち繝ｳ縺後≠繧九・縺ｧ驕ｿ縺代ｋ・峨ょ承荳翫・繝懊ち繝ｳ縺ｯ邵ｦ縺ｫ荳ｦ縺ｹ縲・
+   蟾ｦ荳翫・陦ｨ遉ｺ・亥ｹ・ｴ・250px・峨↓驥阪↑繧峨↑縺・ｈ縺・洒縺・錐蜑阪↓縺吶ｋ */
 @media (max-width: 760px) {
   #aqua-toast { bottom: auto; top: calc(250px + env(safe-area-inset-top)); white-space: normal; max-width: 86vw; text-align: center; }
   #menu { flex-direction: column; align-items: flex-end; max-width: 34vw; }
@@ -235,7 +216,7 @@ body.aqua #touch-ui .dig.aiming span { opacity: 0.35; }
 }
 body.aqua #menu, body.aqua #save-panel { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 
-/* 仲間：右上のボタン（同行中は明るく）・巣穴の案内（触角が見えている：挟める） */
+/* 莉ｲ髢難ｼ壼承荳翫・繝懊ち繝ｳ・亥酔陦御ｸｭ縺ｯ譏弱ｋ縺擾ｼ峨・蟾｣遨ｴ縺ｮ譯亥・・郁ｧｦ隗偵′隕九∴縺ｦ縺・ｋ・壽検繧√ｋ・・*/
 #menu .menu-btn.buddy.on { background: rgba(214, 140, 104, 0.9); color: #2a140c; border-color: rgba(255, 220, 190, 0.7); }
 #act-prompt { position: fixed; left: 0; top: 0; display: none; pointer-events: none; z-index: 2; text-align: center; white-space: nowrap;
   background: rgba(10, 22, 28, 0.78); border: 1px solid rgba(255, 224, 138, 0.45); border-radius: 8px; padding: 4px 10px 5px; color: #f2fff9; font-size: 13px;
@@ -248,9 +229,9 @@ body.aqua #menu, body.aqua #save-panel { -webkit-touch-callout: none; -webkit-us
 #act-prompt kbd { display: inline-block; min-width: 18px; padding: 0 4px; border-radius: 3px; background: rgba(255, 255, 255, 0.18); font: inherit; font-size: 11px; }
 #place-banner.buddy .kicker { color: #ffbf7a; }
 #place-banner.buddy.first { border-color: rgba(255, 191, 122, 0.6); }
-/* 引っこ抜き：挟んでいる間の手応えの印（つかんだ所に置く）。輪 = 張りの強さ（--k：大きく・濃く）、色 = 状態
-   （slack 張っていない / hold 踏ん張られている / move 出てきている / danger 滑りそう）、矢印 = 引く向き（穴から外へ）、
-   言葉 = 短い状況（ゲージは出さない） */
+/* 蠑輔▲縺捺栢縺搾ｼ壽検繧薙〒縺・ｋ髢薙・謇句ｿ懊∴縺ｮ蜊ｰ・医▽縺九ｓ縺謇縺ｫ鄂ｮ縺擾ｼ峨りｼｪ = 蠑ｵ繧翫・蠑ｷ縺包ｼ・-k・壼､ｧ縺阪￥繝ｻ豼・￥・峨∬牡 = 迥ｶ諷・
+   ・・lack 蠑ｵ縺｣縺ｦ縺・↑縺・/ hold 雕上ｓ蠑ｵ繧峨ｌ縺ｦ縺・ｋ / move 蜃ｺ縺ｦ縺阪※縺・ｋ / danger 貊代ｊ縺昴≧・峨∫泙蜊ｰ = 蠑輔￥蜷代″・育ｩｴ縺九ｉ螟悶∈・峨・
+   險闡・= 遏ｭ縺・憾豕・ｼ医ご繝ｼ繧ｸ縺ｯ蜃ｺ縺輔↑縺・ｼ・*/
 #tug-cue { position: fixed; left: 0; top: 0; width: 0; height: 0; display: none; pointer-events: none; z-index: 2; --k: 0; --w: 0; --c: 255, 255, 255; }
 #tug-cue.show { display: block; }
 #tug-cue[data-level="slack"] { --c: 200, 232, 255; }
@@ -269,16 +250,16 @@ body.aqua #menu, body.aqua #save-panel { -webkit-touch-callout: none; -webkit-us
   color: rgb(var(--c)); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 0 2px rgba(0, 0, 0, 0.9); }
 @keyframes tug-shake { from { margin-left: -1.5px; } to { margin-left: 1.5px; } }
 
-/* スマホ：ページ自体の拡大・スクロール・長押しのメニュー・文字選択を止める（HUD の上から始めた指で
-   ページが拡大されたり、長押しで選択が始まって指の操作がゲームから奪われたりしない）。
-   注意：touch-action は中でスクロールする要素（説明・セーブの欄）で区切られ、そこでは先祖の none が効かない。
-   それらの欄は自分で pan-y にする。iOS のピンチの拡大は AquaViewport.ts でも止める */
+/* 繧ｹ繝槭・・壹・繝ｼ繧ｸ閾ｪ菴薙・諡｡螟ｧ繝ｻ繧ｹ繧ｯ繝ｭ繝ｼ繝ｫ繝ｻ髟ｷ謚ｼ縺励・繝｡繝九Η繝ｼ繝ｻ譁・ｭ鈴∈謚槭ｒ豁｢繧√ｋ・・UD 縺ｮ荳翫°繧牙ｧ九ａ縺滓欠縺ｧ
+   繝壹・繧ｸ縺梧僑螟ｧ縺輔ｌ縺溘ｊ縲・聞謚ｼ縺励〒驕ｸ謚槭′蟋九∪縺｣縺ｦ謖・・謫堺ｽ懊′繧ｲ繝ｼ繝縺九ｉ螂ｪ繧上ｌ縺溘ｊ縺励↑縺・ｼ峨・
+   豕ｨ諢擾ｼ嗾ouch-action 縺ｯ荳ｭ縺ｧ繧ｹ繧ｯ繝ｭ繝ｼ繝ｫ縺吶ｋ隕∫ｴ・郁ｪｬ譏弱・繧ｻ繝ｼ繝悶・谺・ｼ峨〒蛹ｺ蛻・ｉ繧後√◎縺薙〒縺ｯ蜈育･悶・ none 縺悟柑縺九↑縺・・
+   縺昴ｌ繧峨・谺・・閾ｪ蛻・〒 pan-y 縺ｫ縺吶ｋ縲ＪOS 縺ｮ繝斐Φ繝√・諡｡螟ｧ縺ｯ AquaViewport.ts 縺ｧ繧よｭ｢繧√ｋ */
 html:has(body.aqua), body.aqua { touch-action: none; overscroll-behavior: none; }
 body.aqua #view, body.aqua #touch-ui, body.aqua #touch-ui *, body.aqua #hud, body.aqua #help {
   -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 
-/* ページ自体が拡大されてしまったときの知らせ（AquaViewport.ts）。見えている範囲いっぱいに、拡大を打ち消した大きさで出す。
-   出している間は html / body のピンチを許し（つまんで縮められる）、知らせが Canvas を覆うのでゲームの指にはならない */
+/* 繝壹・繧ｸ閾ｪ菴薙′諡｡螟ｧ縺輔ｌ縺ｦ縺励∪縺｣縺溘→縺阪・遏･繧峨○・・quaViewport.ts・峨りｦ九∴縺ｦ縺・ｋ遽・峇縺・▲縺ｱ縺・↓縲∵僑螟ｧ繧呈遠縺｡豸医＠縺溷､ｧ縺阪＆縺ｧ蜃ｺ縺吶・
+   蜃ｺ縺励※縺・ｋ髢薙・ html / body 縺ｮ繝斐Φ繝√ｒ險ｱ縺暦ｼ医▽縺ｾ繧薙〒邵ｮ繧√ｉ繧後ｋ・峨∫衍繧峨○縺・Canvas 繧定ｦ・≧縺ｮ縺ｧ繧ｲ繝ｼ繝縺ｮ謖・↓縺ｯ縺ｪ繧峨↑縺・*/
 #zoom-fix { position: fixed; left: 0; top: 0; transform-origin: 0 0; display: none; z-index: 20; align-items: center; justify-content: center;
   background: rgba(4, 10, 14, 0.62); touch-action: manipulation; overflow: hidden; }
 #zoom-fix.show { display: flex; }
@@ -299,9 +280,9 @@ body.aqua #view, body.aqua #touch-ui, body.aqua #touch-ui *, body.aqua #hud, bod
 #zoom-fix .res:empty { display: none; }
 #zoom-fix .res[data-kind="ok"] { color: #a8f0b0; }
 #zoom-fix .res[data-kind="ng"] { color: #ff9a8a; }
-/* 新しいタブへ引き継いだ後：書き出しだけ残す */
+/* 譁ｰ縺励＞繧ｿ繝悶∈蠑輔″邯吶＞縺蠕鯉ｼ壽嶌縺榊・縺励□縺第ｮ九☆ */
 #zoom-fix.handed .btns button:not([data-k="export"]), #zoom-fix.handed .s { display: none; }
-/* 「このまま遊ぶ」の後：拡大が続く間、上の中央に小さな「直す」だけ（知らせの面は指を通す） */
+/* 縲後％縺ｮ縺ｾ縺ｾ驕翫・縲阪・蠕鯉ｼ壽僑螟ｧ縺檎ｶ壹￥髢薙∽ｸ翫・荳ｭ螟ｮ縺ｫ蟆上＆縺ｪ縲檎峩縺吶阪□縺托ｼ育衍繧峨○縺ｮ髱｢縺ｯ謖・ｒ騾壹☆・・*/
 #zoom-fix .chip { display: none; }
 #zoom-fix.chip-only { display: flex; align-items: flex-start; background: none; pointer-events: none; }
 #zoom-fix.chip-only .card { display: none; }
@@ -309,43 +290,19 @@ body.aqua #view, body.aqua #touch-ui, body.aqua #touch-ui *, body.aqua #hud, bod
   border-radius: 18px; font-size: 13px; font-weight: 700; color: #2a1d10; background: rgba(255, 224, 138, 0.95); border: 1px solid rgba(255, 255, 255, 0.6);
   touch-action: manipulation; }
 html.aqua-zoomfix:has(body.aqua), html.aqua-zoomfix body.aqua { touch-action: manipulation; }
-/* ページが拡大されたまま：ゲームの画面（body の中身）を、見えている範囲へ拡大を打ち消して置く（AquaViewport.ts が transform を書く） */
+/* 繝壹・繧ｸ縺梧僑螟ｧ縺輔ｌ縺溘∪縺ｾ・壹ご繝ｼ繝縺ｮ逕ｻ髱｢・・ody 縺ｮ荳ｭ霄ｫ・峨ｒ縲∬ｦ九∴縺ｦ縺・ｋ遽・峇縺ｸ諡｡螟ｧ繧呈遠縺｡豸医＠縺ｦ鄂ｮ縺擾ｼ・quaViewport.ts 縺・transform 繧呈嶌縺擾ｼ・*/
 html.aqua-pinned body.aqua { position: fixed; left: 0; top: 0; width: 100%; height: 100%; transform-origin: 0 0; }
-/* ?diag：倍率・指の座標などの表示（指は受けない） */
+/* ?diag・壼咲紫繝ｻ謖・・蠎ｧ讓吶↑縺ｩ縺ｮ陦ｨ遉ｺ・域欠縺ｯ蜿励￠縺ｪ縺・ｼ・*/
 #vp-diag { position: fixed; left: 0; top: 0; transform-origin: 0 0; z-index: 19; pointer-events: none; white-space: pre; max-width: 100vw; overflow: hidden;
   font: 10px/1.35 ui-monospace, Menlo, Consolas, monospace; color: #d8fff4; background: rgba(0, 0, 0, 0.62); padding: 4px 6px; }
 
-/* 掘る ↔ 盛る（M2）：タッチの切り替え（掘るボタンの上。ジャンプ・ダッシュ・カメラ・調べるのボタンと重ならない位置）。
-   下の細い帯が手持ちの砂の量。盛るのときは掘るボタンを緑寄りにして「盛る」と出す。HUD の「砂」の帯と数（1 杯 = 0.05） */
-body.aqua #touch-ui .tool { position: fixed; right: calc(126px + env(safe-area-inset-right)); bottom: calc(194px + env(safe-area-inset-bottom));
-  width: 88px; height: 32px; padding: 0 4px 3px; border-radius: 16px; display: flex; align-items: center; gap: 2px; font-size: 12px;
-  color: #fff6e0; background: rgba(48, 38, 24, 0.82); border: 2px solid rgba(255, 236, 190, 0.45); overflow: hidden;
-  touch-action: none; user-select: none; -webkit-user-select: none; z-index: 3; }
-body.aqua #touch-ui .tool b { flex: 1; text-align: center; font-weight: 700; opacity: 0.45; pointer-events: none; }
-body.aqua #touch-ui .tool b.on { opacity: 1; color: #ffe2a8; }
-body.aqua #touch-ui .tool.fill b.on { color: #c8ff9a; }
-body.aqua #touch-ui .tool::after { content: ''; position: absolute; left: 6px; bottom: 2px; height: 3px; border-radius: 2px;
-  width: calc((100% - 12px) * var(--sand, 0)); background: #e2c07a; pointer-events: none; }
-body.aqua #touch-ui .dig.fill { background: rgba(104, 136, 58, 0.82); border-color: rgba(220, 255, 190, 0.55); }
-body.aqua #touch-ui .dig.fill.on { background: rgba(200, 255, 154, 0.92); color: #1c2a10; }
+/* 謗倥ｋ 竊・逶帙ｋ・・2・会ｼ壹ち繝・メ縺ｮ蛻・ｊ譖ｿ縺医・繝輔ぃ繧､繝ｫ縺ｮ譛ｫ蟆ｾ縲・UD 縺ｮ縲檎ゅ阪・蟶ｯ縺ｨ謨ｰ・・ 譚ｯ = 0.05・・*/
 #hud .bar.sand i { background: #e2c07a; }
 #hud .sandn { font-size: 11px; color: #f2e2b8; margin-left: 6px; white-space: nowrap; }
 #hud .tag.tool { background: #7a5a2e; margin-left: 6px; }
 #hud .tag.tool.fill { background: #5a7a2e; }
 
-/* 挟む（右の大きな鋏）：タッチの「挟む」ボタン。ダッシュと掘るボタンの左（スティックの右）。押したまま指をずらすと視点を回せる。
-   届く物があるときは縁を明るくする（ready）。幅の狭い縦長の画面ではスティックと重なるので、掘る ↔ 盛る の切り替えの上へ */
-body.aqua #touch-ui .grab { position: fixed; right: calc(214px + env(safe-area-inset-right)); bottom: calc(64px + env(safe-area-inset-bottom));
-  width: 78px; height: 78px; border-radius: 50%; font-size: 15px; font-weight: 700; color: #fff1ea; background: rgba(150, 64, 44, 0.78);
-  border: 2px solid rgba(255, 214, 196, 0.45); touch-action: none; user-select: none; -webkit-user-select: none; z-index: 3; }
-body.aqua #touch-ui .grab span { position: relative; pointer-events: none; }
-body.aqua #touch-ui .grab.ready { border-color: rgba(255, 236, 160, 0.95); box-shadow: 0 0 0 3px rgba(255, 220, 140, 0.35); }
-body.aqua #touch-ui .grab.on { background: rgba(255, 158, 120, 0.94); color: #2a120a; }
-body.aqua #touch-ui .grab.look span { opacity: 0.55; }
-@media (max-width: 460px) {
-  body.aqua #touch-ui .grab { right: calc(122px + env(safe-area-inset-right)); bottom: calc(236px + env(safe-area-inset-bottom)); width: 80px; height: 80px; }
-}
-/* 挟む：届く物の案内（PC。物の上に小さく出す）と、HUD の挟んでいる物 */
+/* 謖溘・・壼ｱ翫￥迚ｩ縺ｮ譯亥・・・C縲ら黄縺ｮ荳翫↓蟆上＆縺丞・縺呻ｼ峨→縲？UD 縺ｮ謖溘ｓ縺ｧ縺・ｋ迚ｩ */
 #grab-hint { position: fixed; left: 0; top: 0; display: none; pointer-events: none; z-index: 2; white-space: nowrap; font-size: 12px; color: #fff1ea;
   background: rgba(40, 18, 12, 0.72); border: 1px solid rgba(255, 190, 160, 0.5); border-radius: 6px; padding: 1px 7px; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8); }
 #grab-hint.show { display: block; }
@@ -354,15 +311,7 @@ body.aqua #touch-ui .grab.look span { opacity: 0.55; }
 #hud .tag.grab.heavy { background: #a8562a; }
 #hud .tag.grab.off { display: none; }
 
-/* 挟むスイッチ（第 2 段階）：閉じている間は明るい色・文字「離す」・上に錠の印。押した瞬間は少し縮む */
-body.aqua #touch-ui .grab .lock { position: absolute; left: 50%; top: 9px; width: 14px; height: 10px; margin-left: -7px; border-radius: 2px;
-  background: rgba(42, 18, 10, 0.85); opacity: 0; pointer-events: none; transition: opacity 0.12s; }
-body.aqua #touch-ui .grab .lock::before { content: ''; position: absolute; left: 2px; top: -7px; width: 6px; height: 7px; border: 2px solid rgba(42, 18, 10, 0.85);
-  border-bottom: 0; border-radius: 5px 5px 0 0; }
-body.aqua #touch-ui .grab.on .lock { opacity: 1; }
-body.aqua #touch-ui .grab.on { box-shadow: 0 0 0 3px rgba(255, 180, 140, 0.55), 0 0 14px rgba(255, 140, 100, 0.6); }
-body.aqua #touch-ui .grab.press { transform: scale(0.94); }
-/* 挟める所の輪：届く物は明るく脈打つ、近い物は薄い点線（狙いの補助。勝手には挟まない） */
+/* 謖溘ａ繧区園縺ｮ霈ｪ・壼ｱ翫￥迚ｩ縺ｯ譏弱ｋ縺剰ц謇薙▽縲∬ｿ代＞迚ｩ縺ｯ阮・＞轤ｹ邱夲ｼ育漁縺・・陬懷勧縲ょ享謇九↓縺ｯ謖溘∪縺ｪ縺・ｼ・*/
 #grab-cursor { position: fixed; left: 0; top: 0; width: 0; height: 0; display: none; pointer-events: none; z-index: 2; }
 #grab-cursor.show { display: block; }
 #grab-cursor i { position: absolute; left: 0; top: 0; width: 26px; height: 26px; border-radius: 50%; transform: translate(-50%, -50%);
@@ -371,7 +320,7 @@ body.aqua #touch-ui .grab.press { transform: scale(0.94); }
 #grab-cursor span { position: absolute; left: 0; top: 16px; transform: translateX(-50%); white-space: nowrap; font-size: 11px; font-weight: 700; color: #ffe8b0;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); }
 @keyframes grab-pulse { 0%, 100% { transform: translate(-50%, -50%) scale(1); } 50% { transform: translate(-50%, -50%) scale(0.8); } }
-/* 天井・張り出しを歩いている間：スティック↑ が画面のどちらへ進むかの矢印（カニの中心から） */
+/* 螟ｩ莠輔・蠑ｵ繧雁・縺励ｒ豁ｩ縺・※縺・ｋ髢難ｼ壹せ繝・ぅ繝・け竊・縺檎判髱｢縺ｮ縺ｩ縺｡繧峨∈騾ｲ繧縺九・遏｢蜊ｰ・医き繝九・荳ｭ蠢・°繧会ｼ・*/
 #climb-cue { position: fixed; left: 0; top: 0; width: 0; height: 0; display: none; pointer-events: none; z-index: 2; }
 #climb-cue.show { display: block; }
 #climb-cue .arrow { position: absolute; left: 0; top: -2px; width: 64px; height: 4px; transform-origin: 0 50%; }
@@ -379,7 +328,7 @@ body.aqua #touch-ui .grab.press { transform: scale(0.94); }
 #climb-cue .arrow::after { content: ''; position: absolute; right: 0; top: -6px; border-left: 11px solid rgba(170, 240, 255, 0.95); border-top: 8px solid transparent; border-bottom: 8px solid transparent; }
 #climb-cue span { position: absolute; left: 0; top: 28px; transform: translateX(-50%); white-space: nowrap; font-size: 11px; color: #d8f6ff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); }
 
-/* 第 3 段階：抜けた瞬間の「スポン！」（穴の上。0.9 秒）と衝撃の輪 */
+/* 隨ｬ 3 谿ｵ髫趣ｼ壽栢縺代◆迸ｬ髢薙・縲後せ繝昴Φ・√搾ｼ育ｩｴ縺ｮ荳翫・.9 遘抵ｼ峨→陦晄茶縺ｮ霈ｪ */
 #pop-word { position: fixed; left: 0; top: 0; width: 0; height: 0; display: none; pointer-events: none; z-index: 3; }
 #pop-word.show { display: block; }
 #pop-word b { position: absolute; left: 0; top: -28px; transform: translate(-50%, -50%); white-space: nowrap; font-size: 30px; font-weight: 900;
@@ -391,7 +340,7 @@ body.aqua #touch-ui .grab.press { transform: scale(0.94); }
   70% { opacity: 1; transform: translate(-50%, -75%) scale(1); } 100% { opacity: 0; transform: translate(-50%, -95%) scale(0.95); } }
 @keyframes pop-ring { 0% { opacity: 0.95; width: 12px; height: 12px; } 100% { opacity: 0; width: 130px; height: 130px; border-width: 1px; } }
 @media (max-width: 760px) { #pop-word b { font-size: 24px; } }
-/* 右上の「音」と設定の欄 */
+/* 蜿ｳ荳翫・縲碁浹縲阪→險ｭ螳壹・谺・*/
 #menu .menu-btn.audio-btn { min-width: 38px; padding: 4px 8px; }
 #menu .menu-btn.audio-btn.on { background: rgba(46, 128, 121, 0.85); }
 #audio-panel { position: fixed; right: calc(12px + env(safe-area-inset-right)); top: calc(54px + env(safe-area-inset-top)); width: min(300px, calc(100vw - 24px));
@@ -401,10 +350,79 @@ body.aqua #touch-ui .grab.press { transform: scale(0.94); }
 #audio-panel .head { display: flex; justify-content: space-between; align-items: center; }
 #audio-panel .close { min-width: 40px; min-height: 36px; background: transparent; border: 0; color: #e8fff8; font-size: 20px; }
 #audio-panel .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
-/* iPhone の Safari は 16px 未満の入力欄に触れると画面を拡大するので、欄の文字は 16px（範囲・チェックは対象外だが念のため） */
+/* iPhone 縺ｮ Safari 縺ｯ 16px 譛ｪ貅縺ｮ蜈･蜉帶ｬ・↓隗ｦ繧後ｋ縺ｨ逕ｻ髱｢繧呈僑螟ｧ縺吶ｋ縺ｮ縺ｧ縲∵ｬ・・譁・ｭ励・ 16px・育ｯ・峇繝ｻ繝√ぉ繝・け縺ｯ蟇ｾ雎｡螟悶□縺悟ｿｵ縺ｮ縺溘ａ・・*/
 #audio-panel input { font-size: 16px; }
 #audio-panel input[type="range"] { flex: 1; min-height: 32px; touch-action: pan-x; }
 #audio-panel input[type="checkbox"] { width: 22px; height: 22px; }
 #audio-panel button[data-k="test"] { min-height: 38px; padding: 4px 12px; border-radius: 6px; font-size: 14px; background: #2e5e5a; color: #f2fff9; border: 1px solid rgba(255, 255, 255, 0.2); }
 #audio-panel .sub { color: #9fb8b2; font-size: 12px; }
 @media (max-width: 760px) { #audio-panel { top: calc(140px + env(safe-area-inset-top)); } }
+
+/* ---------------- 謫堺ｽ懊・繧ｿ繝ｳ・育ｬｬ 1 谿ｵ髫趣ｼ・---------------
+   隕九◆逶ｮ縺ｮ蜀・ｼ・face・峨→謖・・蠖薙◆繧狗ｯ・峇・医・繧ｿ繝ｳ閾ｪ菴薙・騾乗・・峨ｒ蛻・￠繧九りｦ九◆逶ｮ縺ｯ --s 蛟搾ｼ域里螳・0.75 = 莉･蜑阪ｈ繧・25% 蟆上＆縺擾ｼ峨・   謖・・蠖薙◆繧狗ｯ・峇縺ｯ蜀・ｈ繧・--pad 縺壹▽螟ｧ縺阪＞縲りレ譎ｯ縺ｮ豼・＆縺ｯ --a・域里螳・0.25縲よ款縺励※縺・ｋ繝ｻ髢峨§縺ｦ縺・ｋ髢薙ｂ 0.5 縺ｾ縺ｧ・峨・   菴咲ｽｮ縺ｯ縲悟承荳九°繧牙・縺ｮ荳ｭ蠢・∪縺ｧ縲搾ｼ・-cx繝ｻ--cy縲ゆｻ･蜑阪・螟ｧ縺阪＆縺ｮ px・峨ｒ --ps 蛟搾ｼ・ --s縲ゅ◆縺縺・0.72 譛ｪ貅縺ｫ縺ｯ縺励↑縺・ｼ壼ｰ上＆縺上＠縺ｦ繧・   繝懊ち繝ｳ縺ｮ髢薙′隧ｰ縺ｾ繧翫☆縺弱★縲∵欠縺ｮ蠖薙◆繧狗ｯ・峇縺後→縺ｪ繧翫・蜀・↓謗帙°繧峨↑縺・ｼ峨＠縺ｦ豎ｺ繧√ｋ・亥ｰ上＆縺上☆繧九→髫・∈蟇・ｊ縲√き繝九ｒ髫縺励↓縺上＞・峨・   螟ｧ縺阪＆繝ｻ豼・＆縺ｯ縲交沐翫阪・谺・〒螟峨∴繧峨ｌ繧具ｼ・quaUiPrefs.ts 竊・TouchControls.setLook・峨よ枚蟄励・莉｣繧上ｊ縺ｫ邁｡蜊倥↑蜊ｰ */
+body.aqua #touch-ui { --s: 0.75; --a: 0.25; --ps: max(var(--s), 0.72); --pad: calc(12px * var(--s)); --ae: min(calc(var(--a) + 0.2), 0.5); }
+body.aqua #touch-ui .tb { position: fixed; --hit: calc(var(--d) * var(--s) + var(--pad) * 2); width: var(--hit); height: var(--hit);
+  right: calc(var(--cx) * var(--ps) - var(--hit) / 2 + env(safe-area-inset-right)); bottom: calc(var(--cy) * var(--ps) - var(--hit) / 2 + env(safe-area-inset-bottom));
+  padding: 0; margin: 0; background: transparent; border: 0; border-radius: 50%; box-shadow: none; color: #fff; font-size: 0;
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; z-index: 3; --c: 40, 70, 80; }
+body.aqua #touch-ui .tb .face { position: absolute; inset: var(--pad); border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: rgba(var(--c), var(--a)); border: 1.5px solid rgba(255, 255, 255, calc(0.16 + var(--a) * 0.9)); pointer-events: none;
+  transition: background-color 0.08s, border-color 0.08s, transform 0.08s; }
+body.aqua #touch-ui .tb.on .face { background: rgba(var(--c), var(--ae)); border-color: rgba(255, 255, 255, 0.72); transform: scale(0.94); }
+body.aqua #touch-ui .tb svg { width: 50%; height: 50%; fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round;
+  filter: drop-shadow(0 1px 1.2px rgba(0, 0, 0, 0.75)); opacity: 0.9; pointer-events: none; }
+body.aqua #touch-ui .jump { --d: 96px; --cx: 68px; --cy: 78px; --c: 46, 128, 121; }
+body.aqua #touch-ui .run { --d: 72px; --cx: 164px; --cy: 58px; --c: 52, 70, 104; }
+body.aqua #touch-ui .dig { --d: 80px; --cx: 162px; --cy: 146px; --c: 150, 112, 60; }
+body.aqua #touch-ui .dig.fill { --c: 104, 136, 58; }
+body.aqua #touch-ui .cam { --d: 56px; --cx: 56px; --cy: 172px; --c: 74, 90, 122; }
+body.aqua #touch-ui .grab { --d: 78px; --cx: 253px; --cy: 103px; --c: 150, 64, 44; }
+/* 迢ｭ縺・ｸｦ髟ｷ縺ｮ逕ｻ髱｢・医せ繝・ぅ繝・け縺ｨ驥阪↑繧句ｹ・５ouchControls.layout 縺・.narrow 繧剃ｻ倥￠繧具ｼ会ｼ壽検繧縺ｯ謗倥ｋ 竊・逶帙ｋ 縺ｮ荳翫∈ */
+body.aqua #touch-ui.narrow .grab { --cx: 162px; --cy: 292px; }
+/* 謗倥ｋ繝ｻ逶帙ｋ縺ｮ蜊ｰ縺ｮ蛻・ｊ譖ｿ縺医よ侍繧九・繧ｿ繝ｳ縺ｮ辣ｧ貅悶・蜊ｰ・壽款縺励※縺・ｋ髢薙∵欠繧偵★繧峨＠縺溷髄縺阪∈蜍輔￥・井ｸ・= 荳翫ｒ謗倥ｋ・・*/
+body.aqua #touch-ui .tb .i-fill, body.aqua #touch-ui .tb.fill .i-dig { display: none; }
+body.aqua #touch-ui .tb.fill .i-fill { display: block; }
+body.aqua #touch-ui .dig .aim { position: absolute; left: 50%; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%;
+  border: 2.5px solid rgba(255, 246, 224, 0.95); background: rgba(42, 29, 16, 0.35); pointer-events: none; opacity: 0; }
+body.aqua #touch-ui .dig.on .aim { opacity: 0.6; }
+body.aqua #touch-ui .dig.aiming .aim { opacity: 1; }
+body.aqua #touch-ui .dig.aiming svg { opacity: 0.35; }
+/* 謖溘・繧ｹ繧､繝・メ・夐幕縺・◆繝上し繝・竊・髢峨§縺溘ワ繧ｵ繝溘・蜊ｰ縲る哩縺倥※縺・ｋ髢薙・邵√ｒ譏弱ｋ縺擾ｼ郁レ譎ｯ縺ｯ豼・￥縺励☆縺弱↑縺・ｼ・*/
+body.aqua #touch-ui .grab .i-shut, body.aqua #touch-ui .grab.on .i-open { display: none; }
+body.aqua #touch-ui .grab.on .i-shut { display: block; }
+body.aqua #touch-ui .grab.on .face { transform: none; box-shadow: 0 0 0 2px rgba(255, 190, 150, 0.45); }
+body.aqua #touch-ui .grab.press .face { transform: scale(0.92); }
+body.aqua #touch-ui .grab.look svg { opacity: 0.5; }
+body.aqua.aqua-guides #touch-ui .grab.ready .face { border-color: rgba(255, 236, 160, 0.95); }
+/* 謗倥ｋ 竊・逶帙ｋ 縺ｮ蛻・ｊ譖ｿ縺茨ｼ壼ｰ上＆縺ｪ讓ｪ髟ｷ縲ゅ＞縺ｾ菴ｿ縺・婿縺ｮ蜊ｰ縺梧・繧九＞縲ゆｸ九・邏ｰ縺・ｸｯ縺梧焔謖√■縺ｮ遐ゅ・驥・*/
+body.aqua #touch-ui .tool { --d: 32px; --cx: 166px; --cy: 216px; --c: 48, 38, 24; width: calc(84px * var(--s) + var(--pad) * 2); border-radius: 30px;
+  right: calc(var(--cx) * var(--ps) - (84px * var(--s)) / 2 - var(--pad) + env(safe-area-inset-right)); }
+body.aqua #touch-ui .tool .face { border-radius: 30px; gap: 8%; overflow: hidden; }
+body.aqua #touch-ui .tool svg { display: block !important; width: 34%; height: 78%; opacity: 0.4; }
+body.aqua #touch-ui .tool:not(.fill) .i-dig, body.aqua #touch-ui .tool.fill .i-fill { opacity: 1; }
+body.aqua #touch-ui .tool.fill .i-fill { color: #d6ffb0; }
+body.aqua #touch-ui .tool .face::after { content: ''; position: absolute; left: 10%; bottom: 2px; height: 2px; border-radius: 2px;
+  width: calc(80% * var(--sand, 0)); background: #e2c07a; }
+/* 繧ｹ繝・ぅ繝・け・壽欠縺ｮ蠖薙◆繧狗ｯ・峇・磯乗・・峨・荳ｭ縺ｫ縲∬ｦ九◆逶ｮ縺ｮ霈ｪ縺ｨ繝弱ヶ */
+body.aqua #touch-ui .stick { --hit: calc(128px * var(--s) + var(--pad) * 2.6); width: var(--hit); height: var(--hit); background: transparent; border: 0;
+  left: calc(82px * var(--ps) - var(--hit) / 2 + 8px + env(safe-area-inset-left)); bottom: calc(86px * var(--ps) - var(--hit) / 2 + 8px + env(safe-area-inset-bottom)); }
+body.aqua #touch-ui .stick .ring { position: absolute; left: 50%; top: 50%; width: calc(128px * var(--s)); height: calc(128px * var(--s)); transform: translate(-50%, -50%);
+  border-radius: 50%; background: rgba(12, 15, 24, calc(var(--a) * 0.8)); border: 1.5px solid rgba(255, 255, 255, calc(0.16 + var(--a) * 0.9)); pointer-events: none; }
+body.aqua #touch-ui .stick.active .ring { background: rgba(12, 15, 24, var(--ae)); }
+body.aqua #touch-ui .knob { width: calc(56px * var(--s)); height: calc(56px * var(--s)); margin: calc(-28px * var(--s)) 0 0 calc(-28px * var(--s));
+  background: rgba(255, 255, 255, calc(0.22 + var(--a) * 0.8)); border: 1px solid rgba(255, 255, 255, 0.5); }
+
+/* 豐｡蜈･諢滂ｼ壽検繧√ｋ迚ｩ縺ｮ霈ｪ繝ｻ迚ｩ縺ｮ蜷榊燕繝ｻ蠑輔▲縺捺栢縺阪・謇句ｿ懊∴縺ｮ霈ｪ縺ｨ險闡峨・縲後せ繝昴Φ・√阪・譁・ｭ励・螟ｩ莠墓ｭｩ縺阪・遏｢蜊ｰ繝ｻ蟾｣遨ｴ縺ｮ譯亥・縺ｯ縲・   縲梧｡亥・繧貞・縺吶崎ｨｭ螳夲ｼ・ody.aqua-guides縲・diag 縺ｧ縺ｯ蜈･繧具ｼ峨・縺ｨ縺阪□縺代ゅ・縺繧薙・蜍輔″繝ｻ髻ｳ繝ｻ迚ｩ逅・・蜿榊ｿ懊〒莨昴∴繧・*/
+body.aqua:not(.aqua-guides) #grab-cursor, body.aqua:not(.aqua-guides) #grab-hint, body.aqua:not(.aqua-guides) #tug-cue,
+body.aqua:not(.aqua-guides) #climb-cue, body.aqua:not(.aqua-guides) #act-prompt, body.aqua:not(.aqua-guides) #pop-word b { display: none !important; }
+
+/* 髻ｳ縺ｨ險ｭ螳壹・谺・ｼ夊｡ｨ遉ｺ縺ｮ險ｭ螳壹・谿ｵ・・quaUiPrefs.ts・峨る聞縺上↑繧九・縺ｧ荳ｭ縺ｧ繧ｹ繧ｯ繝ｭ繝ｼ繝ｫ縺吶ｋ */
+#audio-panel { max-height: calc(100vh - 80px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow-y: auto; overscroll-behavior: contain; }
+@media (max-width: 760px) { #audio-panel { max-height: calc(100vh - 160px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); } }
+#audio-panel .sec { margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(160, 220, 210, 0.2); font-size: 12px; font-weight: 700; color: #9fe3d4; }
+#audio-panel .row span[data-k] { min-width: 3em; text-align: right; font-variant-numeric: tabular-nums; }
+#audio-panel .seg { flex-wrap: wrap; gap: 4px; }
+#audio-panel .seg button, #audio-panel button[data-k="reset"] { min-height: 36px; padding: 2px 10px; border-radius: 6px; font-size: 13px; background: rgba(46, 94, 90, 0.6);
+  color: #f2fff9; border: 1px solid rgba(255, 255, 255, 0.2); }
+#audio-panel .seg button.on { background: #2e8079; border-color: rgba(255, 255, 255, 0.6); font-weight: 700; }
+#audio-panel label.row { line-height: 1.4; }

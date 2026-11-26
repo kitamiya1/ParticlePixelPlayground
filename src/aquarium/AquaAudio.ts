@@ -314,7 +314,7 @@ export class AudioMenu {
     this.button = document.createElement('button');
     this.button.type = 'button';
     this.button.className = 'menu-btn audio-btn';
-    this.button.setAttribute('aria-label', '音の設定');
+    this.button.setAttribute('aria-label', '音と設定');
     this.button.addEventListener('pointerdown', (e) => e.stopPropagation());
     this.button.addEventListener('click', () => this.toggle());
     menu.appendChild(this.button);
@@ -322,8 +322,8 @@ export class AudioMenu {
     const p = document.createElement('div');
     p.id = 'audio-panel';
     p.setAttribute('role', 'dialog');
-    p.setAttribute('aria-label', '音の設定');
-    p.innerHTML = `<div class="head"><b>音</b><button type="button" class="close" aria-label="閉じる">×</button></div>
+    p.setAttribute('aria-label', '音と設定');
+    p.innerHTML = `<div class="head"><b>音と設定</b><button type="button" class="close" aria-label="閉じる">×</button></div>
       <label class="row"><input type="checkbox" data-k="mute"> 消音（ミュート）</label>
       <label class="row">音量 <input type="range" min="0" max="100" step="5" data-k="vol"><span data-k="v"></span></label>
       <div class="row"><button type="button" data-k="test">試しに鳴らす（スポン）</button></div>
@@ -353,7 +353,7 @@ export class AudioMenu {
   render() {
     const a = this.audio, P = a.prefs;
     this.button.textContent = P.muted || P.volume <= 0.001 ? '🔇' : '🔊';
-    this.button.title = P.muted ? '音：消音中' : `音：${Math.round(P.volume * 100)}`;
+    this.button.title = P.muted ? '音：消音中（音と設定）' : `音：${Math.round(P.volume * 100)}（音と設定）`;
     const p = this.panel;
     p.querySelector<HTMLInputElement>('[data-k="mute"]')!.checked = P.muted;
     p.querySelector<HTMLInputElement>('[data-k="vol"]')!.value = String(Math.round(P.volume * 100));
