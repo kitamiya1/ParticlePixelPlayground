@@ -19,7 +19,7 @@
 
 import { clamp, lerp, smoothstep } from '../core/math';
 import { ROOM } from './AquariumStand';
-import { TANK, type AquariumWorld } from './AquariumWorld';
+import { TANK, type AquariumWorld, type SurfaceMaterial } from './AquariumWorld';
 import type { CrabController } from './CrabController';
 
 export type PropKind = 'pebble' | 'shell' | 'stone';
@@ -63,6 +63,12 @@ export const GRAB_REACH = 0.26;
 const ARM_REACH = 0.33;
 /** 鋏を閉じるまでの時間（この間に鋏を物へ伸ばす） */
 export const CLOSE_T = 0.13;
+/** 生き物（巣穴の触角）は物よりこれだけ遠くから挟める（初心者でも狙いやすく） */
+const CREATURE_BONUS = 0.07;
+/** 生き物へは腕を伸ばしきるところ（CrabRig の 0.35）まで届かせる */
+const CREATURE_ARM_EXTRA = 0.02;
+/** 狙いの補助：体の中心からこの距離の物へ鋏を向ける・薄い輪を出す */
+export const ASSIST_R = 0.8;
 /** 滑り落ちる：ばねの伸び・鋏が届かない量の上限と、それが続く時間 */
 const SLIP_STRETCH = 0.3;
 const SLIP_REACH = 0.05;
@@ -75,8 +81,8 @@ const PROBE_DIRS: readonly (readonly [number, number, number])[] = [
   [0.7071, -0.7071, 0], [-0.7071, -0.7071, 0], [0, -0.7071, 0.7071], [0, -0.7071, -0.7071],
 ];
 
-type V3 = [number, number, number];
-type Q4 = [number, number, number, number];
+export type V3 = [number, number, number];
+export type Q4 = [number, number, number, number];
 
 /**
  * 鋏のばね（つかみ点 ↔ 鋏の構え）。物（Prop）と巣穴の生き物（GrabCreature）で共通。
@@ -121,20 +127,28 @@ export class Prop {
   readonly home: V3;
   readonly homeQ: Q4;
 
-  constructor(readonly id: string, readonly kind: PropKind, readonly scale: number, p: V3, yaw: number) {
+  /** 景色の小石・貝殻（AquaDecor）から作った物：景色のメッシュの番号（描画は景色のメッシュの頂点を動かす）。それ以外は −1 */
+  decor = -1;
+  private readonly label: string;
+
+  /**
+   * opts：景色の物から作るとき、楕円体の半径（semi）・重さ（mass）・名前・向き（q）を直接決める（種類の値は摩擦・沈む強さ等だけ使う）
+   */
+  constructor(readonly id: string, readonly kind: PropKind, readonly scale: number, p: V3, yaw: number, opts: { semi?: V3; mass?: number; name?: string; q?: Q4 } = {}) {
     this.spec = PROP_KIND[kind];
-    this.semi = [this.spec.semi[0] * scale, this.spec.semi[1] * scale, this.spec.semi[2] * scale];
-    this.mass = this.spec.mass * scale * scale * scale;
+    this.semi = opts.semi ? [...opts.semi] : [this.spec.semi[0] * scale, this.spec.semi[1] * scale, this.spec.semi[2] * scale];
+    this.mass = opts.mass ?? this.spec.mass * scale * scale * scale;
     this.rb = Math.max(...this.semi);
     this.rm = (this.semi[0] + this.semi[1] + this.semi[2]) / 3;
     this.p = [...p];
-    this.q = [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)];
+    this.q = opts.q ? [...opts.q] : [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)];
     this.home = [...p];
     this.homeQ = [...this.q];
+    this.label = opts.name ?? this.spec.name;
   }
 
   get name() {
-    return this.spec.name;
+    return this.label;
   }
 
   wake() {
@@ -146,7 +160,7 @@ export class Prop {
 // ---------------- 小さな数学（四元数と楕円体） ----------------
 
 /** 四元数で回す（out = q v q⁻¹） */
-function qrot(q: Q4, x: number, y: number, z: number, out: V3 = [0, 0, 0]): V3 {
+export function qrot(q: Q4, x: number, y: number, z: number, out: V3 = [0, 0, 0]): V3 {
   const [qx, qy, qz, qw] = q;
   const tx = 2 * (qy * z - qz * y), ty = 2 * (qz * x - qx * z), tz = 2 * (qx * y - qy * x);
   out[0] = x + qw * tx + (qy * tz - qz * ty);
@@ -550,6 +564,70 @@ export interface GrabCreature {
   stepHeld(dt: number, a0: readonly number[], a1: readonly number[]): { force: V3; over: number; tugOver: number; stretch: number; done: boolean };
 }
 
+/** 岩・流木（動かない物）として挟める材質と名前 */
+const FIXED_NAME: Partial<Record<SurfaceMaterial, string>> = { rock: '岩', wood: '流木' };
+/** 動かない物を挟む距離（構えた鋏の先から面まで）・握る力 */
+const FIXED_REACH = 0.2;
+const FIXED_GRIP = GRIP_FORCE * 1.25;
+
+/**
+ * 岩・流木（固定された物）を挟む：物は動かず、つかんだ点と鋏をばねでつなぐので、離れようとするとカニの方が引き戻される
+ * （ぶら下がる・踏ん張る）。強く引き続けると鋏が外れる（生き物と同じ滑りの仕組み）。
+ * 押した瞬間に何も届かず、岩・流木の面が届くときだけ挟む（閉じたまま歩いて勝手に岩をつかまない）
+ */
+export class FixedGrip implements GrabCreature {
+  name = '岩';
+  readonly p: V3 = [0, 0, 0];
+  readonly rb = 0.05;
+  readonly grip = FIXED_GRIP;
+  private held = false;
+
+  constructor(private readonly world: AquariumWorld) {}
+
+  grabbable(): boolean {
+    return true;
+  }
+
+  nearest(from: readonly number[]): { p: V3; d: number } | null {
+    const w = this.world;
+    const d = w.climbSolid(from[0], from[1], from[2]);
+    if (d > FIXED_REACH || d < -0.05) return null;
+    const n = w.climbNormal(from[0], from[1], from[2]);
+    const p: V3 = [from[0] - n[0] * d, from[1] - n[1] * d, from[2] - n[2] * d];
+    const name = FIXED_NAME[w.surfaceMaterial(p[0] + n[0] * 0.02, p[1] + n[1] * 0.02, p[2] + n[2] * 0.02)];
+    if (!name) return null;
+    if (!this.held) this.name = name;
+    return { p, d: Math.max(0, d) };
+  }
+
+  gripPoint(): readonly number[] {
+    return this.p;
+  }
+
+  aim(at: readonly number[]) {
+    this.p[0] = at[0];
+    this.p[1] = at[1];
+    this.p[2] = at[2];
+  }
+
+  onGrab() {
+    this.held = true;
+  }
+
+  onRelease() {
+    this.held = false;
+  }
+
+  stepHeld(dt: number, a0: readonly number[], a1: readonly number[]) {
+    // 物は動かない（重さは大きく）：ばねの力がそのままカニへ返る
+    const ex = a1[0] - this.p[0], ey = a1[1] - this.p[1], ez = a1[2] - this.p[2];
+    const k = dt > 0 ? 1 / dt : 0;
+    const out: V3 = [0, 0, 0];
+    const raw = clawSpring(ex, ey, ez, (a1[0] - a0[0]) * k, (a1[1] - a0[1]) * k, (a1[2] - a0[2]) * k, 2.0, this.grip, out);
+    return { force: out, over: raw / this.grip, tugOver: 0, stretch: Math.hypot(ex, ey, ez), done: false };
+  }
+}
+
 /** 挟める物か生き物 */
 export type Grabbable = Prop | GrabCreature;
 
@@ -619,8 +697,24 @@ export class GrabSystem {
   readonly stats = { grabs: 0, releases: 0, slips: 0, misses: 0, touchGrabs: 0, maxStretch: 0, creatureGrabs: 0, creatureSlips: 0, pops: 0, maxOver: 0 };
   /** 押していない・挟める物の候補（案内の表示用） */
   hint: Grabbable | null = null;
+  /** hint のつかみ点（案内の輪を出す所） */
+  hintAt: V3 | null = null;
+  /**
+   * 近くにあるが、まだ鋏の届かない物（狙いの補助：挟むを押している間はカニがそちらへ鋏を向け、案内の輪を薄く出す）。
+   * 体の中心から ASSIST_R 以内・体の前の半分の側だけ
+   */
+  near: { target: Grabbable; at: V3; d: number } | null = null;
+  /** 腕の向きを動かしている（鋏を構えて見せる。CrabRig へ） */
+  aiming = false;
+  /** 景色の小石・貝殻（AquaDecor の、まだ動いていない物）：挟む候補に入れる。挟んだ瞬間に promote で物理の物にする */
+  ghosts: () => Iterable<Prop> = () => [];
+  promote: (pr: Prop) => void = () => {};
+  /** 岩・流木（動かない物）を挟む */
+  readonly fixed: FixedGrip;
 
-  constructor(private readonly world: AquariumWorld, readonly props: PropSystem) {}
+  constructor(private readonly world: AquariumWorld, readonly props: PropSystem) {
+    this.fixed = new FixedGrip(world);
+  }
 
   /** 挟んでいる・閉じている（鋏が使われている：穴掘りはできない） */
   get busy(): boolean {
@@ -655,7 +749,7 @@ export class GrabSystem {
       const g = this.creature.gripPoint();
       t = [g[0], g[1], g[2]];
     }
-    return { on: this.state !== 'idle', close: this.close, hold: this.state === 'holding', target: t, shake: this.warn };
+    return { on: this.state !== 'idle' || this.aiming, close: this.close, hold: this.state === 'holding', target: t, shake: this.warn };
   }
 
   /** すぐ離す（瞬間移動・管に入った等）。kind = 離した理由（生き物が抜けたときは 'pop'） */
@@ -687,24 +781,30 @@ export class GrabSystem {
   /** 構えた鋏の先から届く物（いちばん近い物の表面までの距離が reach 以内。ガラス・岩越しには挟めない） */
   private pick(claw: ClawView, from: readonly number[], reach: number): Picked | null {
     let best: Picked | null = null;
-    for (const pr of this.props.props) {
+    const test = (pr: Prop) => {
+      // 遠い物は楕円体の距離を測らない（景色の小石は数百個ある）
+      if (Math.hypot(pr.p[0] - from[0], pr.p[1] - from[1], pr.p[2] - from[2]) > reach + pr.rb) return;
       const d = this.props.surfaceDist(pr, from[0], from[1], from[2]);
-      if (d > reach || (best && d >= best.d)) continue;
+      if (d > reach || (best && d >= best.d)) return;
       // 付け根からつかみ点までの間に固体（ガラス・岩・砂）が無い
       const l = this.props.surfaceLocal(pr, from[0], from[1], from[2]);
       const gp = this.props.toWorld(pr, l);
       if (this.reachable(claw, gp, (x, y, z) => this.props.surfaceDist(pr, x, y, z) > 0.02)) best = { prop: pr, creature: null, d, at: gp };
-    }
-    // 巣穴の生き物：見えている部分（挟める所の球）
+    };
+    for (const pr of this.props.props) test(pr);
+    for (const pr of this.ghosts()) test(pr);
+    // 巣穴の生き物：見えている部分（挟める所の球）。初心者でも狙えるよう、物より少し遠くから挟める（CREATURE_BONUS）。
+    // 比べるときは足した分を引く（同じ距離なら物より生き物を選ぶ）
     for (const cr of this.creatures) {
       if (!cr.grabbable()) continue;
       // 構えた鋏の先にいちばん近い点。腕の付け根から届かなければ、付け根にいちばん近い点も試す（腕を伸ばして挟む）
       for (const o of [from, claw.shoulder]) {
         const n = cr.nearest(o);
         if (!n) continue;
-        const d = o === from ? n.d : (cr.nearest(from)?.d ?? n.d);
-        if (d > reach || (best && d >= best.d)) continue;
-        if (this.reachable(claw, n.p, (x, y, z) => (cr.nearest([x, y, z])?.d ?? 1) > 0.03)) {
+        const d0 = o === from ? n.d : (cr.nearest(from)?.d ?? n.d);
+        const d = d0 - CREATURE_BONUS;
+        if (d0 > reach + CREATURE_BONUS || (best && d >= best.d)) continue;
+        if (this.reachable(claw, n.p, (x, y, z) => (cr.nearest([x, y, z])?.d ?? 1) > 0.03, CREATURE_ARM_EXTRA)) {
           best = { prop: null, creature: cr, d, at: n.p };
           break;
         }
@@ -713,9 +813,39 @@ export class GrabSystem {
     return best;
   }
 
+  /**
+   * 狙いの補助：体の中心から ASSIST_R 以内で、体の前の半分の側にある、いちばん近い挟める物（届く物は除く。hint が出す）
+   */
+  private findNear(crab: CrabController): { target: Grabbable; at: V3; d: number } | null {
+    const cx = crab.x, cy = crab.y + crab.radius, cz = crab.z;
+    const fx = Math.sin(crab.heading), fz = Math.cos(crab.heading);
+    let best: { target: Grabbable; at: V3; d: number } | null = null;
+    const consider = (target: Grabbable, at: readonly number[]) => {
+      const dx = at[0] - cx, dy = at[1] - cy, dz = at[2] - cz;
+      const d = Math.hypot(dx, dy, dz);
+      if (d > ASSIST_R || Math.abs(dy) > 0.45 || (best && d >= best.d)) return;
+      // 体の前の側（横・後ろの物へ急に向き直らない）
+      const hl = Math.hypot(dx, dz);
+      if (hl > 0.05 && (dx * fx + dz * fz) / hl < -0.2) return;
+      best = { target, at: [at[0], at[1], at[2]], d };
+    };
+    const scan = (pr: Prop) => {
+      if (pr.held || Math.hypot(pr.p[0] - cx, pr.p[2] - cz) > ASSIST_R + pr.rb) return;
+      consider(pr, pr.p);
+    };
+    for (const pr of this.props.props) scan(pr);
+    for (const pr of this.ghosts()) scan(pr);
+    for (const cr of this.creatures) {
+      if (!cr.grabbable()) continue;
+      const n = cr.nearest([cx, cy, cz]);
+      if (n) consider(cr, n.p);
+    }
+    return best;
+  }
+
   /** 腕を伸ばして届く（付け根から ARM_REACH 以内）・付け根からつかみ点までの間に固体が無い（away = その点が挟む物から離れている） */
-  private reachable(claw: ClawView, gp: readonly number[], away: (x: number, y: number, z: number) => boolean): boolean {
-    if (Math.hypot(gp[0] - claw.shoulder[0], gp[1] - claw.shoulder[1], gp[2] - claw.shoulder[2]) > ARM_REACH) return false;
+  private reachable(claw: ClawView, gp: readonly number[], away: (x: number, y: number, z: number) => boolean, extra = 0): boolean {
+    if (Math.hypot(gp[0] - claw.shoulder[0], gp[1] - claw.shoulder[1], gp[2] - claw.shoulder[2]) > ARM_REACH + extra) return false;
     for (let i = 1; i <= 4; i++) {
       const f = i / 5;
       const x = lerp(claw.shoulder[0], gp[0], f), y = lerp(claw.shoulder[1], gp[1], f), z = lerp(claw.shoulder[2], gp[2], f);
@@ -731,12 +861,26 @@ export class GrabSystem {
     this.local = [l[0] * k, l[1] * k, l[2] * k];
   }
 
-  /** 挟もうとする物・生き物を決めて、鋏を閉じ始める */
-  private beginClose(c: Picked | null, anchor: readonly number[]) {
+  /**
+   * 挟もうとする物・生き物を決めて、鋏を閉じ始める。景色の物（ghost）なら、ここで物理の物にする。
+   * fresh（押した瞬間）で何も届かなければ、岩・流木の面が届くか調べる（閉じたまま歩いている間は岩をつかまない）
+   */
+  private beginClose(c: Picked | null, anchor: readonly number[], claw: ClawView, fresh: boolean) {
+    if (!c && fresh) {
+      // 構えた鋏の先にいちばん近い面の点。腕が届かなければ、付け根にいちばん近い面の点（腕を伸ばしてつかむ）
+      for (const o of [anchor, claw.shoulder]) {
+        const n = this.fixed.nearest(o);
+        if (n && this.reachable(claw, n.p, (x, y, z) => this.world.climbSolid(x, y, z) > 0.03, CREATURE_ARM_EXTRA)) {
+          c = { prop: null, creature: this.fixed, d: n.d, at: n.p };
+          break;
+        }
+      }
+    }
     this.state = 'closing';
     this.closeT = 0;
     this.target = c?.prop ?? null;
     this.creature = c?.creature ?? null;
+    if (c?.prop && c.prop.decor >= 0 && !this.props.props.includes(c.prop)) this.promote(c.prop);
     if (c?.prop) this.aimAt(c.prop, anchor);
     if (c?.creature) c.creature.aim(c.at);
   }
@@ -757,13 +901,13 @@ export class GrabSystem {
       if (this.state !== 'idle') this.release();
     } else if (this.state === 'idle') {
       // 押した：届く物を探して、鋏を伸ばしながら閉じる
-      this.beginClose(this.pick(claw, anchor, GRAB_REACH), anchor);
+      this.beginClose(this.pick(claw, anchor, GRAB_REACH), anchor, claw, true);
     } else if (this.state === 'empty' && (this.retryT -= dt) <= 0) {
       // 空のまま閉じている：押したまま歩いて物が届く所へ来たら、鋏を開き直して挟む（押し直さなくてよい）。
       // 挟みそこねた直後（retryT）は待つ（届かない物へ鋏を開閉し続けない）
       const c = this.pick(claw, anchor, GRAB_REACH);
       if (c) {
-        this.beginClose(c, anchor);
+        this.beginClose(c, anchor, claw, false);
         this.stats.touchGrabs++;
       }
     }
@@ -868,9 +1012,12 @@ export class GrabSystem {
       this.load = this.over = 0;
       this.force.fill(0);
     }
-    // 案内：押していないとき、届く物
-    const h = this.state === 'idle' && !blocked ? this.pick(claw, anchor, GRAB_REACH) : null;
+    // 案内：押していない・閉じたまま空のとき、届く物（つかみ点に輪を出す）。届かないが近い物（狙いの補助）
+    const free = (this.state === 'idle' || this.state === 'empty') && !blocked;
+    const h = free ? this.pick(claw, anchor, GRAB_REACH) : null;
     this.hint = h ? h.prop ?? h.creature : null;
+    this.hintAt = h ? [h.at[0], h.at[1], h.at[2]] : null;
+    this.near = free && !h ? this.findNear(crab) : null;
   }
 
   drainEvents(): GrabEvent[] {

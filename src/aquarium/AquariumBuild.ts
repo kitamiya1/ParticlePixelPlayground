@@ -85,6 +85,11 @@ export interface PebbleInfo {
   bottom: number;
   v0: number;
   vn: number;
+  /** 楕円体の半径（横・厚み・前後）と、頂点を回した角（y 軸まわりに −rot。挟める物の影 AquaDecor が使う） */
+  rx: number;
+  ry: number;
+  rz: number;
+  rot: number;
 }
 
 export interface AquariumMeshes {
@@ -457,7 +462,7 @@ function buildPebbles(world: AquariumWorld, light: LightGrid, rng: Rng): { mesh:
     const cy = h + ry * 0.35;
     const sun = light.sample(x, cy + 0.1, z);
     const vid: number[] = [];
-    list.push({ x, y: cy, z, bottom: cy - ry, v0: mb.vertexCount, vn: ico.pos.length });
+    list.push({ x, y: cy, z, bottom: cy - ry, v0: mb.vertexCount, vn: ico.pos.length, rx, ry, rz, rot });
     for (const [px, py, pz] of ico.pos) {
       const bump = 1 + noise3(px * 2 + x, py * 2, pz * 2 + z, 77) * 0.12;
       const lx = px * rx * bump, ly = py * ry * bump, lz = pz * rz * bump;
@@ -1025,11 +1030,18 @@ const SHELL_TINT = [
   [hex('#8f6444'), hex('#e3d4ad')],
 ];
 
-/** 貝殻（二枚貝：放射状の筋の入った扇形の殻）と巻貝（だんだん小さくなる球の螺旋） */
-export function buildFindsMesh(finds: Find[], light: LightGrid): TriMesh {
+/**
+ * 貝殻（二枚貝：放射状の筋の入った扇形の殻）と巻貝（だんだん小さくなる球の螺旋）。
+ * ranges を渡すと、発見物ごとの頂点の範囲を入れる（finds と同じ番号。貝殻・巻貝でなければ null。挟める物の影 AquaDecor が使う）
+ */
+export function buildFindsMesh(finds: Find[], light: LightGrid, ranges?: ({ v0: number; vn: number } | null)[]): TriMesh {
   const mb = new MeshBuilder();
   for (const f of finds) {
-    if (f.kind !== 'shell' && f.kind !== 'spiral') continue;
+    if (f.kind !== 'shell' && f.kind !== 'spiral') {
+      ranges?.push(null);
+      continue;
+    }
+    const v0 = mb.vertexCount;
     const [px, py, pz] = f.pos;
     const s = f.scale;
     const cr = Math.cos(f.rot), sr = Math.sin(f.rot);
@@ -1062,6 +1074,7 @@ export function buildFindsMesh(finds: Find[], light: LightGrid): TriMesh {
       const wx = px + (x * cr + z * sr) * s, wy = py + y * s, wz = pz + (-x * sr + z * cr) * s;
       return mb.vertex(wx, wy, wz, nx * cr + nz * sr, ny, -nx * sr + nz * cr, u8(c[0]), u8(c[1]), u8(c[2]), light.sample(wx, wy + 0.15, wz), 0.25);
     });
+    ranges?.push({ v0, vn: mb.vertexCount - v0 });
   }
   return mb.finish();
 }
