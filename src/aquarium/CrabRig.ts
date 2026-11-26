@@ -253,7 +253,7 @@ export class CrabRig {
     const ikWant = ik && this.feet ? Math.max(0, 1 - W.air - W.swim - W.sink - tumble) * (grounded ? 1 : 0) : 0;
     this.ikW += (ikWant - this.ikW) * (1 - Math.exp(-dt * 10));
     if (this.feet && ik) {
-      this.feet.update(dt, this.root, this.body.elements[13], [c.vx, c.vy, c.vz], grounded, c.climbing ? c.climbN : null, this.gait === 'lead' ? c.ledge : null);
+      this.feet.update(dt, this.root, this.body.elements[13], [c.vx, c.vy, c.vz], grounded, c.climbing ? c.climbN : null, this.gait === 'lead' ? c.ledge : null, this.gait === 'lead' ? c.faceHint : null);
       if (this.ikW > 1e-3) {
         const o = this.feet.bodyOffset;
         this.qTmp.identity().slerp(o.q, this.ikW);
