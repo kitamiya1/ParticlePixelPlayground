@@ -78,6 +78,25 @@ const PROBE_DIRS: readonly (readonly [number, number, number])[] = [
 type V3 = [number, number, number];
 type Q4 = [number, number, number, number];
 
+/**
+ * 鋏のばね（つかみ点 ↔ 鋏の構え）。物（Prop）と巣穴の生き物（GrabCreature）で共通。
+ * e = 構え − つかみ点、rv = 構えの速さ − つかみ点の速さ、mass = つかむ物の重さ、grip = 握る力の上限。
+ * out にばねの力（握る力で頭打ち）を書き、頭打ちにする前の力の大きさを返す（握る力を越えて引いている量。生き物の滑りに使う）
+ */
+export function clawSpring(ex: number, ey: number, ez: number, rvx: number, rvy: number, rvz: number, mass: number, grip: number, out: V3): number {
+  const c = 2 * SPRING_ZETA * Math.sqrt(SPRING_K * mass);
+  let fx = SPRING_K * ex + c * rvx;
+  let fy = SPRING_K * ey + c * rvy;
+  let fz = SPRING_K * ez + c * rvz;
+  const fl = Math.hypot(fx, fy, fz);
+  if (fl > grip) {
+    const k = grip / fl;
+    fx *= k; fy *= k; fz *= k;
+  }
+  out[0] = fx; out[1] = fy; out[2] = fz;
+  return fl;
+}
+
 export class Prop {
   readonly spec: PropKindSpec;
   /** 楕円体の半径（大きさを掛けた後） */
@@ -329,18 +348,11 @@ export class PropSystem {
       const gx = p[0] + r[0], gy = p[1] + r[1], gz = p[2] + r[2];
       const wx = pr.w, rvx = wx[1] * r[2] - wx[2] * r[1], rvy = wx[2] * r[0] - wx[0] * r[2], rvz = wx[0] * r[1] - wx[1] * r[0];
       const ex = anchor[0] - gx, ey = anchor[1] - gy, ez = anchor[2] - gz;
-      const c = 2 * SPRING_ZETA * Math.sqrt(SPRING_K * pr.mass);
-      let fx = SPRING_K * ex + c * ((av?.[0] ?? 0) - v[0] - rvx);
-      let fy = SPRING_K * ey + c * ((av?.[1] ?? 0) - v[1] - rvy);
-      let fz = SPRING_K * ez + c * ((av?.[2] ?? 0) - v[2] - rvz);
       // 握る力の上限：軽い物（小石・貝殻）は小さく持てるので余裕がある（跳んだ瞬間に引っ張られても落とさない）。
       // 重い石（重さ 0.8 以上）は GRIP_FORCE のまま
       const grip = GRIP_FORCE * (1 + 1.5 * Math.max(0, 1 - pr.mass / 0.8));
-      const fl = Math.hypot(fx, fy, fz);
-      if (fl > grip) {
-        const k = grip / fl;
-        fx *= k; fy *= k; fz *= k;
-      }
+      clawSpring(ex, ey, ez, (av?.[0] ?? 0) - v[0] - rvx, (av?.[1] ?? 0) - v[1] - rvy, (av?.[2] ?? 0) - v[2] - rvz, pr.mass, grip, this.tmp2);
+      const fx = this.tmp2[0], fy = this.tmp2[1], fz = this.tmp2[2];
       v[0] += (fx / pr.mass) * dt;
       v[1] += (fy / pr.mass) * dt;
       v[2] += (fz / pr.mass) * dt;
@@ -509,10 +521,50 @@ export interface ClawView {
   readonly reachErr: number;
 }
 
+/**
+ * 鋏で挟める生き物の体の一部（巣穴から出ているスナモグリの触角・鋏の付け根など。AquaTug の BurrowTug）。
+ * 物（Prop）と違い、体の動き（穴からの引き出し・抵抗・伸び）は生き物の側が持つ。鋏の側はばね（clawSpring）でつなぐだけ
+ */
+export interface GrabCreature {
+  readonly name: string;
+  /** 案内を出す所（世界。見えている部分の中ほど・挟んでいる間はつかみ点）と、その大きさ */
+  readonly p: readonly number[];
+  readonly rb: number;
+  /** 握る力の上限（この力を越えて引き続けると滑る） */
+  readonly grip: number;
+  /** いま挟めるか（穴から見えている・抜けていない） */
+  grabbable(): boolean;
+  /** 見えている部分のうち from にいちばん近い点と、そこから表面までの距離（挟めないときは null） */
+  nearest(from: readonly number[]): { p: V3; d: number } | null;
+  /** 鋏を伸ばす所（世界。挟んでいる間のつかみ点。挟もうとしている間は狙った点） */
+  gripPoint(): readonly number[];
+  /** 狙う点を決める（鋏を閉じ始めた。at = nearest の点） */
+  aim(at: readonly number[]): void;
+  onGrab(): void;
+  onRelease(kind: 'release' | 'slip' | 'pop'): void;
+  /**
+   * 挟んでいる間：鋏の構えの前・今のフレームの位置（a0 → a1、刻みの間は補間）で体を進める。
+   * 返り値：ばねの力（つかみ点にかけた力。世界、刻みで平均）・頭打ちにする前の力 / 握る力 の最大（over。急に強く引いた）・
+   * 生き物が暴れている間の 張力 × 暴れる強さ / 握る力（tugOver。暴れているのに引いている）・ばねの伸び・抜けたか
+   */
+  stepHeld(dt: number, a0: readonly number[], a1: readonly number[]): { force: V3; over: number; tugOver: number; stretch: number; done: boolean };
+}
+
+/** 挟める物か生き物 */
+export type Grabbable = Prop | GrabCreature;
+
+/** 届く物・生き物と、構えた鋏の先からの距離・狙う点 */
+interface Picked {
+  prop: Prop | null;
+  creature: GrabCreature | null;
+  d: number;
+  at: readonly number[];
+}
+
 export type GrabState = 'idle' | 'closing' | 'holding' | 'empty';
 
-/** 離した・滑った出来事（表示用） */
-export type GrabEvent = { kind: 'grab' | 'release' | 'slip' | 'miss' | 'heavy'; prop: Prop | null };
+/** 離した・滑った・抜けた出来事（表示用） */
+export type GrabEvent = { kind: 'grab' | 'release' | 'slip' | 'miss' | 'heavy' | 'pop'; prop: Grabbable | null };
 
 /** カニへ返す、挟んだ物の手応え（CrabController の CrabInput.tow） */
 export interface Tow {
@@ -524,10 +576,23 @@ export interface Tow {
   slow: number;
 }
 
+/**
+ * 生き物を引っ張るときの反作用を受けるカニの重さ（物より重い = 足を砂に踏ん張っている。小さいと、生き物に穴へ
+ * 引きずり込まれる）・速さの上限の落ち方（張力 / 握る力 の 2 乗に掛ける）
+ */
+const CRAB_MASS_TUG = 1.0;
+const TUG_SLOW = 0.75;
+/** 生き物が滑り落ちるまで：握る力を越えて引いている時間の上限（越えた量が大きいほど早く溜まる。緩めると減る） */
+export const TUG_SLIP_T = 0.8;
+
 export class GrabSystem {
   state: GrabState = 'idle';
-  /** 挟んでいる物・挟もうとしている物 */
+  /** 挟んでいる物・挟もうとしている物（生き物のときは null で creature） */
   target: Prop | null = null;
+  /** 挟んでいる・挟もうとしている生き物 */
+  creature: GrabCreature | null = null;
+  /** 挟める生き物（巣穴のスナモグリ。main が入れる） */
+  readonly creatures: GrabCreature[] = [];
   /** つかみ点（物の座標） */
   local: [number, number, number] = [0, 0, 0];
   /** 閉じ具合（0 = 開き、1 = 閉じ）と、構えの重み */
@@ -538,21 +603,26 @@ export class GrabSystem {
   private heavyT = 0;
   private prevAnchor: [number, number, number] | null = null;
   private prevCrab: [number, number, number] = [0, 0, 0];
+  /** 生き物を挟んでいる間の、ならした鋏の構えの位置（離したら null） */
+  private fAnchor: [number, number, number] | null = null;
   /** 挟んでいる物の手応え（次のフレームのカニの入力） */
   tow: Tow | null = null;
   /** ばねの伸び・力（表示・自動検証用） */
   stretch = 0;
   /** 重さの手応え（ばねの力 / 握る力 を約 0.4 秒でならした値。表示用：歩き出し・跳んだ瞬間の引っ張りでは跳ねない） */
   strain = 0;
+  /** 生き物を引っ張っている：このフレームの 張力 / 握る力（ならさない）・握る力を越えて引いている量（頭打ち前の力 / 握る力） */
+  load = 0;
+  over = 0;
   readonly force: [number, number, number] = [0, 0, 0];
   readonly events: GrabEvent[] = [];
-  readonly stats = { grabs: 0, releases: 0, slips: 0, misses: 0, touchGrabs: 0, maxStretch: 0 };
+  readonly stats = { grabs: 0, releases: 0, slips: 0, misses: 0, touchGrabs: 0, maxStretch: 0, creatureGrabs: 0, creatureSlips: 0, pops: 0, maxOver: 0 };
   /** 押していない・挟める物の候補（案内の表示用） */
-  hint: Prop | null = null;
+  hint: Grabbable | null = null;
 
   constructor(private readonly world: AquariumWorld, readonly props: PropSystem) {}
 
-  /** 挟んでいる・閉じている（鋏が使われている：穴掘り・引っこ抜きはできない） */
+  /** 挟んでいる・閉じている（鋏が使われている：穴掘りはできない） */
   get busy(): boolean {
     return this.state !== 'idle';
   }
@@ -561,47 +631,97 @@ export class GrabSystem {
     return this.state === 'holding' ? this.target : null;
   }
 
-  /** 鋏の構え（CrabRig.grip へ渡す）。target = 鋏を伸ばす所（世界） */
-  rigGrip(): { on: boolean; close: number; hold: boolean; target: [number, number, number] | null } {
-    const t = this.target && (this.state === 'closing' || this.state === 'holding') ? this.props.toWorld(this.target, this.local) : null;
-    return { on: this.state !== 'idle', close: this.close, hold: this.state === 'holding', target: t };
+  /** 挟んでいる生き物 */
+  get holdingCreature(): GrabCreature | null {
+    return this.state === 'holding' ? this.creature : null;
   }
 
-  /** すぐ離す（瞬間移動・管に入った等） */
-  release(kind: 'release' | 'slip' = 'release') {
+  /** 挟んでいる物か生き物（表示用） */
+  get held(): Grabbable | null {
+    return this.holding ?? this.holdingCreature;
+  }
+
+  /** 滑りそうな度合い（0..1。生き物を握る力より強く引いている時間 / TUG_SLIP_T） */
+  get warn(): number {
+    return this.holdingCreature ? clamp(this.slipT / TUG_SLIP_T, 0, 1) : 0;
+  }
+
+  /** 鋏の構え（CrabRig.grip へ渡す）。target = 鋏を伸ばす所（世界） */
+  rigGrip(): { on: boolean; close: number; hold: boolean; target: [number, number, number] | null; shake: number } {
+    const busy = this.state === 'closing' || this.state === 'holding';
+    let t: [number, number, number] | null = null;
+    if (busy && this.target) t = this.props.toWorld(this.target, this.local);
+    else if (busy && this.creature) {
+      const g = this.creature.gripPoint();
+      t = [g[0], g[1], g[2]];
+    }
+    return { on: this.state !== 'idle', close: this.close, hold: this.state === 'holding', target: t, shake: this.warn };
+  }
+
+  /** すぐ離す（瞬間移動・管に入った等）。kind = 離した理由（生き物が抜けたときは 'pop'） */
+  release(kind: 'release' | 'slip' | 'pop' = 'release') {
     if (this.state === 'holding' && this.target) {
       this.target.held = false;
       this.target.wake();
-      this.events.push({ kind, prop: this.target });
+      this.events.push({ kind: kind === 'pop' ? 'release' : kind, prop: this.target });
       if (kind === 'slip') this.stats.slips++;
+      else this.stats.releases++;
+    } else if (this.state === 'holding' && this.creature) {
+      this.creature.onRelease(kind);
+      this.events.push({ kind, prop: this.creature });
+      if (kind === 'slip') {
+        this.stats.slips++;
+        this.stats.creatureSlips++;
+      } else if (kind === 'pop') this.stats.pops++;
       else this.stats.releases++;
     }
     this.state = 'idle';
     this.target = null;
+    this.creature = null;
     this.tow = null;
     this.slipT = 0;
+    this.load = this.over = 0;
+    this.fAnchor = null;
   }
 
   /** 構えた鋏の先から届く物（いちばん近い物の表面までの距離が reach 以内。ガラス・岩越しには挟めない） */
-  private pick(claw: ClawView, from: readonly number[], reach: number): { prop: Prop; d: number } | null {
-    let best: { prop: Prop; d: number } | null = null;
+  private pick(claw: ClawView, from: readonly number[], reach: number): Picked | null {
+    let best: Picked | null = null;
     for (const pr of this.props.props) {
       const d = this.props.surfaceDist(pr, from[0], from[1], from[2]);
       if (d > reach || (best && d >= best.d)) continue;
       // 付け根からつかみ点までの間に固体（ガラス・岩・砂）が無い
       const l = this.props.surfaceLocal(pr, from[0], from[1], from[2]);
       const gp = this.props.toWorld(pr, l);
-      // 腕を伸ばして届く（付け根から ARM_REACH 以内）
-      if (Math.hypot(gp[0] - claw.shoulder[0], gp[1] - claw.shoulder[1], gp[2] - claw.shoulder[2]) > ARM_REACH) continue;
-      let clear = true;
-      for (let i = 1; i <= 4; i++) {
-        const f = i / 5;
-        const x = lerp(claw.shoulder[0], gp[0], f), y = lerp(claw.shoulder[1], gp[1], f), z = lerp(claw.shoulder[2], gp[2], f);
-        if (this.world.contactSolid(x, y, z) < 0.005 && this.props.surfaceDist(pr, x, y, z) > 0.02) clear = false;
+      if (this.reachable(claw, gp, (x, y, z) => this.props.surfaceDist(pr, x, y, z) > 0.02)) best = { prop: pr, creature: null, d, at: gp };
+    }
+    // 巣穴の生き物：見えている部分（挟める所の球）
+    for (const cr of this.creatures) {
+      if (!cr.grabbable()) continue;
+      // 構えた鋏の先にいちばん近い点。腕の付け根から届かなければ、付け根にいちばん近い点も試す（腕を伸ばして挟む）
+      for (const o of [from, claw.shoulder]) {
+        const n = cr.nearest(o);
+        if (!n) continue;
+        const d = o === from ? n.d : (cr.nearest(from)?.d ?? n.d);
+        if (d > reach || (best && d >= best.d)) continue;
+        if (this.reachable(claw, n.p, (x, y, z) => (cr.nearest([x, y, z])?.d ?? 1) > 0.03)) {
+          best = { prop: null, creature: cr, d, at: n.p };
+          break;
+        }
       }
-      if (clear) best = { prop: pr, d };
     }
     return best;
+  }
+
+  /** 腕を伸ばして届く（付け根から ARM_REACH 以内）・付け根からつかみ点までの間に固体が無い（away = その点が挟む物から離れている） */
+  private reachable(claw: ClawView, gp: readonly number[], away: (x: number, y: number, z: number) => boolean): boolean {
+    if (Math.hypot(gp[0] - claw.shoulder[0], gp[1] - claw.shoulder[1], gp[2] - claw.shoulder[2]) > ARM_REACH) return false;
+    for (let i = 1; i <= 4; i++) {
+      const f = i / 5;
+      const x = lerp(claw.shoulder[0], gp[0], f), y = lerp(claw.shoulder[1], gp[1], f), z = lerp(claw.shoulder[2], gp[2], f);
+      if (this.world.contactSolid(x, y, z) < 0.005 && away(x, y, z)) return false;
+    }
+    return true;
   }
 
   /** つかみ点を決める（鋏の先に近い表面の点を、少し内側へ） */
@@ -609,6 +729,16 @@ export class GrabSystem {
     const l = this.props.surfaceLocal(pr, from[0], from[1], from[2]);
     const k = Math.max(0, 1 - 0.006 / (Math.hypot(l[0], l[1], l[2]) || 1));
     this.local = [l[0] * k, l[1] * k, l[2] * k];
+  }
+
+  /** 挟もうとする物・生き物を決めて、鋏を閉じ始める */
+  private beginClose(c: Picked | null, anchor: readonly number[]) {
+    this.state = 'closing';
+    this.closeT = 0;
+    this.target = c?.prop ?? null;
+    this.creature = c?.creature ?? null;
+    if (c?.prop) this.aimAt(c.prop, anchor);
+    if (c?.creature) c.creature.aim(c.at);
   }
 
   /**
@@ -621,26 +751,19 @@ export class GrabSystem {
     const jump = Math.hypot(crab.x - this.prevCrab[0], crab.y - this.prevCrab[1], crab.z - this.prevCrab[2]);
     this.prevCrab = [crab.x, crab.y, crab.z];
     const teleported = jump > 1.2;
-    const blocked = crab.state === 'ride' || crab.pulling || crab.region !== 'tank';
+    const blocked = crab.state === 'ride' || crab.region !== 'tank';
     if (teleported) this.prevAnchor = null;
     if (!held || blocked || teleported) {
       if (this.state !== 'idle') this.release();
     } else if (this.state === 'idle') {
       // 押した：届く物を探して、鋏を伸ばしながら閉じる
-      const c = this.pick(claw, anchor, GRAB_REACH);
-      this.state = 'closing';
-      this.closeT = 0;
-      this.target = c?.prop ?? null;
-      if (c) this.aimAt(c.prop, anchor);
+      this.beginClose(this.pick(claw, anchor, GRAB_REACH), anchor);
     } else if (this.state === 'empty' && (this.retryT -= dt) <= 0) {
       // 空のまま閉じている：押したまま歩いて物が届く所へ来たら、鋏を開き直して挟む（押し直さなくてよい）。
       // 挟みそこねた直後（retryT）は待つ（届かない物へ鋏を開閉し続けない）
       const c = this.pick(claw, anchor, GRAB_REACH);
       if (c) {
-        this.state = 'closing';
-        this.closeT = 0;
-        this.target = c.prop;
-        this.aimAt(c.prop, anchor);
+        this.beginClose(c, anchor);
         this.stats.touchGrabs++;
       }
     }
@@ -648,20 +771,26 @@ export class GrabSystem {
       this.closeT += dt;
       this.close = clamp(this.closeT / CLOSE_T, 0, 1);
       if (this.closeT >= CLOSE_T) {
-        const pr = this.target;
-        const gp = pr ? this.props.toWorld(pr, this.local) : null;
+        const pr = this.target, cr = this.creature;
+        const gp = pr ? this.props.toWorld(pr, this.local) : cr && cr.grabbable() ? cr.gripPoint() : null;
         // 鋏の先が届いた（伸ばした鋏の先がつかみ点の近く）
-        if (pr && gp && Math.hypot(claw.pinch[0] - gp[0], claw.pinch[1] - gp[1], claw.pinch[2] - gp[2]) < 0.08) {
+        if (gp && Math.hypot(claw.pinch[0] - gp[0], claw.pinch[1] - gp[1], claw.pinch[2] - gp[2]) < 0.08) {
           this.state = 'holding';
-          pr.held = true;
-          pr.wake();
           this.slipT = this.heavyT = 0;
           this.stats.grabs++;
-          this.events.push({ kind: 'grab', prop: pr });
+          if (pr) {
+            pr.held = true;
+            pr.wake();
+          } else if (cr) {
+            cr.onGrab();
+            this.stats.creatureGrabs++;
+          }
+          this.events.push({ kind: 'grab', prop: pr ?? cr });
         } else {
           this.state = 'empty';
-          this.retryT = pr ? 0.6 : 0;
+          this.retryT = pr || cr ? 0.6 : 0;
           this.target = null;
+          this.creature = null;
           this.stats.misses++;
           this.events.push({ kind: 'miss', prop: null });
         }
@@ -670,7 +799,7 @@ export class GrabSystem {
     else if (this.state === 'idle') this.close = Math.max(0, this.close - dt / CLOSE_T);
 
     // 物の時間を進める（挟んでいれば、ばねでつなぐ）
-    const pr = this.holding;
+    const pr = this.holding, cr = this.holdingCreature;
     const a0 = this.prevAnchor ?? anchor;
     const r = this.props.update(dt, crab, pr ? { prop: pr, local: this.local, a0, a1: anchor } : null);
     this.prevAnchor = anchor;
@@ -697,14 +826,51 @@ export class GrabSystem {
         this.heavyT = -1e9;
         this.events.push({ kind: 'heavy', prop: pr });
       }
-    } else {
+    } else if (cr && dt > 0) {
+      // 巣穴の生き物：体（引き出し・抵抗・伸び）は生き物の側で進め、ばねの力と反作用は物と同じ。
+      // 鋏の構えは少しならして渡す（踏ん張りの見た目の小刻みな揺れ（CrabRig の tugShake）が、ばねの減衰を通って
+      // 張力を毎フレーム揺らさない。描く鋏は IK でいつもつかみ点を挟む）
+      const fa = this.fAnchor ?? [...a0] as [number, number, number];
+      const fa0: [number, number, number] = [fa[0], fa[1], fa[2]];
+      const kf = 1 - Math.exp(-dt * 30);
+      for (let i = 0; i < 3; i++) fa[i] += (anchor[i] - fa[i]) * kf;
+      this.fAnchor = fa;
+      const t = cr.stepHeld(dt, fa0, fa);
+      this.stretch = t.stretch;
+      this.force.splice(0, 3, ...t.force);
+      this.stats.maxStretch = Math.max(this.stats.maxStretch, t.stretch);
+      const F = t.force;
+      const fl = Math.hypot(F[0], F[1], F[2]);
+      const strain = clamp(fl / cr.grip, 0, 1);
+      this.load = strain;
+      this.over = Math.max(t.over, t.tugOver);
+      this.stats.maxOver = Math.max(this.stats.maxOver, this.over);
+      this.strain += (strain - this.strain) * (1 - Math.exp(-dt / 0.25));
+      // 反作用：生き物が引く力でカニが穴の方へ引き戻され、強く張っているほど下がる速さが落ちる
+      this.tow = { ax: -F[0] / CRAB_MASS_TUG, ay: -F[1] / CRAB_MASS_TUG, az: -F[2] / CRAB_MASS_TUG, slow: 1 - TUG_SLOW * strain * strain };
+      if (t.done) this.release('pop');
+      else {
+        // 滑る：握る力を越えて引いている時間が続いた・鋏が届かない。越え方は 2 通り：急に強く引いた（over：越えた量が
+        // 大きいほど早い。走って引き続けると約 0.7 秒）、暴れている間に強く張っている（tugOver：暴れる 1 回を歩いて耐えると
+        // 滑る直前まで、走って耐えると滑る）。緩めれば減る（理不尽に滑らない：滑りそうな間は鋏が震えて知らせる = warn）
+        const reachOver = claw.reachErr > SLIP_REACH * 1.6;
+        const rJerk = t.over > 1 ? Math.min(1.2, 0.3 + (t.over - 1) * 1.5) : 0;
+        const rTug = t.tugOver > 1 ? Math.min(2, 0.5 + (t.tugOver - 1) * 3.5) : 0;
+        const rate = Math.max(rJerk, rTug, reachOver ? 1.5 : 0);
+        if (rate > 0) this.slipT += dt * rate;
+        else this.slipT = Math.max(0, this.slipT - dt * 1.5);
+        if (this.slipT > TUG_SLIP_T) this.release('slip');
+      }
+    } else if (!cr) {
       this.tow = null;
       this.stretch = 0;
       this.strain = 0;
+      this.load = this.over = 0;
       this.force.fill(0);
     }
     // 案内：押していないとき、届く物
-    this.hint = this.state === 'idle' && !blocked ? this.pick(claw, anchor, GRAB_REACH)?.prop ?? null : null;
+    const h = this.state === 'idle' && !blocked ? this.pick(claw, anchor, GRAB_REACH) : null;
+    this.hint = h ? h.prop ?? h.creature : null;
   }
 
   drainEvents(): GrabEvent[] {

@@ -350,6 +350,23 @@ export class AquariumDigFx {
     }
   }
 
+  /**
+   * 穴の縁の砂が崩れる（引っこ抜きで生き物が暴れている・踏ん張っている所）：縁の輪（半径 r）の上から、n 粒が穴へこぼれ落ちる。
+   * toward = 崩れる側（水平の単位。null = 輪の全周）
+   */
+  crumble(x: number, y: number, z: number, r: number, n: number, toward: readonly number[] | null) {
+    const under = y < TANK.waterY;
+    for (let i = 0; i < n; i++) {
+      let a = Math.random() * Math.PI * 2;
+      if (toward) a = Math.atan2(toward[0], toward[1]) + rs(1.2);
+      const cx = Math.sin(a), cz = Math.cos(a);
+      const c = mixRGB(SANDS[Math.floor(Math.random() * SANDS.length)], SANDS[0], Math.random() * 0.3);
+      const sp = 0.25 + Math.random() * 0.35;
+      this.add(x + cx * r * (0.8 + Math.random() * 0.4), y + 0.03 + Math.random() * 0.04, z + cz * r * (0.8 + Math.random() * 0.4), -cx * sp + rs(0.15), 0.25 + Math.random() * 0.5, -cz * sp + rs(0.15), under ? 0.9 + Math.random() * 0.5 : 0.5, 0.022 + Math.random() * 0.02, 0, c);
+    }
+    if (under && n > 3) this.add(x + rs(0.08), y + 0.06, z + rs(0.08), rs(0.2), 0.12 + Math.random() * 0.15, rs(0.2), 1.0 + Math.random() * 0.5, 0.07 + Math.random() * 0.04, 1, mixRGB(SANDS[1], hex('#9fb8a0'), 0.35));
+  }
+
   private add(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, size: number, kind: 0 | 1 | 2, c: RGB) {
     if (this.grains.length >= this.maxGrains) this.grains.shift();
     this.grains.push({ x, y, z, vx, vy, vz, life, max: life, size, kind, c, rest: false });

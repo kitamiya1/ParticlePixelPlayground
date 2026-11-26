@@ -50,10 +50,10 @@ import { TANK, type AquariumWorld } from './AquariumWorld';
 import { ROOM, type Flow, type Region } from './AquariumStand';
 import { DIG, diggable, FILL, SAND, type DigMaterial } from './AquariumDig';
 
-export type CrabState = 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'swim' | 'sink' | 'ride' | 'dig' | 'climb' | 'pull';
+export type CrabState = 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'swim' | 'sink' | 'ride' | 'dig' | 'climb';
 
 export const CRAB_STATE_LABEL: Record<CrabState, string> = {
-  idle: '待機', walk: '歩行', run: '走行', jump: 'ジャンプ', fall: '落下', swim: '遊泳', sink: '沈降', ride: '水流に乗る', dig: '穴掘り', climb: '壁登り', pull: '引っこ抜き',
+  idle: '待機', walk: '歩行', run: '走行', jump: 'ジャンプ', fall: '落下', swim: '遊泳', sink: '沈降', ride: '水流に乗る', dig: '穴掘り', climb: '壁登り',
 };
 
 /** 見た目側（泡・水しぶき・波紋）に知らせる出来事 */
@@ -106,10 +106,16 @@ export interface CrabInput {
   /** 掘る向きの照準（x = 右, y = 上、長さ 0〜1。0 = 正面。Input.digAim） */
   digAim?: { x: number; y: number };
   /**
-   * 穴の生き物を引っ張っている（AquaBuddy が決める。x, z = 穴、t = 進み具合 0..1）。この間は移動・ジャンプ・穴掘りの入力を
-   * 使わず、穴へ向いて、穴から PULL_STAND（+ 進み具合で少し後ろへ）の所に踏ん張る
+   * 穴の生き物を鋏で挟んで引っ張っている（AquaBuddy が決める。x, z = 穴、t = 張力 / 生き物の踏ん張り 0..1）。
+   * 移動の入力はふだんどおり使う（下がる・横へ動くと引っ張る。手応えは tow）。この間は横歩きに向きを変えず正面（鋏の側）を
+   * 穴へ向け、体の中心は穴の口から PULL_KEEP より近づかない（引き戻されても穴の上に乗らない）。壁には張り付かない
    */
   pull?: { x: number; z: number; t: number } | null;
+  /**
+   * 正面（鋏の側）を向ける点（巣穴のそばで「挟む」を押している間。横歩きで横を向いたままでも、鋏が触角へ届くように
+   * 穴の方へ向き直る）。移動の入力はふだんどおり
+   */
+  face?: { x: number; z: number } | null;
   /**
    * 鋏で挟んでいる物の手応え（AquaGrab.tow）。a = 物が鋏を引く力の反作用の加速度（世界）、slow = 速さの上限に掛ける割合。
    * 横の力は歩いていても効き（重い物を引きずると遅くなり、勢いのついた物に引き戻される）、縦の力は接地していない
@@ -118,8 +124,10 @@ export interface CrabInput {
   tow?: { ax: number; ay: number; az: number; slow: number } | null;
 }
 
-/** 引っ張るときに立つ距離（穴の中心から体の中心まで。AquaBuddy.PULL_STAND と同じ） */
-const PULL_STAND = 0.6;
+/** 引っ張っている間、体の中心が穴の口へ近づけない距離（水平。AquaBuddy.PULL_KEEP と同じ） */
+const PULL_KEEP = 0.4;
+/** 引っこ抜いた反動で後ろへ転んでいる時間（この間は移動の入力を使わない） */
+const TUMBLE_T = 0.9;
 /** 掘った・盛った砂の量を測る処理に、1 フレームで使う時間の上限（ms） */
 const MEASURE_MS = 1.5;
 
@@ -297,19 +305,41 @@ export class CrabController {
     this.mantle = null;
   }
 
-  /** 穴の生き物を引っ張っているか・引っ張りの進み具合（見た目 CrabRig の踏ん張り・鋏に使う） */
+  /** 穴の生き物を引っ張っているか・張力 / 生き物の踏ん張り（見た目 CrabRig の踏ん張り・鋏に使う） */
   pulling = false;
   pullT = 0;
   private pullAt: [number, number] = [0, 0];
+  /** 引っこ抜いた反動で後ろへ転んでいる残り時間（CrabRig が体を後ろへ倒す）・転んだ回数 */
+  tumbleT = 0;
+  tumbles = 0;
+
+  /** 引っこ抜いた反動：(dx, dz)（水平の単位）へ跳ねて後ろへ転ぶ。power = 0..1 */
+  tumble(dx: number, dz: number, power: number) {
+    const sp = 1.8 + 1.2 * power;
+    this.vx = dx * sp;
+    this.vz = dz * sp;
+    this.vy = 2.2 + 0.8 * power;
+    this.grounded = false;
+    this.coyote = 0;
+    this.landImpact = 1;
+    this.tumbleT = TUMBLE_T;
+    this.tumbles++;
+    if (this.climbing) this.releaseClimb('drops');
+  }
 
   update(dt: number, inp: CrabInput) {
-    // 引っ張っている間：移動・ジャンプ・穴掘りの入力は使わない（体の位置と向きは step で穴に合わせる）
+    // 引っ張っている間：穴へ向く（移動の入力はふだんどおり）。穴掘りはしない（鋏を使っている）
     this.pulling = !!inp.pull;
     if (inp.pull) {
       this.pullT = inp.pull.t;
       this.pullAt = [inp.pull.x, inp.pull.z];
-      inp = { ...inp, move: { x: 0, y: 0 }, run: false, jumpHeld: false, dig: false };
+      inp = { ...inp, dig: false };
     } else this.pullT = 0;
+    // 転んでいる間：移動・ジャンプ・穴掘りの入力を使わない
+    if (this.tumbleT > 0) {
+      this.tumbleT = Math.max(0, this.tumbleT - dt);
+      inp = { ...inp, move: { x: 0, y: 0 }, run: false, jumpHeld: false, dig: false };
+    }
     // 大きな時間差は分割して当たり判定のすり抜けを防ぐ
     const steps = Math.max(1, Math.ceil(dt / (1 / 90)));
     const h = dt / steps;
@@ -603,17 +633,9 @@ export class CrabController {
       }
       // 挟んでいる物が重いほど遅く歩く
       if (inp.tow) maxSpeed *= inp.tow.slow;
-      let tvx = mx * maxSpeed, tvz = mz * maxSpeed;
-      // 引っ張っている間：穴から PULL_STAND（抜けてくるほど少し後ろへ下がる）の所へ寄る
-      if (this.pulling) {
-        const ox = this.x - this.pullAt[0], oz = this.z - this.pullAt[1];
-        const od = Math.hypot(ox, oz) || 1;
-        const err = PULL_STAND + 0.14 * this.pullT - od;
-        tvx = (ox / od) * clamp(err * 5, -1.2, 1.2);
-        tvz = (oz / od) * clamp(err * 5, -1.2, 1.2);
-      }
+      const tvx = mx * maxSpeed, tvz = mz * maxSpeed;
       // 入力が無いとき：地上ではすぐ止まり、水中・空中ではゆっくり減速する
-      const k = 1 - Math.exp(-(hasInput || this.pulling ? accel : this.grounded ? 12 : lerp(0.6, 2.2, s)) * dt);
+      const k = 1 - Math.exp(-(hasInput ? accel : this.grounded ? 12 : lerp(0.6, 2.2, s)) * dt);
       if (this.hopT > 0 && !this.grounded) this.hopT -= dt;
       else {
         this.hopT = 0;
@@ -747,11 +769,30 @@ export class CrabController {
         }
       }
       // 壁へ向かって押し続けたら張り付く（登れる面＝砂・土・岩・流木だけ。ガラス・管などは climbSolid に入っていない）
-      this.tryGrab(dt, inp, px, py, pz, mx, mz, mag, hasInput, floorNY, ride);
+      // （生き物を挟んで引っ張っている間は張り付かない・回り込まない：鋏が穴から離れて滑り落ちるだけなので）
+      if (!this.pulling) this.tryGrab(dt, inp, px, py, pz, mx, mz, mag, hasInput, floorNY, ride);
       // 押しても進めない縁の下のくぼみ：回り込める道があれば回り込む
-      if (!this.climbing && hasInput && mag > 0.5 && !ride && !this.swimming && !inp.dig && this.region === 'tank' && w.contactSolid(px, py, pz) < RADIUS + 0.03) {
+      if (!this.climbing && !this.pulling && hasInput && mag > 0.5 && !ride && !this.swimming && !inp.dig && this.region === 'tank' && w.contactSolid(px, py, pz) < RADIUS + 0.03) {
         this.tryMantleFromWalk(dt, px, py, pz, ux0, uz0, (px - this.x) * ux0 + (pz - this.z) * uz0 > 0.15 * maxSpeed * mag * dt, inp.cameraYaw);
       } else this.pushT = hasInput ? Math.max(0, this.pushT - dt) : 0;
+    }
+    // 引っ張っている間：穴の口の上に乗らない（生き物に引き戻されても、体の中心は口から PULL_KEEP 離れたまま）。
+    // 押し出した先が固体の中なら押し出さない（ガラス・岩の際で、体を地形へ押し込まない）
+    if (this.pulling && !this.climbing) {
+      const ox = px - this.pullAt[0], oz = pz - this.pullAt[1], od = Math.hypot(ox, oz);
+      if (od < PULL_KEEP) {
+        const ux = od > 1e-4 ? ox / od : Math.sin(this.heading + Math.PI), uz = od > 1e-4 ? oz / od : Math.cos(this.heading + Math.PI);
+        const nx = this.pullAt[0] + ux * PULL_KEEP, nz = this.pullAt[1] + uz * PULL_KEEP;
+        if (w.contactSolid(nx, py, nz) > RADIUS * 0.8) {
+          px = nx;
+          pz = nz;
+          const vin = this.vx * ux + this.vz * uz;
+          if (vin < 0) {
+            this.vx -= ux * vin;
+            this.vz -= uz * vin;
+          }
+        }
+      }
     }
     // 部屋の外へは出ない（ガラス・水槽台・濾過槽の壁は contactSolid の当たり判定で止まる）
     px = clamp(px, ROOM.minX + RADIUS, ROOM.maxX - RADIUS);
@@ -822,10 +863,11 @@ export class CrabController {
     if (digging) {
       this.digYaw = wrap(this.digBaseYaw - (inp.digAim?.x ?? 0) * DIG_YAW_MAX * this.digSign);
       this.heading = wrap(this.heading + wrap(this.digYaw - this.heading) * (1 - Math.exp(-10 * dt)));
-    } else if (this.pulling) {
-      // 引っ張っている：正面（鋏の側）を穴へ
-      const h = Math.atan2(this.pullAt[0] - this.x, this.pullAt[1] - this.z);
-      this.heading = wrap(this.heading + wrap(h - this.heading) * (1 - Math.exp(-12 * dt)));
+    } else if (this.pulling || (inp.face && !this.climbing && this.tumbleT <= 0)) {
+      // 引っ張っている・巣穴のそばで挟もうとしている：正面（鋏の側）を穴へ
+      const fx = this.pulling ? this.pullAt[0] : inp.face!.x, fz = this.pulling ? this.pullAt[1] : inp.face!.z;
+      const h = Math.atan2(fx - this.x, fz - this.z);
+      this.heading = wrap(this.heading + wrap(h - this.heading) * (1 - Math.exp(-(this.pulling ? 12 : 8) * dt)));
     } else if (this.climbing) {
       // 面に沿って進む向きに対して横歩きになるよう、体の前（bodyF）を面の法線のまわりに回す（逆さでも同じ式）。
       // heading は面を床に起こした向きの方位（床へ戻ったとき・壁で使う。真逆さの近くでは決まらないので更新しない）
@@ -873,8 +915,8 @@ export class CrabController {
     if (this.grounded || this.climbing) this.stridePhase += (this.speed * dt) / (0.64 * (this.speed > 3.2 ? 0.1 : 0.075));
 
     // 状態
+    // （生き物を引っ張っている間も歩行・待機のまま：脚は歩みに合わせて動き、踏ん張りは CrabRig が pulling で重ねる）
     if (ride) this.state = 'ride';
-    else if (this.pulling) this.state = 'pull';
     else if (digging) this.state = 'dig';
     else if (this.climbing) this.state = 'climb';
     else if (this.swimming) this.state = 'swim';

@@ -1,12 +1,14 @@
 // 最初の仲間：スナモグリ（ゲームロジック側。Three.js に依存しない）。見た目は AquariumRenderer（buildBuddyMesh・巣穴の縁）。
 //
-// 発見と引っこ抜き（BuddySystem）
+// 発見と引っこ抜き（BuddySystem。引っこ抜き 2.0：鋏で直接挟んで引っ張る）
 // - 砂の広場の端の砂に巣穴がある。カニが近づく（PEEK_R）と、穴から触角と鋏の先が出てきて動く。遠いと引っ込む。
-// - 穴のすぐそば（ACT_R）で「調べる」（E / 画面のボタン）→ 引っこ抜けると分かる（progress.flags['burrow.examined']）。
-//   調べた後は、押し続けると引っ張る（いったん離してから。調べた押しのままでは引っ張らない）。
-// - 引っ張っている間（pulling）：カニは穴へ向き、穴から少し離れた所に踏ん張る（CrabInput.pull）。進み具合 pull は
-//   約 PULL_TIME 秒で 1（抵抗：速さが波打つ = 生き物が引き戻す）。途中で離すと抜けかけた体が穴へ戻る（進み具合が減る）。
-// - 1 になったら抜ける（popped）：体が宙へ跳び、カニは反動で後ろへ。着地したら仲間（found = true）。
+// - 見えている部分（触角・鋏の付け根）は、小石と同じく右の大きな鋏で挟める（AquaGrab.GrabSystem の creatures に
+//   BurrowTug を入れる。PC：E、スマホ：「挟む」）。初めて挟んだら「調べた」ことになる（progress.flags['burrow.examined']）。
+// - 挟んだまま（pulling）カニが動くと引っ張る。引き出し・抵抗・体の伸び・滑りは AquaTug.BurrowTug と GrabSystem が決める
+//   （押しているだけでは抜けない：引いた距離・向き・張力で進む）。離すと抜けかけた体が穴へ戻る。
+// - 抜けた（GrabSystem が 'pop' で離す）：体が宙へ跳び、カニは反動で後ろへ転ぶ。着地したら仲間（found = true）。
+// - 体の見た目：体の線は穴の口を通る。穴の外の部分は引く向きへ傾き、穴の中の部分は真下へ曲げる（bendZ・bendA）。
+//   伸びは節の間（stretch）で表す（描画 AquariumRenderer の BUDDY）。
 //
 // 仲間になった後（Buddy）
 // - 自由生活（free）：住みか（home）のまわり FREE_RANGE を歩いては止まり、ときどき休む（rest）。カニが近くで止まっていると向く。
@@ -18,6 +20,7 @@
 // - カニが水槽の外・水の外・遠くの壁の上などにいるときは、追えるところで待つ（wait）。
 
 import { clamp, mulberry32, type Rng } from '../core/math';
+import { BurrowTug, SUNAMOGURI_TUG, type TugEvent } from './AquaTug';
 import { TANK, type AquariumWorld } from './AquariumWorld';
 import type { CrabController } from './CrabController';
 import type { BuddyMode, BuddySave } from './AquaSave';
@@ -26,13 +29,13 @@ export const BUDDY_ID = 'sunamogri';
 export const BUDDY_NAME = 'スナモグリ';
 export const BUDDY_DESC = '砂に深い巣穴を掘って暮らすエビのなかま。大きな鋏で砂をかき出す';
 
-/** 引っ張り続けて抜けるまでの時間（秒。過去の試作の手触り） */
-export const PULL_TIME = 0.6;
-/** 触角が見え始める距離・調べる / 引っ張れる距離（巣穴の中心からカニの体の中心まで、水平） */
+/** 触角が見え始める距離・案内を出す距離（巣穴の中心からカニの体の中心まで、水平） */
 const PEEK_R = 4.5;
-const ACT_R = 1.15;
-/** カニが引っ張るときに立つ距離（穴の中心から体の中心まで） */
-export const PULL_STAND = 0.6;
+const ACT_R = 1.3;
+/** 体の中心からつかみ点（鋏の付け根・触角の根元。buildBuddyMesh の体の座標の z）まで */
+const GRIP_Z = 0.33;
+/** 引っ張っている間、カニの体の中心が穴の口へ近づけない距離（水平） */
+export const PULL_KEEP = 0.4;
 /** 体の当たり（地形からの余白）・ガラスからの余白・自由生活の範囲 */
 const BODY_R = 0.1;
 const GLASS_GAP = 0.3;
@@ -48,27 +51,21 @@ export type BuddyState = 'burrow' | 'pulling' | 'flying' | 'idle' | 'walk' | 're
 export type BuddyEvent =
   | { kind: 'examined' }
   | { kind: 'pullStart' }
-  | { kind: 'pullCancel'; progress: number }
-  | { kind: 'popped'; x: number; y: number; z: number }
+  | { kind: 'pullCancel'; progress: number; why: 'release' | 'slip' }
+  | { kind: 'popped'; x: number; y: number; z: number; power: number; dir: [number, number] }
   | { kind: 'joined' }
   | { kind: 'mode'; mode: BuddyMode }
   | { kind: 'warp'; from: [number, number, number]; to: [number, number, number] }
-  | { kind: 'land'; x: number; y: number; z: number };
+  | { kind: 'land'; x: number; y: number; z: number }
+  | { kind: 'tug'; e: TugEvent };
 
-/** 画面の案内（調べる・引っこ抜く。null = 出さない） */
+/** 画面の案内（巣穴のそば。null = 出さない）。peek = 見えていて挟める、tug = 挟んで引っ張っている */
 export interface BuddyPrompt {
-  label: string;
-  /** 長押しの操作か（引っこ抜く） */
-  hold: boolean;
-  /** 進み具合（0..1。引っ張っている間） */
-  progress: number;
+  kind: 'peek' | 'tug';
+  /** 調べた（一度挟んだ）ことがあるか */
+  examined: boolean;
   /** 案内を出す位置（巣穴） */
   at: [number, number, number];
-}
-
-export interface BuddyInput {
-  /** 調べる / 引っ張るボタン（E / 画面のボタン）を押しているか */
-  act: boolean;
 }
 
 export class BuddySystem {
@@ -89,16 +86,18 @@ export class BuddySystem {
   home: [number, number];
   /** 巣穴（地表の点）と、穴の向き（体が抜けてくる軸。上向き + カニの側へ少し） */
   readonly burrow: [number, number, number];
-  /** 調べたか（保存する）・触角の出具合（0..1）・引っ張りの進み具合（0..1） */
+  /** 調べたか（保存する）・触角の出具合（0..1）・引き出した量（0..1。表示・自動検証用） */
   examined = false;
   peek = 0;
   pull = 0;
-  /** 引っ張っているカニの向き（穴からカニへ。抜ける軸を少しそちらへ倒す） */
+  /** 鋏で挟んで引っ張る（体の引き出し・抵抗・伸び。GrabSystem.creatures に入れる） */
+  readonly tug: BurrowTug;
+  /** 見た目：節の間の伸び（体の座標の長さ）・穴の口の位置（体の座標の z）と、そこから後ろを真下へ曲げる角 */
+  stretch = 0;
+  bendZ = -1;
+  bendA = 0;
+  /** 穴からカニの向き（水平。抜けて跳ぶ向き） */
   private pullDir: [number, number] = [1, 0];
-  private pullClock = 0;
-  /** 調べたボタンを離すまで引っ張らない */
-  private needRelease = false;
-  private actPrev = false;
   // ---- 歩き ----
   private vx = 0;
   private vy = 0;
@@ -112,12 +111,13 @@ export class BuddySystem {
   private side = 1;
   private readonly rng: Rng = mulberry32(4242);
   readonly events: BuddyEvent[] = [];
-  readonly stats = { warps: 0, blockedSteps: 0, slides: 0, pulls: 0, cancels: 0 };
+  readonly stats = { warps: 0, blockedSteps: 0, slides: 0, pulls: 0, cancels: 0, slips: 0 };
 
   constructor(private readonly world: AquariumWorld, burrowXZ: [number, number]) {
     const [bx, bz] = burrowXZ;
     this.burrow = [bx, world.groundAt(bx, bz), bz];
     this.home = [bx, bz];
+    this.tug = new BurrowTug(this.burrow, SUNAMOGURI_TUG, mulberry32(777));
     this.placeInBurrow();
   }
 
@@ -143,6 +143,9 @@ export class BuddySystem {
       this.y = this.world.surfaceBelow(this.x, this.burrow[1] + 0.5, this.z);
     }
     this.pitch = 0;
+    this.tug.popped = true;
+    this.stretch = 0;
+    this.bendZ = -1;
     this.state = this.mode === 'follow' ? 'follow' : 'idle';
   }
 
@@ -204,31 +207,42 @@ export class BuddySystem {
 
   // ---------------- 巣穴 ----------------
 
-  /** 巣穴の中の位置：抜ける軸に沿って depth（体の中心。地表 = 0、負 = 砂の中） */
-  private placeInBurrow(depth = -0.54) {
-    const [bx, by, bz] = this.burrow;
-    // 軸：上向きから、引っ張るカニの側へ 0.35 rad 倒す（抜ける勢いがカニの方へ向く）
-    const lean = 0.35 * clamp(this.pull * 2 + this.peek * 0.3, 0, 1);
-    const ax = this.pullDir[0] * Math.sin(lean), az = this.pullDir[1] * Math.sin(lean), ay = Math.cos(lean);
-    this.x = bx + ax * depth;
-    this.y = by + ay * depth;
-    this.z = bz + az * depth;
-    this.heading = Math.atan2(this.pullDir[0], this.pullDir[1]);
-    this.pitch = Math.PI / 2 - lean;
+  /**
+   * 巣穴の中の体の見た目（BurrowTug の状態から）：体の線は穴の口を通り、つかみ点（体の座標の z = GRIP_Z + 伸び）が
+   * tug.p に来る。穴の外の部分は体の向き（tug.dir）へ傾け、穴の口より後ろ（穴の中）は真下へ曲げる（描画が bendZ・bendA で曲げる）。
+   * もがく強さで体の軸のまわりに揺れる（軸は動かさない：挟んでいる鋏とずれない）。
+   * 物を動かした後（GrabSystem.update の後）にも呼ぶ（鋏と体が 1 フレームずれない）
+   */
+  placeInBurrow() {
+    if (this.found) return;
+    const T = this.tug, d = T.dir, g = T.p;
+    const s = T.stretch;
+    this.stretch = s;
+    this.x = g[0] - d[0] * (GRIP_Z + s);
+    this.y = g[1] - d[1] * (GRIP_Z + s);
+    this.z = g[2] - d[2] * (GRIP_Z + s);
+    const h = Math.hypot(d[0], d[2]);
+    this.heading = h > 0.05 ? Math.atan2(d[0], d[2]) : Math.atan2(this.pullDir[0], this.pullDir[1]);
+    this.pitch = Math.atan2(d[1], h);
+    // 穴の口の位置（体の座標の z。節を伸ばした後の座標）と、そこから後ろを真下へ曲げる角
+    this.bendZ = GRIP_Z + s - T.u;
+    this.bendA = Math.PI / 2 - this.pitch;
+    // もがく：挟まれている間は引き戻すたびに大きく、終盤は激しく
+    const wig = T.held ? 0.08 + 0.24 * T.env + (T.stage === 'late' ? 0.12 : 0) : 0.06 * this.peek;
+    this.roll = Math.sin(this.phase * 1.3) * wig;
+    if (!T.held) this.heading += Math.sin(this.phase * 0.7) * wig * 0.6;
   }
 
   // ---------------- 更新 ----------------
 
   /**
-   * カニと入力から 1 フレーム進める。返り値：カニへの引っ張りの指示（引っ張っている間だけ。CrabInput.pull）と、画面の案内
+   * カニから 1 フレーム進める。返り値：画面の案内と、引っ張っている間のカニへの指示（CrabInput.pull：穴へ向く・
+   * 穴に近づきすぎない。t = 張力 / 踏ん張り）
    */
-  update(dt: number, crab: CrabController, inp: BuddyInput): { pull: { x: number; z: number; t: number } | null; prompt: BuddyPrompt | null } {
-    if (dt <= 0) return { pull: this.state === 'pulling' ? { x: this.burrow[0], z: this.burrow[2], t: this.pull } : null, prompt: null };
-    const pressed = inp.act && !this.actPrev;
-    this.actPrev = inp.act;
-    if (!inp.act) this.needRelease = false;
-    this.phase += dt * (this.state === 'walk' || this.state === 'follow' ? 9 : this.state === 'pulling' ? 16 : this.state === 'rest' ? 1.2 : 3);
-    if (!this.found) return this.updateBurrow(dt, crab, inp, pressed);
+  update(dt: number, crab: CrabController): { pull: { x: number; z: number; t: number } | null; prompt: BuddyPrompt | null } {
+    if (dt <= 0) return { pull: this.tug.held ? { x: this.burrow[0], z: this.burrow[2], t: clamp(this.tug.load, 0, 1) } : null, prompt: null };
+    this.phase += dt * (this.state === 'walk' || this.state === 'follow' ? 9 : this.state === 'pulling' ? 10 + 10 * this.tug.env : this.state === 'rest' ? 1.2 : 3);
+    if (!this.found) return this.updateBurrow(dt, crab);
     this.act += ((this.state === 'flying' ? 1 : 0) - this.act) * (1 - Math.exp(-dt * 6));
     if (this.state === 'flying') this.updateFlying(dt);
     else if (this.mode === 'follow') this.updateFollow(dt, crab);
@@ -236,8 +250,9 @@ export class BuddySystem {
     return { pull: null, prompt: null };
   }
 
-  private updateBurrow(dt: number, crab: CrabController, inp: BuddyInput, pressed: boolean) {
+  private updateBurrow(dt: number, crab: CrabController) {
     const [bx, by, bz] = this.burrow;
+    const T = this.tug;
     const dx = crab.x - bx, dz = crab.z - bz;
     const dist = Math.hypot(dx, dz);
     const dy = crab.y - by;
@@ -245,83 +260,63 @@ export class BuddySystem {
     // 触角を出す（近いほど・カニが止まっているほど大きく出す）
     const near = crab.region === 'tank' && dist < PEEK_R && Math.abs(dy) < 2.5;
     const peekT = near ? clamp((PEEK_R - dist) / 2, 0.35, 1) * (crab.speed > 1.5 ? 0.6 : 1) : 0;
-    this.peek += (peekT - this.peek) * (1 - Math.exp(-dt * 3));
-    // 引っ張れる状態：近く・床の上（泳ぎ・壁登り・穴掘り中でない）
-    const standing = crab.grounded && !crab.climbing && crab.state !== 'swim' && crab.state !== 'dig' && crab.state !== 'ride';
-    const inRange = crab.region === 'tank' && dist < ACT_R && Math.abs(dy) < 0.7;
-    let prompt: BuddyPrompt | null = null;
-
-    if (this.state === 'pulling') {
-      if (!inp.act || !inRange) {
-        // 離した：抜けかけた体が穴へ戻る
-        this.state = 'burrow';
-        this.stats.cancels++;
-        this.events.push({ kind: 'pullCancel', progress: this.pull });
-      } else {
-        this.pullClock += dt;
-        // 抵抗：速さが波打つ（生き物が引き戻す）。平均すると PULL_TIME で抜ける
-        const rate = (1 + 0.6 * Math.sin(this.pullClock * Math.PI * 2 * 3.2)) / PULL_TIME;
-        this.pull = Math.min(1, this.pull + rate * dt);
-        if (this.pull >= 1) {
-          this.pop();
+    // 挟んだ・離した・滑った・抜けた（GrabSystem が前のフレームで決めた）
+    for (const e of T.drainEvents()) {
+      if (e.kind === 'grab') {
+        this.stats.pulls++;
+        if (!this.examined) {
+          this.examined = true;
+          this.events.push({ kind: 'examined' });
+        }
+        this.events.push({ kind: 'pullStart' });
+      } else if (e.kind === 'release') {
+        if (e.why === 'pop') {
+          this.pop(e.tension);
           return { pull: null, prompt: null };
         }
+        if (e.why === 'slip') this.stats.slips++;
+        else this.stats.cancels++;
+        this.events.push({ kind: 'pullCancel', progress: clamp(e.ext, 0, 1), why: e.why });
       }
+      this.events.push({ kind: 'tug', e });
     }
-    if (this.state === 'burrow') {
-      // 戻る：途中まで抜けた体はすぐに引っ込む
-      this.pull = Math.max(0, this.pull - dt * 2.2);
-      if (inRange && standing) {
-        if (!this.examined) {
-          prompt = { label: '調べる', hold: false, progress: 0, at: [bx, by, bz] };
-          if (pressed) {
-            this.examined = true;
-            this.needRelease = true;
-            this.events.push({ kind: 'examined' });
-          }
-        } else {
-          prompt = { label: '引っこ抜く', hold: true, progress: this.pull, at: [bx, by, bz] };
-          if (inp.act && !this.needRelease) {
-            this.state = 'pulling';
-            this.pullClock = 0;
-            this.stats.pulls++;
-            this.events.push({ kind: 'pullStart' });
-          }
-        }
-      }
-    }
-    if (this.state === 'pulling') prompt = { label: '引っこ抜く', hold: true, progress: this.pull, at: [bx, by, bz] };
-    // 体：穴の中（触角と鋏の先が出る深さ）→ 引っ張るほど抜けてくる。抜けかけはもがいて左右に揺れる
-    const e = this.pull * this.pull * (3 - 2 * this.pull);
-    // 体の中心の深さ：-0.54 = 全部砂の中、-0.24 = 触角と鋏の先（体の軸で中心から 0.41〜0.44）が 0.18 ほど出る、
-    // 抜ける直前は +0.2（尾の先 -0.3 が地表のすぐ下）
-    const depth = -0.54 + 0.3 * this.peek + 0.44 * e;
-    this.placeInBurrow(depth);
-    this.act = this.state === 'pulling' ? 1 : this.peek * 0.25;
-    const wig = this.state === 'pulling' ? 0.25 : 0.06 * this.peek;
-    this.roll = Math.sin(this.phase * 1.3) * wig;
-    this.heading += Math.sin(this.phase * 0.7) * wig * 0.6;
-    return { pull: this.state === 'pulling' ? { x: bx, z: bz, t: this.pull } : null, prompt };
+    if (!T.held) T.stepFree(dt, [crab.x, crab.y + crab.radius, crab.z], peekT);
+    this.peek = T.peek;
+    this.pull = clamp(T.ext, 0, 1);
+    this.state = T.held ? 'pulling' : 'burrow';
+    // 案内：挟んでいる間・見えていて近い間
+    const inRange = crab.region === 'tank' && dist < ACT_R && Math.abs(dy) < 0.7;
+    const prompt: BuddyPrompt | null = T.held || (inRange && T.grabbable()) ? { kind: T.held ? 'tug' : 'peek', examined: this.examined, at: [bx, by, bz] } : null;
+    this.act = T.held ? 0.45 + 0.55 * T.env : this.peek * 0.25;
+    this.placeInBurrow();
+    return { pull: T.held ? { x: bx, z: bz, t: clamp(T.load, 0, 1) } : null, prompt };
   }
 
-  /** 抜けた：カニの方へ、上へ跳ぶ */
-  private pop() {
+  /** 抜けた：いまの体の所から、カニの横へ・上へ跳ぶ（張っていた力が強いほど勢いよく） */
+  private pop(tension: number) {
     const [bx, by, bz] = this.burrow;
+    const power = clamp(tension / this.tug.grip, 0.35, 1);
     this.state = 'flying';
     this.found = true;
     this.mode = 'free';
     this.pull = 1;
     this.peek = 0;
-    this.x = bx;
-    this.y = by + 0.05;
-    this.z = bz;
+    this.stretch = 0;
+    this.bendZ = -1;
+    this.y = Math.max(this.y, by + 0.05);
+    // 体がまだ穴の上なら、口の真上から（固体の中から始めない）
+    if (this.world.contactSolid(this.x, this.y + BODY_R, this.z) < BODY_R) {
+      this.x = bx;
+      this.y = by + 0.08;
+      this.z = bz;
+    }
     // カニの横へ弧を描いて落ちる（カニの体に隠れず、全身が見える所。約 1 秒）
     const sx = -this.pullDir[1], sz = this.pullDir[0];
-    this.vx = sx * 1.1 + this.pullDir[0] * 0.45;
-    this.vz = sz * 1.1 + this.pullDir[1] * 0.45;
-    this.vy = 2.9;
+    this.vx = sx * 1.1 + this.pullDir[0] * (0.45 + 0.5 * power);
+    this.vz = sz * 1.1 + this.pullDir[1] * (0.45 + 0.5 * power);
+    this.vy = 2.6 + 0.6 * power;
     this.airborne = true;
-    this.events.push({ kind: 'popped', x: bx, y: by, z: bz });
+    this.events.push({ kind: 'popped', x: bx, y: by, z: bz, power, dir: [this.pullDir[0], this.pullDir[1]] });
   }
 
   private updateFlying(dt: number) {

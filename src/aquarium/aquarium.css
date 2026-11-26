@@ -192,7 +192,7 @@ body.aqua #touch-ui .dig.aiming span { opacity: 0.35; }
 }
 body.aqua #menu, body.aqua #save-panel { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 
-/* 仲間：右上のボタン（同行中は明るく）・巣穴の案内・タッチの「調べる / 引っこ抜く」ボタン */
+/* 仲間：右上のボタン（同行中は明るく）・巣穴の案内（触角が見えている：挟める） */
 #menu .menu-btn.buddy.on { background: rgba(214, 140, 104, 0.9); color: #2a140c; border-color: rgba(255, 220, 190, 0.7); }
 #act-prompt { position: fixed; left: 0; top: 0; display: none; pointer-events: none; z-index: 2; text-align: center; white-space: nowrap;
   background: rgba(10, 22, 28, 0.78); border: 1px solid rgba(255, 224, 138, 0.45); border-radius: 8px; padding: 4px 10px 5px; color: #f2fff9; font-size: 13px;
@@ -200,20 +200,31 @@ body.aqua #menu, body.aqua #save-panel { -webkit-touch-callout: none; -webkit-us
 #act-prompt.show { display: block; }
 #act-prompt .who { font-size: 11px; color: #ffe08a; letter-spacing: 0.06em; }
 #act-prompt .what { font-weight: 700; }
-#act-prompt .bar { display: none; width: 96px; height: 6px; margin: 3px auto 0; border-radius: 3px; background: rgba(255, 255, 255, 0.15); overflow: hidden; }
-#act-prompt.hold .bar { display: block; }
-#act-prompt .bar i { display: block; height: 100%; width: 0; background: #ffbf7a; }
+#act-prompt:not(.ready) .what { font-weight: 400; color: #d8e6e2; font-size: 12px; }
+#act-prompt.ready { border-color: rgba(255, 236, 160, 0.95); }
 #act-prompt kbd { display: inline-block; min-width: 18px; padding: 0 4px; border-radius: 3px; background: rgba(255, 255, 255, 0.18); font: inherit; font-size: 11px; }
 #place-banner.buddy .kicker { color: #ffbf7a; }
 #place-banner.buddy.first { border-color: rgba(255, 191, 122, 0.6); }
-/* 「調べる / 引っこ抜く」：ジャンプの上（カメラの上）。巣穴のそばでだけ出る。外周の輪が長押しの進み具合 */
-body.aqua #touch-ui .act { position: fixed; right: calc(16px + env(safe-area-inset-right)); bottom: calc(196px + env(safe-area-inset-bottom));
-  width: 86px; height: 86px; border-radius: 50%; font-size: 14px; font-weight: 700; color: #2a140c; display: none;
-  background: radial-gradient(circle, rgba(255, 214, 170, 0.95) 58%, transparent 60%), conic-gradient(#ff8a4a calc(var(--p, 0) * 360deg), rgba(255, 255, 255, 0.25) 0);
-  border: 2px solid rgba(255, 236, 200, 0.7); touch-action: none; user-select: none; -webkit-user-select: none; z-index: 3; }
-body.aqua #touch-ui .act.show { display: block; }
-body.aqua #touch-ui .act.on { filter: brightness(1.12); }
-body.aqua #touch-ui .act span { position: relative; pointer-events: none; }
+/* 引っこ抜き：挟んでいる間の手応えの印（つかんだ所に置く）。輪 = 張りの強さ（--k：大きく・濃く）、色 = 状態
+   （slack 張っていない / hold 踏ん張られている / move 出てきている / danger 滑りそう）、矢印 = 引く向き（穴から外へ）、
+   言葉 = 短い状況（ゲージは出さない） */
+#tug-cue { position: fixed; left: 0; top: 0; width: 0; height: 0; display: none; pointer-events: none; z-index: 2; --k: 0; --w: 0; --c: 255, 255, 255; }
+#tug-cue.show { display: block; }
+#tug-cue[data-level="slack"] { --c: 200, 232, 255; }
+#tug-cue[data-level="hold"] { --c: 255, 214, 110; }
+#tug-cue[data-level="move"] { --c: 170, 255, 150; }
+#tug-cue[data-level="danger"] { --c: 255, 110, 90; }
+#tug-cue .ring { position: absolute; left: 0; top: 0; width: 34px; height: 34px; border-radius: 50%;
+  border: calc(1.5px + var(--k) * 3px) solid rgba(var(--c), calc(0.45 + var(--k) * 0.5));
+  transform: translate(-50%, -50%) scale(calc(1.25 - var(--k) * 0.45)); box-shadow: 0 0 calc(var(--w) * 14px) rgba(255, 90, 60, calc(var(--w) * 0.9));
+  transition: border-color 0.15s; }
+#tug-cue[data-level="danger"] .ring { animation: tug-shake 0.09s infinite alternate; }
+#tug-cue .arrow { position: absolute; left: 0; top: -1.5px; width: 46px; height: 3px; transform-origin: 0 50%; opacity: calc(0.85 - var(--k) * 0.5); }
+#tug-cue .arrow::before { content: ''; position: absolute; left: 20px; right: 6px; top: 0; height: 3px; border-radius: 2px; background: rgba(var(--c), 0.9); }
+#tug-cue .arrow::after { content: ''; position: absolute; right: 0; top: -5px; border-left: 9px solid rgba(var(--c), 0.95); border-top: 6.5px solid transparent; border-bottom: 6.5px solid transparent; }
+#tug-cue .say { position: absolute; left: 0; top: 26px; transform: translateX(-50%); white-space: nowrap; font-size: 13px; font-weight: 700;
+  color: rgb(var(--c)); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 0 2px rgba(0, 0, 0, 0.9); }
+@keyframes tug-shake { from { margin-left: -1.5px; } to { margin-left: 1.5px; } }
 
 /* スマホ：ページ自体の拡大・スクロール・長押しのメニュー・文字選択を止める（HUD の上から始めた指で
    ページが拡大されたり、長押しで選択が始まって指の操作がゲームから奪われたりしない）。

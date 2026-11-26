@@ -109,11 +109,12 @@ async (page) => {
     const r = { };
     // ボタンの矩形と重なり
     r.layout = await p.evaluate(() => {
-      const sel = ['.stick', '.run', '.jump', '.dig', '.cam', '.tool', '.grab', '.act'];
+      // （「調べる / 引っこ抜く」ボタン .act は引っこ抜き 2.0 で無くなった。あれば含める）
+      const sel = ['.stick', '.run', '.jump', '.dig', '.cam', '.tool', '.grab', '.act'].filter((s) => document.querySelector('#touch-ui ' + s));
       const act = document.querySelector('#touch-ui .act');
-      act.classList.add('show');
+      act?.classList.add('show');
       const R = sel.map((s) => { const e = document.querySelector('#touch-ui ' + s); const b = e.getBoundingClientRect(); return { s, l: b.left, t: b.top, r: b.right, b: b.bottom }; });
-      act.classList.remove('show');
+      act?.classList.remove('show');
       const overlaps = [];
       for (let i = 0; i < R.length; i++) for (let j = i + 1; j < R.length; j++) {
         const a = R[i], b = R[j];
