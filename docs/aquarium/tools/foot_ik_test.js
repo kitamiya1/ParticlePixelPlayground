@@ -1,4 +1,4 @@
-// 第 4 段階：接地 IK とプロシージャル歩行 の検証（開発用ページ ?nosave で fetch + eval。climb_helpers.js（__ct）・
+// 第 4 段階：接地 IK とプロシージャル歩行 の検証（第 7 段階：gait = 'lead'（接地主導）も接地 IK として測る）（開発用ページ ?nosave で fetch + eval。climb_helpers.js（__ct）・
 // ceiling_test.js（__ceil）を先に読み込む）。window.__fk：
 //   run(name, gait) … 場所で同じ入力を与えて歩かせ、次を返す：
 //     speed     … カニの平均の速さ（入力どおり進めたか。支えが足りないと遅くなる）
@@ -66,7 +66,7 @@
     steps(40);
     prepare(S);
     const F = a.rig.feet;
-    const st0 = { ...F.stats }, cs0 = { ...c.climbStats };
+    const st0 = { ...F.stats }, cs0 = { ...c.climbStats }, ls0 = { ...(c.ledgeStats ?? {}) };
     const r = { frames: 0, dsum: 0, slide: 0, stretch: 0, plantedMin: 8, allLost: 0, onS: 0, onN: 0, ms: 0 };
     const prev = F.feet.map((f) => [...f.pos]);
     const was = F.feet.map((f) => !f.swing && f.valid);
@@ -75,7 +75,7 @@
       r.frames++;
       r.dsum += Math.hypot(c.x - px, c.y - py, c.z - pz);
       px = c.x; py = c.y; pz = c.z;
-      if (gait !== 'ik') return;
+      if (gait === 'cycle') return;
       F.feet.forEach((f, k) => {
         const planted = !f.swing && f.valid;
         if (planted && was[k]) r.slide = Math.max(r.slide, Math.hypot(f.pos[0] - prev[k][0], f.pos[1] - prev[k][1], f.pos[2] - prev[k][2]));
@@ -123,6 +123,8 @@
       steps: F.stats.steps - st0.steps, emergency: F.stats.emergency - st0.emergency, invalid: F.stats.invalid - st0.invalid,
       onSurface: r.onN ? r2(r.onS / r.onN) : null, ms: r3(r.ms),
       climb: { grabs: cs.grabs, supportLost: cs.supportLost, drops: cs.drops, state: c.state, ny: r2(c.climbing ? c.climbN[1] : c.groundN[1]) },
+      // 接地主導（第 7 段階）：縁を見つけた・待った時間・段差を降り切った・崖の側面へ移った・踏み出した
+      ledge: !c.ledgeStats ? null : { edges: c.ledgeStats.edges - ls0.edges, holdT: r2(c.ledgeStats.holdT - ls0.holdT), steps: c.ledgeStats.steps - ls0.steps, climbs: c.ledgeStats.climbs - ls0.climbs, stepOffs: c.ledgeStats.stepOffs - ls0.stepOffs },
     };
   };
   const all = async (gait = 'ik') => {

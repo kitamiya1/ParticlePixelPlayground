@@ -159,7 +159,8 @@ export class CrabRig {
    * 歩き方（第 4 段階）：'ik' = 接地 IK（CrabFeet が足場を探して足先を固定し、胴体の高さ・傾きを足先から決める）、
    * 'cycle' = 従来（歩行周期と体の向きから足先を決める）。空中・遊泳・沈降・転倒・掘る前脚は、どちらでも従来の動き
    */
-  gait: 'cycle' | 'ik' = 'ik';
+  // 'lead' = 接地主導（第 7 段階）：脚は接地 IK と同じ。CrabController が脚の接地から崖・段差の降り方を決める（縁の状態を脚へ渡す）
+  gait: 'cycle' | 'ik' | 'lead' = 'lead';
   feet: CrabFeet | null = null;
   /** 接地 IK を混ぜる割合（平滑化） */
   ikW = 0;
@@ -248,10 +249,11 @@ export class CrabRig {
 
     // 接地 IK：足場を探して足先を置く（根の補正の前の向きで探す）→ 胴体の高さ・傾きの補正を根に掛ける
     const grounded = (c.grounded || c.climbing) && c.state !== 'swim' && c.tumbleT <= 0;
-    const ikWant = this.gait === 'ik' && this.feet ? Math.max(0, 1 - W.air - W.swim - W.sink - tumble) * (grounded ? 1 : 0) : 0;
+    const ik = this.gait !== 'cycle';
+    const ikWant = ik && this.feet ? Math.max(0, 1 - W.air - W.swim - W.sink - tumble) * (grounded ? 1 : 0) : 0;
     this.ikW += (ikWant - this.ikW) * (1 - Math.exp(-dt * 10));
-    if (this.feet && this.gait === 'ik') {
-      this.feet.update(dt, this.root, this.body.elements[13], [c.vx, c.vy, c.vz], grounded, c.climbing ? c.climbN : null);
+    if (this.feet && ik) {
+      this.feet.update(dt, this.root, this.body.elements[13], [c.vx, c.vy, c.vz], grounded, c.climbing ? c.climbN : null, this.gait === 'lead' ? c.ledge : null);
       if (this.ikW > 1e-3) {
         const o = this.feet.bodyOffset;
         this.qTmp.identity().slerp(o.q, this.ikW);

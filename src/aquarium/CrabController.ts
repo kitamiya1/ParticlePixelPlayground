@@ -44,11 +44,16 @@
 //   - 空中・水中から張り出し・天井へ触れて、移動入力かジャンプを押していれば張り付く（tryGrab）。
 //   - ジャンプで離れると、面の外向きへ押し出す（上向きの面ほど上へも跳ぶ。天井からは真下へ）。逆さから離れた後は、
 //     体の前を軸に起き上がりながら落ちる・沈む（frameMode の間は体の向きを bodyF から作る）。
+// - 接地主導の移動（第 7 段階。CrabInput.lead・CrabLedge）：歩いていて前方に縁（歩いて下りられない急な下り）があれば、
+//   先頭の脚が縁より下の足場に掛かるまで縁から出ない（ledgeGate）。段差は脚に支えさせて胴体を下ろし（ledgeSupport。
+//   吸着で一気に落とさない）、高い崖は側面へ脚が掛かったら縁を回り込んで壁登りへ移る（startDescentClimb）。
+//   足場が無ければ縁で立ち止まり、押し続けたら踏み出す（ledgeUpdate）。
 
 import { clamp, lerp, smoothstep } from '../core/math';
 import { TANK, type AquariumWorld } from './AquariumWorld';
 import { ROOM, type Flow, type Region } from './AquariumStand';
 import { DIG, diggable, FILL, SAND, type DigMaterial } from './AquariumDig';
+import { descentPath, faceBelow, gapBelow, LEDGE, scanLedge, type Ledge } from './CrabLedge';
 
 export type CrabState = 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'swim' | 'sink' | 'ride' | 'dig' | 'climb';
 
@@ -126,7 +131,13 @@ export interface CrabInput {
    * 接地 IK の支え（第 4 段階。CrabFeet.support）：speed = 速さの上限に掛ける割合（伸びきった脚が踏み替えられない間・接地している脚が
    * 少ない間は遅く。脚が届かない所へ胴体だけが先へ行かない）、lost = 壁・天井で掛かっている脚が少ない状態が続いた（離れて落ちる）
    */
-  support?: { speed: number; lost: boolean } | null;
+  support?: { speed: number; lost: boolean; planted?: number; down?: number; face?: number } | null;
+  /**
+   * 接地主導の移動（第 7 段階。歩き方「接地主導」）：崖・段差の縁では、先頭の脚が下の足場（縁より下）に掛かるまで胴体を
+   * 縁から出さず、掛かったら脚に支えさせて胴体を下ろす。高い崖は側面へ脚を掛けて壁登りへ移る（CrabLedge）。
+   * support.planted / down / face（接地している脚・縁より下に掛かった脚・崖の側面に掛かった脚）を使う
+   */
+  lead?: boolean;
 }
 
 /** 引っ張っている間、体の中心が穴の口へ近づけない距離（水平。AquaBuddy.PULL_KEEP と同じ） */
@@ -282,7 +293,18 @@ export class CrabController {
   /** 歩いていて、押している向きへ進めない時間（縁の下のくぼみから回り込む） */
   private pushT = 0;
   /** 張り出しの縁を回り込んでいる途中（折れ線の道・進んだ距離・全長・回り込んだ先の面の法線） */
-  private mantle: { pts: [number, number, number][]; s: number; len: number; n: [number, number, number] } | null = null;
+  /** （崖を降り始める道は、速さ sp と、始めの面の向き n0 → 着いた所の面の向き n を道の進み具合に合わせて回す） */
+  private mantle: { pts: [number, number, number][]; s: number; len: number; n: [number, number, number]; sp?: number; n0?: [number, number, number] } | null = null;
+  /**
+   * 接地主導の移動：前方の縁（CrabLedge。無ければ null）と、その数え（自動検証用）：
+   * edges = 縁を見つけた・holdT = 縁で待った時間の合計・steps = 段差を脚で降り切った・climbs = 崖の側面へ移った・
+   * stepOffs = 足場が無く踏み出した・falls = 降りている途中で支えを失って落ちた・maxDescV = 胴体を下ろした速さの最大
+   */
+  ledge: Ledge | null = null;
+  readonly ledgeStats = { edges: 0, holdT: 0, steps: 0, climbs: 0, stepOffs: 0, falls: 0, maxDescV: 0 };
+  /** 最後に支えを失って落ちたときの様子（自動検証用） */
+  ledgeFall: { kind: string; over: number; gap: number; down: number; planted: number; t: number } | null = null;
+  private ledgeScanN = 0;
   /** 壁登りの回数（張り付いた・床へ戻った・跳んで離れた・面を失って落ちた・掘る等で離した・張り出しで止まった・縁を回り込んだ。自動検証用） */
   readonly climbStats = { grabs: 0, exits: 0, jumps: 0, lost: 0, drops: 0, blocked: 0, mantles: 0, supportLost: 0 };
   /** 経過時間（かき出しの続きの判定に使う） */
@@ -328,6 +350,8 @@ export class CrabController {
     this.groundN.splice(0, 3, 0, 1, 0);
     this.grabT = this.grabWait = this.stuckT = this.hopT = this.pushT = 0;
     this.mantle = null;
+    this.ledge = null;
+    this.ledgeScanN = 0;
   }
 
   /** 穴の生き物を引っ張っているか・張力 / 生き物の踏ん張り（見た目 CrabRig の踏ん張り・鋏に使う） */
@@ -618,6 +642,8 @@ export class CrabController {
       this.coyote = 0;
       this.holdT = 0;
       this.sinking = false;
+      // （縁で待っている・脚で支えて下ろしている途中でも跳べる：縁の状態は捨てる）
+      this.ledge = null;
       this.events.push({ kind: 'jump', x: this.x, y: this.y, z: this.z, power: s });
     } else if (pressed && inWater && !this.grounded && !this.swimming && this.swimStamina > 0.15) {
       // 水中で空中にいるときに押し直すと、残りがあれば遊泳を再開
@@ -641,8 +667,10 @@ export class CrabController {
     // 移動と当たり判定（壁に張り付いている間は climbMove。重力・浮力・水流は効かない）
     const wasGrounded = this.grounded;
     let px: number, py: number, pz: number;
-    if (this.climbing) [px, py, pz] = this.climbMove(dt, inp, hasInput, s, cy);
-    else {
+    if (this.climbing) {
+      this.ledge = null;
+      [px, py, pz] = this.climbMove(dt, inp, hasInput, s, cy);
+    } else {
       // 水平方向の速さと加速
       let maxSpeed = (inp.run ? this.runSpeed : this.walkSpeed) * lerp(1, 0.72, s);
       let accel = this.grounded ? 14 : lerp(3.0, 4.0, s);
@@ -674,6 +702,8 @@ export class CrabController {
         this.vx += (tvx - this.vx) * k;
         this.vz += (tvz - this.vz) * k;
       }
+      // 接地主導：縁へ向かう速さを、脚が下の足場に掛かるまで抑える
+      if (this.ledge) this.ledgeGate(inp);
       // 挟んでいる物の反作用（管の中は水の流れに任せる）
       if (inp.tow && !ride) {
         this.vx += inp.tow.ax * dt;
@@ -773,13 +803,17 @@ export class CrabController {
         // 吸着するのは床（上向きの面）だけ。壁（透明な管・アクリル・岩の側面）に触れているだけなら接地にしない
         // （壁に沿って歩くと、宙に浮いたまま接地扱いになって壁を伝い登るのを防ぐ）
         const nf = t <= 0.32 ? w.contactNormal(px, py - t, pz) : null;
-        if (nf && nf[1] > floorNY) {
+        // 接地主導：縁を越えた所の段差（0.06 より大きい）へは吸着で一気に落とさず、脚で支えて下ろす（ledgeSupport）
+        const held = !!this.ledge && !this.ledge.stepOff && t > 0.06;
+        if (nf && nf[1] > floorNY && !held) {
           py -= t;
           this.grounded = true;
           const n = w.contactNormal(px, py - RADIUS * 0.5, pz);
           if (n[1] > floorNY) this.groundN.splice(0, 3, ...n);
         }
       }
+      // 接地主導：縁を越えた胴体を脚で支えて下ろす（床に触れていない間）
+      if (this.ledge) py = this.ledgeSupport(dt, inp, px, py, pz, wasGrounded);
       // 掘った穴の中でよじ登る：床とみなせない急な所に触れていて、進もうとしている向きの斜め上に体が入る隙間があれば、
       // 少し上へ押し上げる（斜め上へ掘った穴の床の継ぎ目・地表へ抜けた出口の縁は、かき出しの継ぎ目で距離関数の向きが
       // 乱れやすく、平均の傾きは登れるのに引っかかって止まるので、面の向きではなく隙間で決める）。
@@ -807,6 +841,8 @@ export class CrabController {
       if (!this.climbing && !this.pulling && hasInput && mag > 0.5 && !ride && !this.swimming && !inp.dig && this.region === 'tank' && w.contactSolid(px, py, pz) < RADIUS + 0.03) {
         this.tryMantleFromWalk(dt, px, py, pz, ux0, uz0, (px - this.x) * ux0 + (pz - this.z) * uz0 > 0.15 * maxSpeed * mag * dt, inp.cameraYaw);
       } else this.pushT = hasInput ? Math.max(0, this.pushT - dt) : 0;
+      // 接地主導：前方の縁を探す・縁で待つ・崖の側面へ移る・踏み出す
+      this.ledgeUpdate(dt, inp, px, py, pz, ux0, uz0, hasInput, digging, ride, first);
     }
     // 引っ張っている間：穴の口の上に乗らない（生き物に引き戻されても、体の中心は口から PULL_KEEP 離れたまま）。
     // 押し出した先が固体の中なら押し出さない（ガラス・岩の際で、体を地形へ押し込まない）
@@ -955,6 +991,184 @@ export class CrabController {
     else if (this.grounded) this.state = this.speed < 0.25 ? 'idle' : this.speed < (this.walkSpeed + this.runSpeed) * 0.5 * lerp(1, 0.72, s) ? 'walk' : 'run';
     else if (this.sinking || (s > 0.5 && this.vy < 0)) this.state = 'sink';
     else this.state = this.vy > 0 ? 'jump' : 'fall';
+  }
+
+  // ---------------- 接地主導：崖・段差を降りる（CrabLedge） ----------------
+
+  /**
+   * 縁へ向かう速さ（縁の外向き e の成分）を抑える。縁に沿う向き・縁から離れる向きはそのまま（斜めに近づいても縁に沿って歩ける）。
+   * - 段差で先頭の脚が下の足場に needDown 本以上掛かった・踏み出した後は抑えない
+   * - それまでは、体の中心のはみ出しが上限（段差 = 身を乗り出す leanOver、崖・足場が無い = holdOver）に近づくほど遅く
+   * - 脚で支えて胴体を下ろしている間は、下の隙間が大きいほど外へ進む速さを落とす（胴体だけが崖の先へ浮いて進まない）
+   */
+  private ledgeGate(inp: CrabInput) {
+    const L = this.ledge!;
+    const e = L.e;
+    let ve = this.vx * e[0] + this.vz * e[2];
+    if (ve <= 0) return;
+    if (L.lowering && L.gap > 0.05) {
+      const k = clamp(1 - L.gap / LEDGE.gapSlow, LEDGE.minK, 1);
+      this.vx -= e[0] * ve * (1 - k);
+      this.vz -= e[2] * ve * (1 - k);
+      ve *= k;
+    }
+    if (L.stepOff) return;
+    const S = inp.support;
+    if (L.kind === 'step' && (S?.down ?? 0) >= LEDGE.needDown && (S?.planted ?? 0) >= 4) return;
+    const maxOver = L.kind === 'step' ? LEDGE.leanOver : LEDGE.holdOver;
+    const allow = Math.max(0, (maxOver - L.over) * LEDGE.approachK);
+    if (ve > allow) {
+      this.vx -= e[0] * (ve - allow);
+      this.vz -= e[2] * (ve - allow);
+    }
+  }
+
+  /**
+   * 縁を越えた胴体を脚で支える（床に触れていない間。戻り値は体の中心の高さ）：
+   * - 下の足場（縁より下）に脚が needDown 本以上掛かっていれば、下の足場へ descRate で下ろす
+   * - 段差で身を乗り出しているだけ（下に掛かった脚が無い）なら、縁から leanDrop まで下げて支える
+   * - どちらでもなければ支えない（落ちる。縁の状態は捨てる）
+   * 支えている間は接地のまま（重力を掛けない・歩きの状態のまま）
+   */
+  private ledgeSupport(dt: number, inp: CrabInput, px: number, py: number, pz: number, wasGrounded: boolean): number {
+    const L = this.ledge!;
+    if (L.stepOff || this.grounded || this.swimming || this.vy > 0.5 || !(wasGrounded || L.lowering)) {
+      L.lowering = false;
+      return py;
+    }
+    const footY = py - RADIUS;
+    const gap = gapBelow(this.world, px, footY, pz, 2.5);
+    // 小さな隙間（下り坂・小さな段）は従来の吸着に任せる
+    if (gap <= 0.06 && !L.lowering) return py;
+    L.gap = gap;
+    const S = inp.support;
+    const down = S?.down ?? 0, planted = S?.planted ?? 0;
+    const downOk = L.kind === 'step' && down >= LEDGE.needDown && planted >= 3;
+    // （縁の角は急なので、縁で待っている体は床に触れていないことがある：はみ出しが上限の近くまでなら高さを保って支える）
+    const leanOk = planted >= 3 && L.over <= (L.kind === 'step' ? LEDGE.leanOver : LEDGE.holdOver) + 0.05;
+    // 支えが足りない：踏み替え・足場を探す間（接地が 2 本まで）は looseT まで待つ。それより長い・脚が無いなら落ちる
+    const brief = planted >= 2;
+    L.loose = downOk || leanOk ? 0 : L.loose + dt;
+    if (!downOk && !leanOk && !(brief && L.loose < LEDGE.looseT)) {
+      if (gap > 0.1) {
+        this.ledgeStats.falls++;
+        this.ledgeFall = { kind: L.kind, over: L.over, gap, down, planted, t: L.t };
+      }
+      this.ledge = null;
+      return py;
+    }
+    // 下の足場に脚が掛かっていれば下ろす。身を乗り出しているだけ（縁の角に乗っている）・待っている間は高さを保つ
+    if (downOk) {
+      const dy = Math.min(gap, LEDGE.descRate * dt);
+      py -= dy;
+      this.ledgeStats.maxDescV = Math.max(this.ledgeStats.maxDescV, dy / dt);
+    }
+    L.lowering = true;
+    this.grounded = true;
+    this.vy = 0;
+    return py;
+  }
+
+  /**
+   * 縁の状態を進める（歩いている間。押し戻し・張り付きの判定のあと）：
+   * - 歩き方が接地主導・水槽の中・接地（脚で支えているのを含む）・泳ぎ / 掘り / 引っ張り / 転倒 / 管の中でない、のときだけ
+   * - 縁を越え始めたら（はみ出し > −0.02）探し直さない。下の足場に着いて縁から十分下りたら終わり。縁から離れたら捨てる
+   * - まだ越えていなければ、1 フレームに 1 回、移動の向きの前方の縁を探す（同じ縁なら待った時間を続ける）
+   * - 縁で押し続けている間：崖は側面に脚が掛かったら側面へ移る（startDescentClimb）。足場が見つからないまま
+   *   holdT（足場が無い）/ holdTMax（段差・崖で脚が掛からない）経ったら踏み出す
+   */
+  private ledgeUpdate(dt: number, inp: CrabInput, px: number, py: number, pz: number, ux: number, uz: number, hasInput: boolean, digging: boolean, ride: boolean, first: boolean) {
+    const ok = !!inp.lead && !this.climbing && !this.swimming && !ride && !digging && !this.pulling && this.tumbleT <= 0 && this.region === 'tank' && this.grounded;
+    if (!ok) {
+      this.ledge = null;
+      return;
+    }
+    const w = this.world;
+    const footY = py - RADIUS;
+    let L = this.ledge;
+    if (L) {
+      if (first) L.t += dt;
+      L.over = (px - L.lip[0]) * L.e[0] + (pz - L.lip[2]) * L.e[2];
+      // （縁の角は急なので、体は縁の少し手前で止まることがある：0.1 手前まで来たら越え始めたとみなす）
+      if (L.over > -0.1) L.committed = true;
+      // 降り切った：脚で支えずに床に立っていて、縁から十分下
+      // （体の下にまだ隙間があれば続ける：吸着で残りを一気に落とさない）
+      if (!L.lowering && L.lip[1] - footY > Math.min(L.drop, LEDGE.stepMax) * 0.6 && gapBelow(w, px, footY, pz, 0.4) < 0.06) {
+        this.ledgeStats.steps++;
+        this.ledge = null;
+        return;
+      }
+      // 縁から離れた・まだ越えていないのに押すのをやめた
+      if (L.over < -0.6 || (!hasInput && !L.committed)) L = this.ledge = null;
+    }
+    // （縁が見えていない間は 3 フレームに 1 回：ダッシュでも 3 フレームで 0.22 しか進まず、探る範囲 0.48 の中）
+    if (first && hasInput && (!L || !L.committed) && (L || ++this.ledgeScanN % 3 === 0)) {
+      const r = scanLedge(w, px, footY, pz, ux, uz);
+      if (!r || r.e[0] * ux + r.e[2] * uz < 0.2) {
+        this.ledge = null;
+        return;
+      }
+      const lip: [number, number, number] = [px + ux * r.a, r.lipY, pz + uz * r.a];
+      const kind = r.drop <= LEDGE.stepMax ? 'step' : faceBelow(w, lip, r.e) ? 'climb' : 'none';
+      if (L && Math.hypot(L.lip[0] - lip[0], L.lip[1] - lip[1], L.lip[2] - lip[2]) < 0.35) {
+        // 同じ縁（近づくにつれて測り直す）
+        L.lip.splice(0, 3, ...lip);
+        L.e.splice(0, 3, ...r.e);
+        L.drop = r.drop;
+        L.kind = kind;
+      } else {
+        L = this.ledge = { e: r.e, lip, drop: r.drop, kind, over: 0, holdT: 0, stepOff: false, lowering: false, committed: false, t: 0, gap: 0, retry: 0, loose: 0, seek: true };
+        this.ledgeStats.edges++;
+      }
+      L.over = (px - lip[0]) * r.e[0] + (pz - lip[2]) * r.e[2];
+    }
+    if (!L || L.stepOff) return;
+    // 縁で押し続けている
+    const into = hasInput ? ux * L.e[0] + uz * L.e[2] : 0;
+    L.seek = into > 0.2;
+    const S = inp.support;
+    const down = S?.down ?? 0, face = S?.face ?? 0, planted = S?.planted ?? 0;
+    const maxOver = L.kind === 'step' ? LEDGE.leanOver : LEDGE.holdOver;
+    const freeStep = L.kind === 'step' && down >= LEDGE.needDown && planted >= 4;
+    const holding = into > 0.4 && L.over > maxOver - 0.12 && !freeStep;
+    if (!holding) {
+      if (into <= 0.4) L.holdT = 0;
+      return;
+    }
+    if (first) {
+      L.holdT += dt;
+      this.ledgeStats.holdT += dt;
+    }
+    L.retry = Math.max(0, L.retry - dt);
+    // （崖の側面が斜めだと、縁より下に掛かった脚の面は「側面」の向きにならないことがある：縁より下の脚が多ければ同じ扱い）
+    if (L.kind === 'climb' && L.retry <= 0 && (face >= LEDGE.needFace || down >= LEDGE.needFace + 1 || ((face >= 1 || down >= LEDGE.needFace) && L.holdT > LEDGE.holdFace))) {
+      const path = descentPath(w, [px, py, pz], L.lip, L.e, RADIUS);
+      if (path) {
+        this.startDescentClimb(path, inp.cameraYaw);
+        return;
+      }
+      L.retry = 0.2;
+    }
+    if (L.holdT > (L.kind === 'none' ? LEDGE.holdT : LEDGE.holdTMax)) {
+      L.stepOff = true;
+      this.ledgeStats.stepOffs++;
+    }
+  }
+
+  /**
+   * 崖を降り始める：いまの床の向きのまま張り付き、縁を回り込む道（descentPath）をゆっくりたどって側面へ移る
+   * （体の向きは道の進み具合に合わせて床 → 側面へ回す）。着いたら壁登りのまま。スティックの写し方は床の向きから
+   * 決めて面と一緒に回すので、押し続けた向き（崖の外へ）は「壁から離れる = 下」になる
+   */
+  private startDescentClimb(path: [number, number, number][], yaw: number) {
+    const n0: [number, number, number] = [this.groundN[0], this.groundN[1], this.groundN[2]];
+    this.beginClimb(n0, yaw);
+    this.startMantle(path);
+    const M = this.mantle!;
+    M.sp = LEDGE.climbSpeed;
+    M.n0 = n0;
+    this.ledgeStats.climbs++;
+    this.ledge = null;
   }
 
   // ---------------- 壁登り ----------------
@@ -1214,7 +1428,7 @@ export class CrabController {
     // 張り出しの縁を回り込んでいる途中：折れ線の道を一定の速さでたどる（入力では変えない）。体の傾きは回り込んだ先の面へ
     const M = this.mantle;
     if (M) {
-      const sp = CLIMB_SPEED * 0.9;
+      const sp = M.sp ?? CLIMB_SPEED * 0.9;
       M.s = Math.min(M.len, M.s + sp * dt);
       let rest = M.s, q = M.pts[M.pts.length - 1], dir: number[] = [0, 0, 0];
       for (let i = 1; i < M.pts.length; i++) {
@@ -1231,8 +1445,14 @@ export class CrabController {
       this.vx = dir[0] * sp;
       this.vy = dir[1] * sp;
       this.vz = dir[2] * sp;
-      const kn = 1 - Math.exp(-dt * 8);
-      this.setClimbN(n[0] + (M.n[0] - n[0]) * kn, n[1] + (M.n[1] - n[1]) * kn, n[2] + (M.n[2] - n[2]) * kn);
+      if (M.n0) {
+        // 崖を降り始める道：縁を越える分だけ体を側面へ向ける（進み具合に合わせる。縁の上で急に回らない）
+        const f = smoothstep(0.15, 0.95, M.s / M.len);
+        this.setClimbN(M.n0[0] + (M.n[0] - M.n0[0]) * f, M.n0[1] + (M.n[1] - M.n0[1]) * f, M.n0[2] + (M.n[2] - M.n0[2]) * f);
+      } else {
+        const kn = 1 - Math.exp(-dt * 8);
+        this.setClimbN(n[0] + (M.n[0] - n[0]) * kn, n[1] + (M.n[1] - n[1]) * kn, n[2] + (M.n[2] - n[2]) * kn);
+      }
       if (M.s < M.len) return q;
       // 着いた：その面に張り付き直す（緩い面なら下の判定で歩きへ戻る）
       this.mantle = null;

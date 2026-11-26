@@ -920,7 +920,7 @@ async function boot() {
       const mv = input.moveAxis();
       if (moveLatch && (Math.hypot(mv.x, mv.y) < 0.2 || Math.abs(Math.atan2(Math.sin(Math.atan2(mv.x, mv.y) - moveLatch.ang), Math.cos(Math.atan2(mv.x, mv.y) - moveLatch.ang))) > 1.0)) moveLatch = null;
       // 鋏が挟む方に使われている間は掘れない（掘るのも鋏を使うので）
-      crab.update(dt, { move: mv, run: input.isRunning(), jumpHeld: input.isJumpHeld(), cameraYaw: moveLatch?.yaw ?? camera.yaw, dig: digNow && !grab.busy && !grabL.busy, digAim: debug.digAim ?? input.digAim(), pull: br.pull, face: pg ? { x: pg.p[0], z: pg.p[2] } : face, tow: mergeTow(grab.tow, grabL.tow), support: rig.gait === 'ik' && rig.feet && rig.ikW > 0.5 ? rig.feet.support : null });
+      crab.update(dt, { move: mv, run: input.isRunning(), jumpHeld: input.isJumpHeld(), cameraYaw: moveLatch?.yaw ?? camera.yaw, dig: digNow && !grab.busy && !grabL.busy, digAim: debug.digAim ?? input.digAim(), pull: br.pull, face: pg ? { x: pg.p[0], z: pg.p[2] } : face, tow: mergeTow(grab.tow, grabL.tow), support: rig.gait !== 'cycle' && rig.feet && rig.ikW > 0.5 ? rig.feet.support : null, lead: rig.gait === 'lead' });
       camera.update(dt, input, crab);
       // 挟む：鋏の構え → 体と鋏の姿勢 → 左右の鋏の状態 → 物・生き物を進める（ばね。2 本で 1 回）→ 動いた物へ鋏を伸ばし直す・生き物の体を置き直す
       Object.assign(rig.grip, grab.rigGrip());
@@ -996,7 +996,7 @@ async function boot() {
     }
     vistaTag.classList.toggle('show', camera.viewing);
     view.render(settings, camera, crab, time, dt);
-    footDiag.draw(rig.feet, (x, y, z) => view.project(x, y, z), rig.gait === 'ik' && rig.ikW > 0.05);
+    footDiag.draw(rig.feet, (x, y, z) => view.project(x, y, z), rig.gait !== 'cycle' && rig.ikW > 0.05, rig.gait === 'lead' ? crab : null);
     input.consume();
 
     // 箱庭カメラ・ガラス越しで砂に隠れているときは、カニの位置に印を出す
