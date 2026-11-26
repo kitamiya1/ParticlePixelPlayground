@@ -18,6 +18,8 @@
 import * as THREE from 'three';
 import { clamp, lerp, smoothstep } from '../core/math';
 import type { CrabController } from './CrabController';
+import type { AquariumWorld } from './AquariumWorld';
+import { CrabFeet } from './CrabFeet';
 import { BODY_HEIGHT, CLAWS, CRAB_BONE, CRAB_BONE_COUNT, LEGS, legBone, legTip } from './crabModel';
 
 interface Weights {
@@ -153,6 +155,21 @@ export class CrabRig {
     },
   }))(this);
 
+  /**
+   * 歩き方（第 4 段階）：'ik' = 接地 IK（CrabFeet が足場を探して足先を固定し、胴体の高さ・傾きを足先から決める）、
+   * 'cycle' = 従来（歩行周期と体の向きから足先を決める）。空中・遊泳・沈降・転倒・掘る前脚は、どちらでも従来の動き
+   */
+  gait: 'cycle' | 'ik' = 'ik';
+  feet: CrabFeet | null = null;
+  /** 接地 IK を混ぜる割合（平滑化） */
+  ikW = 0;
+  private readonly rootInv = new THREE.Matrix4();
+  private readonly fv = new THREE.Vector3();
+
+  attachFeet(world: AquariumWorld) {
+    this.feet = new CrabFeet(world);
+  }
+
   update(dt: number, c: CrabController) {
     this.t += dt;
     const t = this.t;
@@ -229,6 +246,20 @@ export class CrabRig {
     this.body.makeTranslation(0, BODY_HEIGHT + bob - squat + 0.03 * W.air + 0.06 * tumble, 0).multiply(this.m1.makeRotationZ(roll)).multiply(this.m2.makeRotationX(pitch));
     this.bones[CRAB_BONE.body].copy(this.body);
 
+    // 接地 IK：足場を探して足先を置く（根の補正の前の向きで探す）→ 胴体の高さ・傾きの補正を根に掛ける
+    const grounded = (c.grounded || c.climbing) && c.state !== 'swim' && c.tumbleT <= 0;
+    const ikWant = this.gait === 'ik' && this.feet ? Math.max(0, 1 - W.air - W.swim - W.sink - tumble) * (grounded ? 1 : 0) : 0;
+    this.ikW += (ikWant - this.ikW) * (1 - Math.exp(-dt * 10));
+    if (this.feet && this.gait === 'ik') {
+      this.feet.update(dt, this.root, this.body.elements[13], [c.vx, c.vy, c.vz], grounded, c.climbing ? c.climbN : null);
+      if (this.ikW > 1e-3) {
+        const o = this.feet.bodyOffset;
+        this.qTmp.identity().slerp(o.q, this.ikW);
+        this.root.multiply(this.m1.makeTranslation(0, o.up * this.ikW, 0)).multiply(this.m2.makeRotationFromQuaternion(this.qTmp));
+      }
+    }
+    this.rootInv.copy(this.root).invert();
+
     // 移動方向（体の座標）
     const sp = Math.hypot(c.localVX, c.localVZ);
     if (sp > 0.15) {
@@ -302,6 +333,15 @@ export class CrabRig {
           fx += W.swim * sxs;
           fz += W.swim * szs;
           fy += W.swim * sys;
+        }
+        // 接地 IK：足先を世界に固定した足場（根の座標へ直す）へ。掘っている間の前脚は従来の動きのまま
+        const kI = this.ikW * (i === 0 ? 1 - W.dig : 1);
+        if (kI > 1e-3 && this.feet) {
+          const P = this.feet.feet[(sx === 1 ? 0 : 4) + i].pos;
+          this.fv.set(P[0], P[1], P[2]).applyMatrix4(this.rootInv);
+          fx += (this.fv.x - fx) * kI;
+          fy += (this.fv.y - fy) * kI;
+          fz += (this.fv.z - fz) * kI;
         }
         this.solveLeg(sx, i, fx, fy, fz);
       });

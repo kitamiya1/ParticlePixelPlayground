@@ -122,6 +122,11 @@ export interface CrabInput {
    * ときだけ効く（重い物を挟んで泳ぐと沈みやすい。立っているカニは持ち上げない）。壁・天井に張り付いている間は使わない
    */
   tow?: { ax: number; ay: number; az: number; slow: number } | null;
+  /**
+   * 接地 IK の支え（第 4 段階。CrabFeet.support）：speed = 速さの上限に掛ける割合（伸びきった脚が踏み替えられない間・接地している脚が
+   * 少ない間は遅く。脚が届かない所へ胴体だけが先へ行かない）、lost = 壁・天井で掛かっている脚が少ない状態が続いた（離れて落ちる）
+   */
+  support?: { speed: number; lost: boolean } | null;
 }
 
 /** 引っ張っている間、体の中心が穴の口へ近づけない距離（水平。AquaBuddy.PULL_KEEP と同じ） */
@@ -279,7 +284,7 @@ export class CrabController {
   /** 張り出しの縁を回り込んでいる途中（折れ線の道・進んだ距離・全長・回り込んだ先の面の法線） */
   private mantle: { pts: [number, number, number][]; s: number; len: number; n: [number, number, number] } | null = null;
   /** 壁登りの回数（張り付いた・床へ戻った・跳んで離れた・面を失って落ちた・掘る等で離した・張り出しで止まった・縁を回り込んだ。自動検証用） */
-  readonly climbStats = { grabs: 0, exits: 0, jumps: 0, lost: 0, drops: 0, blocked: 0, mantles: 0 };
+  readonly climbStats = { grabs: 0, exits: 0, jumps: 0, lost: 0, drops: 0, blocked: 0, mantles: 0, supportLost: 0 };
   /** 経過時間（かき出しの続きの判定に使う） */
   private clock = 0;
   private digT = 0;
@@ -581,6 +586,11 @@ export class CrabController {
 
     // 壁登りをやめる：管に入った・掘り始めた（掘るのは地面に立って。壁からは落ちる）・水槽の外へ出た
     if (this.climbing && (ride || digging || this.region !== 'tank')) this.releaseClimb('drops');
+    // 接地 IK：壁・天井で脚が掛からない状態が続いた（足場を掘って崩した・登れない所へ出た）→ 支えを失って離れる
+    if (this.climbing && inp.support?.lost) {
+      this.releaseClimb('drops');
+      this.climbStats.supportLost++;
+    }
     // 壁から跳ぶ：面の外向きと上へ押し出す（水中で押し続ければ、そのまま遊泳へ移れる）。
     // 張り出し・天井では上へは押さない（上へ押すと天井へ押し戻される）：天井からは真下へ離れて落ちる・沈む
     let wallJump = false;
@@ -653,6 +663,8 @@ export class CrabController {
       }
       // 挟んでいる物が重いほど遅く歩く
       if (inp.tow) maxSpeed *= inp.tow.slow;
+      // 接地 IK：脚が追いつかない間は遅く（地上だけ。泳いでいる・空中では使わない）
+      if (inp.support && this.grounded && !this.swimming) maxSpeed *= inp.support.speed;
       const tvx = mx * maxSpeed, tvz = mz * maxSpeed;
       // 入力が無いとき：地上ではすぐ止まり、水中・空中ではゆっくり減速する
       const k = 1 - Math.exp(-(hasInput ? accel : this.grounded ? 12 : lerp(0.6, 2.2, s)) * dt);
@@ -1237,7 +1249,7 @@ export class CrabController {
     const Dl = Math.hypot(Dx, Dy, Dz);
     if (Dl > 1) { Dx /= Dl; Dy /= Dl; Dz /= Dl; }
     if (!hasInput) Dx = Dy = Dz = 0;
-    const sp = (inp.run ? CLIMB_RUN : CLIMB_SPEED) * lerp(1, 0.85, s);
+    const sp = (inp.run ? CLIMB_RUN : CLIMB_SPEED) * lerp(1, 0.85, s) * (inp.support ? Math.max(0.5, inp.support.speed) : 1);
     const k = 1 - Math.exp(-(hasInput ? 12 : 18) * dt);
     this.vx += (Dx * sp - this.vx) * k;
     this.vy += (Dy * sp - this.vy) * k;
