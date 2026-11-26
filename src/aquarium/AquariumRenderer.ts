@@ -27,6 +27,7 @@ import type { RenderSettings } from '../settings';
 import type { AquaCamera } from './AquaCamera';
 import type { AquaLife } from './AquaLife';
 import type { BuddySystem } from './AquaBuddy';
+import type { Prop, PropKind, PropSystem } from './AquaGrab';
 import type { AquariumMeshes, LightGrid } from './AquariumBuild';
 import { AquariumDigFx } from './AquariumDigFx';
 import type { Find } from './AquariumSpots';
@@ -383,6 +384,9 @@ export class AquariumRenderer {
   /** 最初の仲間（スナモグリ）の体（1 個のインスタンス）と、その巣穴 */
   private readonly buddyMesh: THREE.InstancedMesh | null = null;
   private readonly buddy: BuddySystem | null = null;
+  /** 挟める物（AquaGrab）と、種類ごとのインスタンスの束 */
+  private readonly props: PropSystem | null = null;
+  private readonly propMeshes: { mesh: THREE.InstancedMesh; list: Prop[] }[] = [];
   private readonly springs: { pos: [number, number, number]; scale: number; t: number }[] = [];
   private pearlT = 0;
   private readonly m4 = new THREE.Matrix4();
@@ -412,7 +416,7 @@ export class AquariumRenderer {
     crab: TriMesh,
     plants: SplatPointSet,
     private readonly rig: CrabRig,
-    explore: { finds: Find[]; findsMesh: TriMesh; glowMesh: TriMesh; fishMesh: TriMesh; shrimpMesh: TriMesh; life: AquaLife; buddy?: { sys: BuddySystem; mesh: TriMesh; burrowMesh: TriMesh } },
+    explore: { finds: Find[]; findsMesh: TriMesh; glowMesh: TriMesh; fishMesh: TriMesh; shrimpMesh: TriMesh; life: AquaLife; buddy?: { sys: BuddySystem; mesh: TriMesh; burrowMesh: TriMesh }; props?: { sys: PropSystem; meshes: Record<PropKind, TriMesh> } },
     dig: { light: LightGrid; plantAnchors: Float32Array },
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', alpha: false });
@@ -474,6 +478,23 @@ export class AquariumRenderer {
       burrow.frustumCulled = false;
       this.meshScene.add(burrow);
       this.stats.tris += explore.buddy.mesh.triCount + explore.buddy.burrowMesh.triCount;
+    }
+    // 挟める物（小石・貝殻・重い石）：種類ごとに 1 つのインスタンスの束
+    if (explore.props) {
+      this.props = explore.props.sys;
+      for (const kind of Object.keys(explore.props.meshes) as PropKind[]) {
+        const list = this.props.props.filter((p) => p.kind === kind);
+        if (!list.length) continue;
+        const m = explore.props.meshes[kind];
+        const im = this.creatureMesh(m, list.length, false);
+        // 浮かせる強さは小さな生き物より弱く（景色の小石と見分けられる程度）
+        (im.material as THREE.ShaderMaterial).uniforms.uCharLift.value = 0.12;
+        // iAnim = (位相 0, 動き 1)：creatureVertex の上下の揺れを止める（物は揺れない）
+        const ia = im.geometry.getAttribute('iAnim') as THREE.InstancedBufferAttribute;
+        for (let i = 0; i < list.length; i++) ia.setXY(i, 0, 1);
+        this.propMeshes.push({ mesh: im, list });
+        this.stats.tris += m.triCount * list.length;
+      }
     }
     for (const f of explore.finds) if (f.kind === 'spring') this.springs.push({ pos: f.pos, scale: f.scale, t: Math.random() });
     this.baseTris = this.stats.tris;
@@ -648,6 +669,16 @@ export class AquariumRenderer {
       const ba = bm.geometry.getAttribute('iAnim') as THREE.InstancedBufferAttribute;
       ba.setXY(0, B.phase, B.act);
       bm.instanceMatrix.needsUpdate = ba.needsUpdate = true;
+    }
+    // 挟める物：位置・向き（四元数）・大きさ
+    for (const { mesh, list } of this.propMeshes) {
+      list.forEach((p, i) => {
+        this.q4.set(p.q[0], p.q[1], p.q[2], p.q[3]);
+        this.m4.compose(this.v4.set(p.p[0], p.p[1], p.p[2]), this.q4, this.s4.setScalar(p.scale));
+        mesh.setMatrixAt(i, this.m4);
+      });
+      this.s4.setScalar(1);
+      mesh.instanceMatrix.needsUpdate = true;
     }
   }
 

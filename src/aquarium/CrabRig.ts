@@ -10,9 +10,13 @@
 //   （逆さでも向きが飛ばない）、根を球の中心から面の側へ半径だけ下げた所に置く。
 //   進んでいる間は面に沿った歩行の足運び（体の座標の速度は面を床に起こして計算済み）、止まっている間は脚を広げて
 //   足先を面へ押し付け、ゆっくり踏ん張り直す。鋏は前へ伸ばして面をつかむ。
+// - 挟む（AquaGrab）：右の大きな鋏を前の上へ構え（構えた鋏の先 = anchor。物をつなぐばねの目標）、grip.target
+//   （挟む物のつかみ点）があれば、鋏の先がそこへ来るよう腕の 3 つの角（付け根の左右・上下、掌の折り）を
+//   減衰付き最小二乗の IK で解く。物がばねで遅れても、鋏はいつも物の表面を挟んで見える（重い物は腕が引っ張られる）。
+//   閉じ具合（grip.close）で可動指を開閉し、挟んでいる間は物の厚みの分だけ少し開いたまま。
 
 import * as THREE from 'three';
-import { clamp } from '../core/math';
+import { clamp, lerp } from '../core/math';
 import type { CrabController } from './CrabController';
 import { BODY_HEIGHT, CLAWS, CRAB_BONE, CRAB_BONE_COUNT, LEGS, legBone, legTip } from './crabModel';
 
@@ -30,6 +34,50 @@ interface Weights {
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
+
+/** 右の鋏（大きい方）の向きと大きさ・挟む所（掌の座標。不動指と可動指の間） */
+const GRIP_SX = -1;
+const GRIP_K = CLAWS.scale.R;
+const PINCH: [number, number, number] = [0, 0, 0.165 * GRIP_K];
+/**
+ * 挟む構え（腕の付け根の左右・上下、掌の折り）。この姿勢の鋏の先が anchor：口の前の少し上（体の座標で約 (−0.06, 0.05, 0.36)）。
+ * 付け根から 0.27（伸ばしきると 0.35）なので、物が遅れても 8 cm ほどは鋏を伸ばして挟んだままでいられる。
+ * 体の球（半径 0.24）の中心から 0.36 離れていて、挟んだ物が甲羅に食い込まない
+ */
+const HOLD = { yaw: 0.3, pitch: -0.45, fold: 1.4 };
+/** IK の角の範囲 */
+const IK_MIN = [-0.9, -1.45, 0.05];
+const IK_MAX = [1.25, 1.35, 2.1];
+
+/** 右の鋏の先（体の座標）：付け根の左右 yaw・上下 pitch・掌の折り fold・掌の傾き c（CrabRig の行列と同じ順） */
+function clawTip(yaw: number, pitch: number, fold: number, c: number, out: [number, number, number]): [number, number, number] {
+  const sx = GRIP_SX;
+  // 掌の座標 → 腕の座標：RotX(c) → RotY(−sx·fold) → 腕の長さだけ前へ
+  let x = PINCH[0], y = PINCH[1] * Math.cos(c) - PINCH[2] * Math.sin(c), z = PINCH[1] * Math.sin(c) + PINCH[2] * Math.cos(c);
+  const fa = -sx * fold, cf = Math.cos(fa), sf = Math.sin(fa);
+  [x, z] = [x * cf + z * sf, -x * sf + z * cf];
+  z += CLAWS.armLen * GRIP_K;
+  // 腕の座標 → 体の座標：RotX(pitch) → RotY(sx·yaw) → 付け根へ
+  const cp = Math.cos(pitch), sp = Math.sin(pitch);
+  [y, z] = [y * cp - z * sp, y * sp + z * cp];
+  const ya = sx * yaw, cy = Math.cos(ya), sy = Math.sin(ya);
+  [x, z] = [x * cy + z * sy, -x * sy + z * cy];
+  out[0] = x + sx * CLAWS.shoulder[0];
+  out[1] = y + CLAWS.shoulder[1];
+  out[2] = z + CLAWS.shoulder[2];
+  return out;
+}
+
+/** 挟む鋏の状態（AquaGrab.rigGrip が毎フレーム書く） */
+export interface RigGrip {
+  on: boolean;
+  /** 閉じ具合（0 = 開き、1 = 閉じ） */
+  close: number;
+  /** 物を挟んでいる */
+  hold: boolean;
+  /** 鋏の先を伸ばす所（世界）。null = 構えの位置 */
+  target: [number, number, number] | null;
+}
 
 export class CrabRig {
   readonly bones: THREE.Matrix4[] = Array.from({ length: CRAB_BONE_COUNT }, () => new THREE.Matrix4());
@@ -56,6 +104,18 @@ export class CrabRig {
   /** 移動方向（体の座標）の平滑値 */
   private dirX = 1;
   private dirZ = 0;
+  /** 挟む（右の鋏）：AquaGrab が書く状態・構えの重み（平滑）・IK の解（前のフレームから続けて解く） */
+  readonly grip: RigGrip = { on: false, close: 0, hold: false, target: null };
+  private gw = 0;
+  private readonly ik = [HOLD.yaw, HOLD.pitch, HOLD.fold];
+  /** 構えた鋏の先・いま描いている鋏の先・鋏の付け根（世界）と、鋏を目標へ伸ばしきれなかった距離 */
+  readonly anchor: [number, number, number] = [0, 0, 0];
+  readonly pinch: [number, number, number] = [0, 0, 0];
+  readonly shoulder: [number, number, number] = [0, 0, 0];
+  reachErr = 0;
+  private readonly bodyW = new THREE.Matrix4();
+  private readonly bodyInv = new THREE.Matrix4();
+  private readonly t3: [number, number, number] = [0, 0, 0];
 
   update(dt: number, c: CrabController) {
     this.t += dt;
@@ -212,29 +272,154 @@ export class CrabRig {
     const yawA0 = 0.55 + 0.3 * W.air + 0.2 * W.sink - 0.1 * W.swim - 0.25 * W.dig + 0.12 * W.climb;
     const pitchA0 = 0.28 + breathe - 0.65 * W.air - 0.2 * W.sink - 0.1 * W.run + Math.sin(ph) * 0.05 * (move + climbMove) - 0.18 * W.climb;
     const fold0 = 1.75 - 0.6 * W.air - 0.35 * W.sink + 0.15 * W.swim - 0.3 * W.climb;
+    // 挟む：右の鋏の構え（anchor）と、鋏の先を grip.target へ伸ばす IK（体の座標で解く）
+    const handTilt = -0.12 - 0.3 * W.air;
+    this.gw += ((this.grip.on ? 1 : 0) - this.gw) * (1 - Math.exp(-dt * 16));
+    this.bodyW.multiplyMatrices(this.root, this.body);
+    this.bodyInv.copy(this.bodyW).invert();
+    const anchorL = clawTip(HOLD.yaw, HOLD.pitch, HOLD.fold, handTilt, [0, 0, 0]);
+    this.toWorld(anchorL, this.anchor);
+    this.toWorld([GRIP_SX * CLAWS.shoulder[0], CLAWS.shoulder[1], CLAWS.shoulder[2]], this.shoulder);
+    if (this.gw > 0.001) {
+      if (this.gw < 0.05) this.ik.splice(0, 3, HOLD.yaw, HOLD.pitch, HOLD.fold);
+      const T = this.grip.target;
+      const tl: [number, number, number] = T ? (this.vTmp.set(T[0], T[1], T[2]).applyMatrix4(this.bodyInv), [this.vTmp.x, this.vTmp.y, this.vTmp.z]) : anchorL;
+      this.reachErr = this.solveGrip(tl, handTilt);
+    } else this.reachErr = 0;
     for (const [sx, k, arm, hand, finger] of [
       [1, CLAWS.scale.L, CRAB_BONE.armL, CRAB_BONE.handL, CRAB_BONE.fingerL],
       [-1, CLAWS.scale.R, CRAB_BONE.armR, CRAB_BONE.handR, CRAB_BONE.fingerR],
     ] as const) {
-      const sh = CLAWS.shoulder;
       // 穴掘り：左右交互に、鋏を前の下へ伸ばして開き（すくう）→ 閉じて手前へ引き上げる（かき出す）
       // 空振り（照準の先に何も無い）：すくわずに、鋏を掘る向きへ伸ばしたまま左右に大きく振り、宙をつまむように開閉する
       const sp = dph + (sx === 1 ? 0 : Math.PI);
       const scoop = Math.sin(sp);
       const dg = W.dig * (1 - wh), wf = W.dig * wh;
       // 引っ張り：両方の鋏を前の下（穴）へ伸ばして閉じ、抜けてくるほど持ち上げる
-      const yawA = yawA0 + dg * 0.1 * scoop + wf * (0.05 + 0.32 * scoop) - W.pull * 0.32;
-      const pitchA = pitchA0 + dg * (0.2 - c.digPitch * 0.5 + 0.38 * scoop) + wf * (0.08 - c.digPitch * 0.65 + 0.16 * Math.cos(sp)) + W.pull * (0.55 - 0.45 * pt + tug * 1.6);
-      const fold = fold0 - dg * (0.55 + 0.4 * scoop) - wf * (0.85 + 0.2 * scoop) - W.pull * 0.8;
-      const a = this.bones[arm];
-      a.copy(this.body).multiply(this.m1.makeTranslation(sx * sh[0], sh[1], sh[2])).multiply(this.m2.makeRotationY(sx * yawA)).multiply(this.m1.makeRotationX(pitchA));
-      const h = this.bones[hand];
-      h.copy(a).multiply(this.m1.makeTranslation(0, 0, CLAWS.armLen * k)).multiply(this.m2.makeRotationY(-sx * fold)).multiply(this.m1.makeRotationX(-0.12 - 0.3 * W.air));
-      const f = this.bones[finger];
+      let yawA = yawA0 + dg * 0.1 * scoop + wf * (0.05 + 0.32 * scoop) - W.pull * 0.32;
+      let pitchA = pitchA0 + dg * (0.2 - c.digPitch * 0.5 + 0.38 * scoop) + wf * (0.08 - c.digPitch * 0.65 + 0.16 * Math.cos(sp)) + W.pull * (0.55 - 0.45 * pt + tug * 1.6);
+      let fold = fold0 - dg * (0.55 + 0.4 * scoop) - wf * (0.85 + 0.2 * scoop) - W.pull * 0.8;
       // 大きい右の鋏は少しだけ遅れて開閉する
-      const open = this.clawOpen * (sx === 1 ? 1 : 0.85) * (1 - W.dig) * (1 - W.pull) + 0.04 + dg * 0.5 * Math.max(0, Math.sin(sp + 0.9)) + wf * 0.55 * Math.max(0, Math.sin(sp * 2));
-      f.copy(h).multiply(this.m1.makeTranslation(0, 0.024 * k, 0.115 * k)).multiply(this.m2.makeRotationX(-open));
+      let open = this.clawOpen * (sx === 1 ? 1 : 0.85) * (1 - W.dig) * (1 - W.pull) + 0.04 + dg * 0.5 * Math.max(0, Math.sin(sp + 0.9)) + wf * 0.55 * Math.max(0, Math.sin(sp * 2));
+      // 右の鋏：挟む構え・IK の解へ寄せる（poseGripClaw。物を動かした後にも呼び直す）
+      if (sx === GRIP_SX) {
+        this.rBase = [yawA, pitchA, fold, open, handTilt];
+        this.poseGripClaw();
+        continue;
+      }
+      this.poseClaw(sx, k, arm, hand, finger, yawA, pitchA, fold, open, handTilt);
     }
+  }
+
+  /** 右の鋏の、挟む構えを混ぜる前の角（このフレームのふだんの動き）と掌の傾き */
+  private rBase = [0, 0, 0, 0, 0];
+
+  /** 鋏脚 1 本のボーン（腕節 → 掌 → 可動指） */
+  private poseClaw(sx: 1 | -1, k: number, arm: number, hand: number, finger: number, yawA: number, pitchA: number, fold: number, open: number, tilt: number) {
+    const sh = CLAWS.shoulder;
+    const a = this.bones[arm];
+    a.copy(this.body).multiply(this.m1.makeTranslation(sx * sh[0], sh[1], sh[2])).multiply(this.m2.makeRotationY(sx * yawA)).multiply(this.m1.makeRotationX(pitchA));
+    const h = this.bones[hand];
+    h.copy(a).multiply(this.m1.makeTranslation(0, 0, CLAWS.armLen * k)).multiply(this.m2.makeRotationY(-sx * fold)).multiply(this.m1.makeRotationX(tilt));
+    const f = this.bones[finger];
+    f.copy(h).multiply(this.m1.makeTranslation(0, 0.024 * k, 0.115 * k)).multiply(this.m2.makeRotationX(-open));
+  }
+
+  /**
+   * 右の鋏：ふだんの角（rBase）を、挟む構え・IK の解へ構えの重みだけ寄せて描く。指は閉じ具合で開閉し、
+   * 挟んでいる間は物の厚みの分だけ少し開く。描いた鋏の先を pinch に書く
+   */
+  private poseGripClaw() {
+    let [yawA, pitchA, fold, open] = this.rBase;
+    const tilt = this.rBase[4], gw = this.gw;
+    if (gw > 0.001) {
+      yawA = lerp(yawA, this.ik[0], gw);
+      pitchA = lerp(pitchA, this.ik[1], gw);
+      fold = lerp(fold, this.ik[2], gw);
+      open = lerp(open, this.grip.hold ? 0.16 : 0.62 * (1 - this.grip.close), gw);
+    }
+    this.toWorld(clawTip(yawA, pitchA, fold, tilt, this.t3), this.pinch);
+    this.poseClaw(GRIP_SX, GRIP_K, CRAB_BONE.armR, CRAB_BONE.handR, CRAB_BONE.fingerR, yawA, pitchA, fold, open, tilt);
+  }
+
+  /**
+   * 物を動かした後（AquaGrab.update の後）に、右の鋏を新しいつかみ点へ伸ばし直す（物と鋏が 1 フレームずれない）。
+   * 体の姿勢はこのフレームの update のまま
+   */
+  reaimGrip() {
+    if (this.gw <= 0.001) return;
+    const T = this.grip.target;
+    if (T) {
+      this.vTmp.set(T[0], T[1], T[2]).applyMatrix4(this.bodyInv);
+      this.reachErr = this.solveGrip([this.vTmp.x, this.vTmp.y, this.vTmp.z], this.rBase[4]);
+    }
+    this.poseGripClaw();
+  }
+
+  /** 体の座標の点 → 世界（このフレームの根 × 体） */
+  private toWorld(l: readonly number[], out: [number, number, number]) {
+    this.vTmp.set(l[0], l[1], l[2]).applyMatrix4(this.bodyW);
+    out[0] = this.vTmp.x;
+    out[1] = this.vTmp.y;
+    out[2] = this.vTmp.z;
+  }
+
+  /**
+   * 右の鋏の先を体の座標の点 t へ伸ばす角（付け根の左右・上下、掌の折り）を、減衰付き最小二乗（Levenberg 型）で解く。
+   * 前のフレームの解から数回だけ進める（毎フレーム続けて解くので、少ない回数でなめらかに追う）。届かない所へは
+   * 届く範囲でいちばん近い姿勢になる。返り値は解いた後に残った距離
+   */
+  private solveGrip(t: readonly number[], c: number): number {
+    const err = this.solveFrom(t, c);
+    if (err < 0.015) return err;
+    // 角の範囲の端で止まった（体が急に回った・壁へ張り付いた直後）：構えから解き直して、近い方を使う
+    const prev = this.ik.slice();
+    this.ik.splice(0, 3, HOLD.yaw, HOLD.pitch, HOLD.fold);
+    const err2 = this.solveFrom(t, c);
+    if (err2 <= err) return err2;
+    this.ik.splice(0, 3, ...prev);
+    return err;
+  }
+
+  private solveFrom(t: readonly number[], c: number): number {
+    const x = this.ik, p = this.t3, q: [number, number, number] = [0, 0, 0];
+    const J = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+    const h = 1e-3, lam2 = 0.03 * 0.03;
+    let err = 0;
+    for (let it = 0; it < 6; it++) {
+      clawTip(x[0], x[1], x[2], c, p);
+      const ex = t[0] - p[0], ey = t[1] - p[1], ez = t[2] - p[2];
+      err = Math.hypot(ex, ey, ez);
+      if (err < 1e-3) break;
+      for (let j = 0; j < 3; j++) {
+        const s = x[j];
+        x[j] = s + h;
+        clawTip(x[0], x[1], x[2], c, q);
+        x[j] = s;
+        J[j] = (q[0] - p[0]) / h;
+        J[3 + j] = (q[1] - p[1]) / h;
+        J[6 + j] = (q[2] - p[2]) / h;
+      }
+      // Δ = Jᵀ (J Jᵀ + λ² I)⁻¹ e
+      const A = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+      for (let r = 0; r < 3; r++) for (let k = 0; k < 3; k++) A[r * 3 + k] = J[r * 3] * J[k * 3] + J[r * 3 + 1] * J[k * 3 + 1] + J[r * 3 + 2] * J[k * 3 + 2] + (r === k ? lam2 : 0);
+      const det = A[0] * (A[4] * A[8] - A[5] * A[7]) - A[1] * (A[3] * A[8] - A[5] * A[6]) + A[2] * (A[3] * A[7] - A[4] * A[6]);
+      if (Math.abs(det) < 1e-12) break;
+      const e = [ex, ey, ez];
+      // y = A⁻¹ e（クラメルの公式）
+      const y = [0, 0, 0];
+      for (let k = 0; k < 3; k++) {
+        const M = A.slice();
+        for (let r = 0; r < 3; r++) M[r * 3 + k] = e[r];
+        y[k] = (M[0] * (M[4] * M[8] - M[5] * M[7]) - M[1] * (M[3] * M[8] - M[5] * M[6]) + M[2] * (M[3] * M[7] - M[4] * M[6])) / det;
+      }
+      for (let j = 0; j < 3; j++) {
+        const d = J[j] * y[0] + J[3 + j] * y[1] + J[6 + j] * y[2];
+        x[j] = clamp(x[j] + clamp(d, -0.35, 0.35), IK_MIN[j], IK_MAX[j]);
+      }
+    }
+    clawTip(x[0], x[1], x[2], c, p);
+    return Math.hypot(t[0] - p[0], t[1] - p[1], t[2] - p[2]);
   }
 
   /**
