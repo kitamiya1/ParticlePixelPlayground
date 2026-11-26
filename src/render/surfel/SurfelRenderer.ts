@@ -329,6 +329,40 @@ export class SurfelRenderer {
   }
 
   /**
+   * 世界の円盤のうち indices を写した「かけら」を作る（水槽ゲーム：ちぎった・抜いた水草）。位置は pivot からの相対で持ち、
+   * 返した Mesh の matrix（matrixAutoUpdate = false）で動かす。マテリアルは世界の円盤と同じ（植物の番号は −1 = 曲げない）。
+   * 元の円盤は呼んだ側が hideWorldPoints で隠す
+   */
+  addPiece(indices: readonly number[], pivot: readonly number[]): THREE.Mesh {
+    const n = indices.length;
+    const src = (k: string) => (this.worldGeo.getAttribute(k) as THREE.InstancedBufferAttribute).array as ArrayLike<number>;
+    const P = src('iPos'), C = src('iColor'), N = src('iNormal'), M = src('iMisc');
+    const pos = new Float32Array(n * 3), col = new Uint8Array(n * 3), nrm = new Float32Array(n * 3), misc = new Float32Array(n * 3);
+    indices.forEach((i, o) => {
+      for (let k = 0; k < 3; k++) {
+        pos[o * 3 + k] = P[i * 3 + k] - pivot[k];
+        col[o * 3 + k] = C[i * 3 + k];
+        nrm[o * 3 + k] = N[i * 3 + k];
+        misc[o * 3 + k] = M[i * 3 + k];
+      }
+      // 風・水流の揺れは弱く（かけらは物として動く）
+      misc[o * 3 + 1] *= 0.3;
+    });
+    const g = instancedFrom({ pos, col, nrm, count: n }, misc);
+    if (this.worldGeo.getAttribute('iPlant')) g.setAttribute('iPlant', new THREE.InstancedBufferAttribute(new Float32Array(n).fill(-1), 1));
+    const mesh = new THREE.Mesh(g, this.worldMat);
+    mesh.frustumCulled = false;
+    mesh.matrixAutoUpdate = false;
+    this.scene.add(mesh);
+    return mesh;
+  }
+
+  removePiece(mesh: THREE.Mesh) {
+    this.scene.remove(mesh);
+    mesh.geometry.dispose();
+  }
+
+  /**
    * 世界の円盤を個別に隠す（直径を 0 にして描かない）。水槽ゲームの穴掘りで、根元の砂が無くなった植物を消すのに使う。
    * 戻り値は新たに隠した数（すでに隠れていたものは数えない）
    */

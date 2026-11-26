@@ -68,6 +68,13 @@ export class PlantField {
   private trail: Pusher[] = [];
   private trailT = 0;
   readonly stats = { active: 0, touched: 0, ms: 0, maxMs: 0, frames: 0 };
+  /** 抜いた・ちぎった植物（第 5 段階。抜いた植物はもう押さない） */
+  readonly removed: Uint8Array;
+  /** ちぎった植物の、残った根元の側の高さ（それより上の円盤は無い） */
+  readonly cutH: Float32Array;
+  /** ハサミで挟んでいる植物：押された量の目標（根元に対する水平のずれ）と挟んだ高さの割合（第 5 段階） */
+  held: { i: number; dx: number; dz: number; fc: number } | null = null;
+  private discs: Map<number, number[]> | null = null;
 
   constructor(readonly table: PlantTable) {
     const n = (this.n = table.count);
@@ -93,6 +100,8 @@ export class PlantField {
     this.fc = new Float32Array(n);
     this.fl = new Float32Array(n);
     this.touched = new Uint8Array(n);
+    this.removed = new Uint8Array(n);
+    this.cutH = new Float32Array(table.height);
     this.uniforms = {
       uPlantInfo: { value: infoTex },
       uPlantBend: { value: this.bendTex },
@@ -126,7 +135,8 @@ export class PlantField {
 
   /** 押された量の目標（植物 i、押す球 P）。押されていなければ null。戻り値 [x, z, 押された高さの割合, 押し出す速さ] */
   private pushOf(i: number, P: Pusher): [number, number, number, number] | null {
-    const T = this.table, rx = T.root[i * 3], ry = T.root[i * 3 + 1], rz = T.root[i * 3 + 2], H = T.height[i];
+    if (this.removed[i]) return null;
+    const T = this.table, rx = T.root[i * 3], ry = T.root[i * 3 + 1], rz = T.root[i * 3 + 2], H = this.cutH[i];
     const kp = PLANT_PARAMS[T.kind[i]];
     const cy = Math.min(Math.max(P.y, ry + 0.02), ry + H);
     const dy = P.y - cy;
@@ -218,7 +228,8 @@ export class PlantField {
 
   /** 見通しの線にかかる植物 i を、線と直角の向きへ分ける量（なければ null） */
   private sightOf(i: number, S: { a: [number, number, number]; b: [number, number, number]; r: number }): [number, number, number, number] | null {
-    const T = this.table, rx = T.root[i * 3], ry = T.root[i * 3 + 1], rz = T.root[i * 3 + 2], H = T.height[i];
+    if (this.removed[i]) return null;
+    const T = this.table, rx = T.root[i * 3], ry = T.root[i * 3 + 1], rz = T.root[i * 3 + 2], H = this.cutH[i];
     const kp = PLANT_PARAMS[T.kind[i]];
     const ex = S.b[0] - S.a[0], ez = S.b[2] - S.a[2], el2 = ex * ex + ez * ez;
     if (el2 < 1e-6) return null;
@@ -280,6 +291,12 @@ export class PlantField {
         } else tgt.set(i, p);
         this.active.add(i);
       });
+    }
+    // ハサミで挟んでいる植物：鋏の方へ曲げる（ほかの押す球より優先）
+    const Hd = this.held;
+    if (Hd && !this.removed[Hd.i]) {
+      tgt.set(Hd.i, [Hd.dx, Hd.dz, Hd.fc, 0]);
+      this.active.add(Hd.i);
     }
     this.stats.touched = tgt.size;
     // 2. ばね + 減衰（押されている間は押し出した位置へ速く寄せる。離れたら種類ごとの硬さで、水の抵抗を感じる速さで戻る）
@@ -351,6 +368,57 @@ export class PlantField {
       this.bendTex.needsUpdate = true;
       this.dirty = false;
     }
+  }
+
+  /** 植物 i の円盤の番号（SurfelRenderer の世界の円盤の並び） */
+  discsOf(i: number): number[] {
+    if (!this.discs) {
+      this.discs = new Map();
+      const id = this.table.plantId;
+      for (let k = 0; k < id.length; k++) {
+        if (id[k] < 0) continue;
+        let l = this.discs.get(id[k]);
+        if (!l) this.discs.set(id[k], (l = []));
+        l.push(k);
+      }
+    }
+    return this.discs.get(i) ?? [];
+  }
+
+  /** 抜いた（cutY = null）・ちぎった（cutY = 切った高さ。世界）植物を外す。かけらにする円盤の番号を返す */
+  detach(i: number, cutY: number | null, pos: ArrayLike<number>): number[] {
+    const all = this.discsOf(i);
+    if (cutY === null) {
+      this.removed[i] = 1;
+      this.clear(i);
+      this.active.delete(i);
+      this.bendTex.needsUpdate = true;
+      return all;
+    }
+    const piece = all.filter((k) => pos[k * 3 + 1] > cutY);
+    this.discs!.set(i, all.filter((k) => pos[k * 3 + 1] <= cutY));
+    this.cutH[i] = Math.max(0.05, cutY - this.table.root[i * 3 + 1]);
+    return piece;
+  }
+
+  /**
+   * from にいちばん近い植物の茎の点（挟む候補。maxD 以内）。茎は根元の真上の線 + いまの曲がり。
+   * 戻り値 i = 植物、p = 茎の点（世界）、d = from から茎の表面までの距離、f = 根元からの高さの割合
+   */
+  nearestStem(from: readonly number[], maxD: number): { i: number; p: [number, number, number]; d: number; f: number } | null {
+    let best: { i: number; p: [number, number, number]; d: number; f: number } | null = null;
+    const T = this.table;
+    this.near({ x: from[0], y: from[1], z: from[2], r: maxD, vx: 0, vy: 0, vz: 0 }, (i) => {
+      if (this.removed[i]) return;
+      const ry = T.root[i * 3 + 1], H = this.cutH[i];
+      const y = Math.min(Math.max(from[1], ry + 0.03), ry + H);
+      const o = this.offsetAt(i, y);
+      const p: [number, number, number] = [T.root[i * 3] + o[0], y + o[1], T.root[i * 3 + 2] + o[2]];
+      const d = Math.hypot(from[0] - p[0], from[1] - p[1], from[2] - p[2]) - PLANT_PARAMS[T.kind[i]].thick * 0.5;
+      if (d > maxD || (best && d >= best.d)) return;
+      best = { i, p, d: Math.max(0, d), f: (y - ry) / Math.max(0.05, T.height[i]) };
+    });
+    return best;
   }
 
   /** 植物 i のいまの押された量（検証用。GPU の方式では 0） */

@@ -1269,6 +1269,8 @@ export function buildBuddyMesh(): TriMesh {
 export function buildPropMeshes(): Record<PropKind, TriMesh> {
   const out = {} as Record<PropKind, TriMesh>;
   for (const kind of Object.keys(PROP_KIND) as PropKind[]) {
+    // ちぎった水草は円盤の集まりで描く（AquaCatch.ts）。静的なメッシュは作らない
+    if (kind === 'weed') continue;
     const [a, b, c] = PROP_KIND[kind].semi;
     const mb = new MeshBuilder();
     let sdf: Sdf;
