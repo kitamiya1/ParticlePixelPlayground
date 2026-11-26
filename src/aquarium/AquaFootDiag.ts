@@ -2,8 +2,10 @@
 // 脚ごとの 足先（接地 = 緑 / 足場が無い = 赤 / 踏み替え中 = 水色）・次の足場の候補（黄の ×）・付け根から届く範囲（細い円。
 // 付け根の位置で、届く長さを画面の大きさへ直した半径）・付け根 → 足先の線、と左上の小さな数字（接地している脚・
 // 張り付いた面に掛かっている脚・伸びの最大・速さの割合）を描く。
+// 接地主導（第 7 段階）：縁の線（橙。外向きの矢印）・縁より下の足場に掛かった足先（橙の輪）と、縁の種類・高さ・はみ出し・待った時間。
 
 import type { CrabFeet } from './CrabFeet';
+import type { Ledge } from './CrabLedge';
 
 type Project = (x: number, y: number, z: number) => { x: number; y: number } | null;
 
@@ -21,7 +23,7 @@ export class FootDiag {
     this.g = this.cv.getContext('2d')!;
   }
 
-  draw(feet: CrabFeet | null, project: Project, active: boolean) {
+  draw(feet: CrabFeet | null, project: Project, active: boolean, lead: { ledge: Ledge | null } | null = null) {
     const show = this.on && !!feet && active;
     if (show !== this.shown) {
       this.cv.style.display = show ? 'block' : 'none';
@@ -63,6 +65,12 @@ export class FootDiag {
         g.arc(fp.x, fp.y, 4, 0, Math.PI * 2);
         g.fill();
       }
+      if (fp && f.down) {
+        g.strokeStyle = 'rgba(255,170,60,0.95)';
+        g.beginPath();
+        g.arc(fp.x, fp.y, 7, 0, Math.PI * 2);
+        g.stroke();
+      }
       if (np) {
         g.strokeStyle = 'rgba(255,230,90,0.9)';
         g.beginPath();
@@ -74,9 +82,36 @@ export class FootDiag {
       }
     }
     const S = feet.support;
+    // 縁（接地主導）：縁に沿う線と外向きの矢印
+    const L = lead?.ledge ?? null;
+    if (L) {
+      const tx = -L.e[2], tz = L.e[0];
+      const a = project(L.lip[0] - tx * 0.5, L.lip[1], L.lip[2] - tz * 0.5), b = project(L.lip[0] + tx * 0.5, L.lip[1], L.lip[2] + tz * 0.5);
+      const o = project(L.lip[0], L.lip[1], L.lip[2]), q = project(L.lip[0] + L.e[0] * 0.3, L.lip[1], L.lip[2] + L.e[2] * 0.3);
+      g.strokeStyle = 'rgba(255,170,60,0.95)';
+      g.lineWidth = 2.5;
+      if (a && b) {
+        g.beginPath();
+        g.moveTo(a.x, a.y);
+        g.lineTo(b.x, b.y);
+        g.stroke();
+      }
+      if (o && q) {
+        g.beginPath();
+        g.moveTo(o.x, o.y);
+        g.lineTo(q.x, q.y);
+        g.stroke();
+      }
+      g.lineWidth = 1.5;
+    }
     g.font = '12px ui-monospace, Menlo, Consolas, monospace';
     g.fillStyle = 'rgba(0,0,0,0.55)';
-    g.fillRect(8, H - 64, 300, 54);
+    g.fillRect(8, H - (lead ? 80 : 64), 330, lead ? 70 : 54);
+    if (lead) {
+      g.fillStyle = '#ffd9a8';
+      const KIND = { step: '段差', climb: '崖', none: '足場なし' } as const;
+      g.fillText(L ? `縁 ${KIND[L.kind]} ${L.drop.toFixed(2)}  はみ出し ${L.over.toFixed(2)}  下の脚 ${S.down}（側面 ${S.face}）${L.lowering ? '  支えて下ろす' : L.stepOff ? '  踏み出す' : L.holdT > 0 ? `  待つ ${L.holdT.toFixed(1)}` : ''}` : '縁 なし', 14, H - 62);
+    }
     g.fillStyle = '#d8fff4';
     g.fillText(`接地 ${S.planted}/8  面に掛かる ${S.onClimb}  伸び ${S.maxStretch.toFixed(2)}`, 14, H - 46);
     g.fillText(`速さ ×${S.speed.toFixed(2)}${S.lost ? '  支えを失った' : ''}  踏み替え ${feet.stats.steps}`, 14, H - 30);
