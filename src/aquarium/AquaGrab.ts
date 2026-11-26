@@ -60,7 +60,7 @@ const CRAB_MASS = 0.6;
 /** 挟める距離（構えた鋏の先から物の表面まで。押した瞬間と、押したまま空で閉じているとき） */
 export const GRAB_REACH = 0.26;
 /** 鋏の付け根から、伸ばしきった鋏の先までの長さ（CrabRig の腕と掌。少し余裕を引く）。これより遠い所は挟めない */
-const ARM_REACH = 0.33;
+export const ARM_REACH = 0.33;
 /** 鋏を閉じるまでの時間（この間に鋏を物へ伸ばす） */
 export const CLOSE_T = 0.13;
 /** 生き物（巣穴の触角）は物よりこれだけ遠くから挟める（初心者でも狙いやすく） */
@@ -216,6 +216,14 @@ function surfaceDist(pr: Prop, x: number, y: number, z: number): number {
 
 // ---------------- 物（小石・貝殻・重い石） ----------------
 
+/** 挟んでいる物（1 本の鋏）：物・つかみ点（物の座標）・鋏の構えの前・今のフレームの位置 */
+export interface HoldReq {
+  prop: Prop;
+  local: V3;
+  a0: V3;
+  a1: V3;
+}
+
 export interface PropStats {
   steps: number;
   awake: number;
@@ -261,33 +269,32 @@ export class PropSystem {
   }
 
   /**
-   * 時間を進める。hold：挟んでいる物と、つかみ点（物の座標）、鋏の構えの位置の前・今のフレームの値（刻みの間は補間）。
-   * 返り値：挟んでいる物にばねがかけた力（世界。刻みで平均）と、ばねの伸び（最後の刻み）
+   * 時間を進める。holds：挟んでいる物（右・左の鋏。別々の物）と、つかみ点（物の座標）、鋏の構えの位置の前・今のフレームの値（刻みの間は補間）。
+   * 返り値：holds と同じ順に、挟んでいる物にばねがかけた力（世界。刻みで平均）と、ばねの伸び（最後の刻み）
    */
-  update(
+  updateMany(
     dt: number,
     crab: { x: number; y: number; z: number; radius: number; speed: number },
-    hold: { prop: Prop; local: V3; a0: V3; a1: V3 } | null,
-  ): { force: V3; stretch: number } {
+    holds: readonly HoldReq[],
+  ): { force: V3; stretch: number }[] {
+    const out = holds.map(() => ({ force: [0, 0, 0] as V3, stretch: 0 }));
+    // 同じ物を 2 本の鋏で挟むことはない（GrabSystem が除く）。1 本ずつ、その物の刻みの中でばねを掛ける
+    const byProp = new Map<Prop, number>();
+    holds.forEach((h, i) => byProp.set(h.prop, i));
     const w = this.world;
-    // 掘った・盛った：全部起こす（足もとの砂が無くなった物は落ち、盛った砂に埋まった物は押し出される）
     const edits = w.dig.stats.carves + w.dig.stats.fills;
     if (edits !== this.lastEdits) {
       if (this.lastEdits >= 0) for (const pr of this.props) pr.wake();
       this.lastEdits = edits;
     }
-    // カニの体が触れそうな物を起こす
     const cy = crab.y + crab.radius;
     for (const pr of this.props) {
       if (pr.awake) continue;
       const d = Math.hypot(pr.p[0] - crab.x, pr.p[1] - cy, pr.p[2] - crab.z);
       if (d < crab.radius + pr.rb + 0.12) pr.wake();
     }
-    if (hold) hold.prop.wake();
-    const force: V3 = [0, 0, 0];
-    let stretch = 0;
-    if (dt <= 0) return { force, stretch };
-    // 刻みの数（大きな時間差は 0.05 秒まで。止まったタブから戻ったときに暴れない）
+    for (const h of holds) h.prop.wake();
+    if (dt <= 0) return out;
     this.acc = Math.min(this.acc + dt, 0.05);
     let n = 0;
     const total = Math.max(1, Math.floor(this.acc / SUB));
@@ -297,28 +304,46 @@ export class PropSystem {
       const f = n / total;
       for (const pr of this.props) {
         if (!pr.awake) continue;
+        const hi = byProp.get(pr);
+        const hold = hi === undefined ? null : holds[hi];
         let a: V3 | null = null, local: V3 | null = null;
-        if (hold && hold.prop === pr) {
+        if (hold) {
           local = hold.local;
           a = [lerp(hold.a0[0], hold.a1[0], f), lerp(hold.a0[1], hold.a1[1], f), lerp(hold.a0[2], hold.a1[2], f)];
         }
         const r = this.stepProp(pr, SUB, a, local, hold ? [(hold.a1[0] - hold.a0[0]) / dt, (hold.a1[1] - hold.a0[1]) / dt, (hold.a1[2] - hold.a0[2]) / dt] : null, crab);
-        if (r) {
-          force[0] += r.f[0];
-          force[1] += r.f[1];
-          force[2] += r.f[2];
-          stretch = r.stretch;
+        if (r && hi !== undefined) {
+          const o = out[hi];
+          o.force[0] += r.f[0];
+          o.force[1] += r.f[1];
+          o.force[2] += r.f[2];
+          o.stretch = r.stretch;
         }
       }
       this.collideProps();
       this.stats.steps++;
     }
-    if (n > 0) {
-      force[0] /= n;
-      force[1] /= n;
-      force[2] /= n;
-    }
-    // 眠らせる・迷子を戻す
+    if (n > 0) for (const o of out) for (let i = 0; i < 3; i++) o.force[i] /= n;
+    this.afterStep(dt);
+    return out;
+  }
+
+  /**
+   * 時間を進める（挟んでいる物は 1 つ）。hold：挟んでいる物と、つかみ点（物の座標）、鋏の構えの位置の前・今のフレームの値。
+   * 返り値：挟んでいる物にばねがかけた力（世界。刻みで平均）と、ばねの伸び（最後の刻み）
+   */
+  update(
+    dt: number,
+    crab: { x: number; y: number; z: number; radius: number; speed: number },
+    hold: HoldReq | null,
+  ): { force: V3; stretch: number } {
+    const r = this.updateMany(dt, crab, hold ? [hold] : []);
+    return r[0] ?? { force: [0, 0, 0], stretch: 0 };
+  }
+
+  /** 刻みを進めた後：止まった物を眠らせる・水槽の外や固体の中へ迷い込んだ物を置いた所へ戻す */
+  private afterStep(dt: number) {
+    const w = this.world;
     let awake = 0;
     for (const pr of this.props) {
       if (!pr.awake) continue;
@@ -340,7 +365,6 @@ export class PropSystem {
       }
     }
     this.stats.awake = awake;
-    return { force, stretch };
   }
 
   /** 1 刻み。挟んでいれば、ばねの力（物にかけた力）と伸びを返す */
@@ -782,6 +806,8 @@ export class GrabSystem {
   private pick(claw: ClawView, from: readonly number[], reach: number): Picked | null {
     let best: Picked | null = null;
     const test = (pr: Prop) => {
+      // もう 1 本の鋏が挟んでいる・挟もうとしている物は挟まない
+      if (pr.held || this.other?.target === pr) return;
       // 遠い物は楕円体の距離を測らない（景色の小石は数百個ある）
       if (Math.hypot(pr.p[0] - from[0], pr.p[1] - from[1], pr.p[2] - from[2]) > reach + pr.rb) return;
       const d = this.props.surfaceDist(pr, from[0], from[1], from[2]);
@@ -796,7 +822,8 @@ export class GrabSystem {
     // 巣穴の生き物：見えている部分（挟める所の球）。初心者でも狙えるよう、物より少し遠くから挟める（CREATURE_BONUS）。
     // 比べるときは足した分を引く（同じ距離なら物より生き物を選ぶ）
     for (const cr of this.creatures) {
-      if (!cr.grabbable()) continue;
+      // もう 1 本の鋏が挟んでいる生き物は挟まない
+      if (!cr.grabbable() || this.other?.creature === cr) continue;
       // 構えた鋏の先にいちばん近い点。腕の付け根から届かなければ、付け根にいちばん近い点も試す（腕を伸ばして挟む）
       for (const o of [from, claw.shoulder]) {
         const n = cr.nearest(o);
@@ -845,7 +872,7 @@ export class GrabSystem {
 
   /** 腕を伸ばして届く（付け根から ARM_REACH 以内）・付け根からつかみ点までの間に固体が無い（away = その点が挟む物から離れている） */
   private reachable(claw: ClawView, gp: readonly number[], away: (x: number, y: number, z: number) => boolean, extra = 0): boolean {
-    if (Math.hypot(gp[0] - claw.shoulder[0], gp[1] - claw.shoulder[1], gp[2] - claw.shoulder[2]) > ARM_REACH + extra) return false;
+    if (Math.hypot(gp[0] - claw.shoulder[0], gp[1] - claw.shoulder[1], gp[2] - claw.shoulder[2]) > this.armReach + extra) return false;
     for (let i = 1; i <= 4; i++) {
       const f = i / 5;
       const x = lerp(claw.shoulder[0], gp[0], f), y = lerp(claw.shoulder[1], gp[1], f), z = lerp(claw.shoulder[2], gp[2], f);
@@ -890,12 +917,32 @@ export class GrabSystem {
    * 物の時間もここで進める（挟んでいなくても）
    */
   update(dt: number, held: boolean, crab: CrabController, claw: ClawView) {
+    const req = this.pre(dt, held, crab, claw);
+    const r = this.props.update(dt, crab, req);
+    this.post(dt, crab, claw, r);
+  }
+
+  /** このフレームの鋏の構え（pre で決め、post で使う）と、挟めない状態か */
+  private anchorNow: [number, number, number] = [0, 0, 0];
+  private blockedNow = false;
+  /** 腕の届く長さ（付け根から。左の小さな鋏は短い） */
+  armReach = ARM_REACH;
+  /** もう 1 本の鋏（左右で同じ物・生き物を挟まない） */
+  other: GrabSystem | null = null;
+
+  /**
+   * 1 フレームの前半：押している・離した・閉じ具合の状態を進め、挟んでいる物のばねの要求を返す（物の時間は進めない。
+   * 2 本の鋏で 1 回だけ PropSystem.updateMany を呼ぶため）
+   */
+  pre(dt: number, held: boolean, crab: CrabController, claw: ClawView): HoldReq | null {
     const anchor: [number, number, number] = [claw.anchor[0], claw.anchor[1], claw.anchor[2]];
+    this.anchorNow = anchor;
     // 瞬間移動した（スタート地点へ戻る・自動検証の移動）：離す
     const jump = Math.hypot(crab.x - this.prevCrab[0], crab.y - this.prevCrab[1], crab.z - this.prevCrab[2]);
     this.prevCrab = [crab.x, crab.y, crab.z];
     const teleported = jump > 1.2;
     const blocked = crab.state === 'ride' || crab.region !== 'tank';
+    this.blockedNow = blocked;
     if (teleported) this.prevAnchor = null;
     if (!held || blocked || teleported) {
       if (this.state !== 'idle') this.release();
@@ -917,8 +964,9 @@ export class GrabSystem {
       if (this.closeT >= CLOSE_T) {
         const pr = this.target, cr = this.creature;
         const gp = pr ? this.props.toWorld(pr, this.local) : cr && cr.grabbable() ? cr.gripPoint() : null;
-        // 鋏の先が届いた（伸ばした鋏の先がつかみ点の近く）
-        if (gp && Math.hypot(claw.pinch[0] - gp[0], claw.pinch[1] - gp[1], claw.pinch[2] - gp[2]) < 0.08) {
+        // 鋏の先が届いた（伸ばした鋏の先がつかみ点の近く）。同じ物・生き物をもう 1 本の鋏が先に挟んでいたら、挟めない
+        const taken = (!!pr && pr.held) || (!!cr && this.other?.holdingCreature === cr && cr !== this.fixed);
+        if (gp && !taken && Math.hypot(claw.pinch[0] - gp[0], claw.pinch[1] - gp[1], claw.pinch[2] - gp[2]) < 0.08) {
           this.state = 'holding';
           this.slipT = this.heavyT = 0;
           this.stats.grabs++;
@@ -942,10 +990,17 @@ export class GrabSystem {
     } else if (this.state === 'empty') this.close = Math.min(1, this.close + dt / CLOSE_T);
     else if (this.state === 'idle') this.close = Math.max(0, this.close - dt / CLOSE_T);
 
-    // 物の時間を進める（挟んでいれば、ばねでつなぐ）
+    // 物の時間を進める要求（挟んでいれば、ばねでつなぐ）
+    const pr = this.holding;
+    const a0 = this.prevAnchor ?? anchor;
+    return pr ? { prop: pr, local: this.local, a0, a1: anchor } : null;
+  }
+
+  /** 1 フレームの後半：物の時間を進めた結果（r = この鋏の挟んでいる物のばね）から、手応え・滑り・生き物・案内を決める */
+  post(dt: number, crab: CrabController, claw: ClawView, r: { force: V3; stretch: number }) {
+    const anchor = this.anchorNow, blocked = this.blockedNow;
     const pr = this.holding, cr = this.holdingCreature;
     const a0 = this.prevAnchor ?? anchor;
-    const r = this.props.update(dt, crab, pr ? { prop: pr, local: this.local, a0, a1: anchor } : null);
     this.prevAnchor = anchor;
     if (pr) {
       this.stretch = r.stretch;

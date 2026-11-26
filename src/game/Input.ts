@@ -74,6 +74,15 @@ export class Input {
   touchGrabLatch = false;
   /** 腕の向き（水槽ゲーム用。x = 右, y = 上、長さ 0〜1。0 = ふだんの構え）。PC は E を押したままマウスを動かす */
   armAimExtra: { x: number; y: number } | null = null;
+  /**
+   * ゲームパッド（水槽ゲーム用。AquaGamepad が毎フレーム書く）：左スティック・ダッシュ・ジャンプ・掘る・掘るの照準。
+   * 画面のスティック・ボタン・キーと同じ扱い（どれか 1 つでも押していれば押している）
+   */
+  padMove = { x: 0, y: 0 };
+  padRun = false;
+  padJump = false;
+  padDig = false;
+  padDigAim = { x: 0, y: 0 };
   /** E を押したときのマウスの位置（腕の向きの基準） */
   private eOrigin: { x: number; y: number } | null = null;
   /** 画面の掘るボタンを押したままずらした照準（x = 右, y = 上、長さ 0〜1） */
@@ -338,12 +347,12 @@ export class Input {
 
   /** 走る入力（Shift または画面の走るボタン） */
   isRunning(): boolean {
-    return this.touchRun || this.isDown('ShiftLeft') || this.isDown('ShiftRight');
+    return this.touchRun || this.padRun || this.isDown('ShiftLeft') || this.isDown('ShiftRight');
   }
 
-  /** ジャンプ入力を押し続けているか（Space または画面のジャンプボタン） */
+  /** ジャンプ入力を押し続けているか（Space・画面のジャンプボタン・ゲームパッド） */
   isJumpHeld(): boolean {
-    return this.touchJump || this.isDown('Space');
+    return this.touchJump || this.padJump || this.isDown('Space');
   }
 
   /** 調べる・引っ張る入力を押し続けているか（E または画面のボタン。水槽ゲーム用） */
@@ -353,7 +362,7 @@ export class Input {
 
   /** 掘る入力を押し続けているか（F または画面の掘るボタン。水槽ゲーム用） */
   isDigHeld(): boolean {
-    return this.touchDig || this.mouseDigOn || this.isDown('KeyF');
+    return this.touchDig || this.padDig || this.mouseDigOn || this.isDown('KeyF');
   }
 
   /**
@@ -362,6 +371,7 @@ export class Input {
    */
   digAim(): { x: number; y: number } {
     if (this.touchDig) return { ...this.touchDigAim };
+    if (this.padDig) return { ...this.padDigAim };
     if (this.mouseDigOn) return { ...this.mouseDigAim };
     if (this.fOrigin && this.isDown('KeyF')) return digAimFromOffset(this.mouse.x - this.fOrigin.x, this.mouse.y - this.fOrigin.y, DIG_AIM.mouseRadius);
     return { x: 0, y: 0 };
@@ -386,6 +396,8 @@ export class Input {
     if (this.isDown('KeyA') || this.isDown('ArrowLeft')) x -= 1;
     const len = Math.hypot(x, y);
     if (len > 0) return { x: x / len, y: y / len };
+    // 画面のスティックとゲームパッドの左スティック：倒している方
+    if (Math.hypot(this.padMove.x, this.padMove.y) > Math.hypot(this.touchMove.x, this.touchMove.y)) return { x: this.padMove.x, y: this.padMove.y };
     return { x: this.touchMove.x, y: this.touchMove.y };
   }
 
