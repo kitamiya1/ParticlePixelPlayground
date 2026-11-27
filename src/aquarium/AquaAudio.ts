@@ -218,6 +218,45 @@ export class AquaAudio {
     this.stats.plays++;
   }
 
+  /**
+   * 「ちゅぽん」：ゴカイが砂から抜けた瞬間。power 0..1。吸い付いていた栓が抜ける湿った破裂 → 低く落ちる「ぽん」→
+   * 伸びていた体が縮む「ぷるるん」（揺れながら上がる短い音）→ 泡の粒
+   */
+  slurp(power: number) {
+    if (!this.canPlay()) return;
+    const ctx = this.ctx!, now = ctx.currentTime;
+    // 1. 湿った破裂（低めの帯域のノイズ・短い）
+    this.noiseBurst(now, 0.05, 900, 1.2, 0.28 + power * 0.18);
+    // 2. 「ちゅ」→「ぽん」：高い所から一気に下がる
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(900 + power * 260, now + 0.004);
+    o.frequency.exponentialRampToValueAtTime(120, now + 0.16);
+    const g = this.env(now, 0.004, 0.22, 0.45 + power * 0.22);
+    o.connect(g).connect(this.master!);
+    o.start(now);
+    o.stop(now + 0.26);
+    // 3. 「ぷるるん」：体が縮んで揺れる（音程を揺らしながら上がる）
+    const o2 = ctx.createOscillator();
+    o2.type = 'triangle';
+    const t2 = now + 0.1;
+    o2.frequency.setValueAtTime(260, t2);
+    o2.frequency.exponentialRampToValueAtTime(520 + power * 160, t2 + 0.22);
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 22;
+    const lg = ctx.createGain();
+    lg.gain.value = 45;
+    lfo.connect(lg).connect(o2.frequency);
+    const g2 = this.env(t2, 0.01, 0.24, 0.12 + power * 0.08);
+    o2.connect(g2).connect(this.master!);
+    o2.start(t2);
+    lfo.start(t2);
+    o2.stop(t2 + 0.3);
+    lfo.stop(t2 + 0.3);
+    for (let i = 0; i < 3; i++) this.bubble(now + 0.16 + i * 0.08 + Math.random() * 0.04, 0.1 + Math.random() * 0.06);
+    this.stats.plays++;
+  }
+
   /** 泡：ぷくっ（短く上がる音） */
   bubble(at?: number, vol = 0.14) {
     if (!this.canPlay()) return;

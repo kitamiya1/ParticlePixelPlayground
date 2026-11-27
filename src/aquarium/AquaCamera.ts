@@ -252,6 +252,8 @@ export class AquaCamera {
   private readonly kickV: V3 = [0, 0, 0];
   /** 引っこ抜きで見せたい所（挟んでいる触角。main が書く。null = ふだん）と、その寄せ具合（平滑化） */
   focus: V3 | null = null;
+  /** 引っこ抜きの間に見下ろす角を足す量（ゴカイは細長い体が鋏から穴へ視線に沿って伸び、後ろからでは縮んで見えるので大きく） */
+  focusPitch = 0.22;
   private focusW = 0;
 
   constructor(private readonly world: AquariumWorld) {}
@@ -828,7 +830,7 @@ export class AquaCamera {
     const Z = Math.min(o.zoom, ZOOM_MAX[region]);
     const yaw = o.yaw;
     // 引っこ抜き：少し上から見下ろす（カニの体の向こうの穴と生き物が見える。床・天井の調べはこの仰角で行う）
-    const op = Math.min(o.maxPitch, o.pitch + 0.22 * this.focusW);
+    const op = Math.min(o.maxPitch, o.pitch + this.focusPitch * this.focusW);
     if (this.style === 'free') return this.freePose(c, dt, T, Z, yaw, op);
     this.cutThrough = false;
 

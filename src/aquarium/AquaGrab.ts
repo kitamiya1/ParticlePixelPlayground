@@ -57,7 +57,7 @@ const G_AIR = 24;
 /** 刻み（秒） */
 const SUB = 1 / 120;
 /** つかみ点 ↔ 鋏の構えのばね（強さ・減衰の割合）と、握る力の上限（ばねの力の頭打ち） */
-const SPRING_K = 140;
+export const SPRING_K = 140;
 const SPRING_ZETA = 0.55;
 export const GRIP_FORCE = 8;
 /** 反作用を受けるカニの重さ（小さいほど重い物に引っ張られる） */

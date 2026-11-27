@@ -40,6 +40,7 @@ import { FootDiag } from './AquaFootDiag';
 import { LifeGrab, PlantGrab, WeedPieces, type Detach, type TwistResult } from './AquaCatch';
 import { diag, diagLog, IS_APP, selftestMode } from './AquaPlatform';
 import { GpuGuard } from './AquaGpuGuard';
+import { WORM_DESC, WORM_NAME, WormSystem, type Worm } from './AquaWorm';
 
 /** いまの水槽の id（保存データの tanks の鍵。将来の隣の水槽は別の id） */
 const HOME_TANK = 'home';
@@ -150,6 +151,18 @@ async function boot() {
   // 最初の仲間：砂の広場の端の巣穴に隠れているスナモグリ（巣穴のまわりは掘らない：掘ると穴ごと崩れるので）
   const buddy = new BuddySystem(world, BURROW_XZ);
   world.dig.protectPoint(buddy.burrow[0], buddy.burrow[1], buddy.burrow[2], 0.75);
+  // ゴカイ：水の中の砂に巣穴を探して 3 匹（スタート地点の近くに 1 匹。スナモグリの巣穴・発見物・挟める物からは離す）。
+  // 巣穴のまわりは掘れる（掘ると体が出てくる）。手応えの設定は表示の設定（uiPrefs）が決まってから入れる
+  const worms = new WormSystem(world, {
+    count: 3,
+    near: world.spawn,
+    feel: 'std',
+    avoid: [
+      { x: BURROW_XZ[0], z: BURROW_XZ[1], r: 2.6 },
+      ...finds.map((f) => ({ x: f.pos[0], z: f.pos[2], r: 1.2 })),
+      ...PROPS.map(([x, z]) => ({ x, z, r: 0.7 })),
+    ],
+  });
   // 挟める物（小石・貝殻・重い石）と、右の大きな鋏で挟む操作
   const props = new PropSystem(world);
   PROPS.forEach(([x, z, kind, s, yaw], i) => props.add(`${kind}${i}`, kind, x, z, 6, s, yaw));
@@ -167,6 +180,7 @@ async function boot() {
     life,
     buddy: { sys: buddy, mesh: buildBuddyMesh(), burrowMesh: buildBurrowMesh(world, built.light, BURROW_XZ[0], BURROW_XZ[1]) },
     props: { sys: props, meshes: buildPropMeshes() },
+    worms,
   }, { light: built.light, plantAnchors: plants.anchors });
   {
     const gl = view.renderer.getContext();
@@ -236,6 +250,15 @@ async function boot() {
   const lifeGrabR = new LifeGrab(life, world), lifeGrabL = new LifeGrab(life, world);
   grab.creatures.push(lifeGrabR, plantGrabR);
   grabL.creatures.push(lifeGrabL, plantGrabL);
+  // ゴカイ：外に出ている体のどこでも、左右どちらの鋏でも挟める（1 匹を 2 本で同時には挟まない）。
+  // 保存から戻して個体を作り直したら入れ替える
+  for (const w of worms.worms) grab.creatures.push(w), grabL.creatures.push(w);
+  const swapWorms = (sw: { from: Worm; to: Worm }[]) => {
+    for (const G of [grab, grabL]) for (const { from, to } of sw) {
+      const k = G.creatures.indexOf(from);
+      if (k >= 0) G.creatures[k] = to;
+    }
+  };
   // 効果音（最初に画面に触れた・キーを押したときに鳴らせるようになる）
   const audio = new AquaAudio();
   view.digFx.pebbleLost = (k) => decor.pebbleLost(k);
@@ -394,6 +417,7 @@ async function boot() {
     touchUi?.setLabels(p.labels || coachT > 0);
     camera.setStyle(p.camStyle);
     touchUi?.setButton('cam', VIEW_ICON[camera.view]);
+    if (worms.feel !== p.wormFeel) worms.setFeel(p.wormFeel);
     if (rig.gait !== p.gait) {
       rig.gait = p.gait;
       rig.feet?.reset();
@@ -467,7 +491,8 @@ async function boot() {
   const sandBar = (v: number) => 1 - Math.exp(-v / 2);
   const saveCtx: SaveContext = {
     spotIds: new Set(spots.map((s) => s.id)),
-    buddyIds: new Set([BUDDY_ID]),
+    // 仲間の一覧（buddies）にゴカイの個体も入れる（species = 'gokai'。体長・太さ・体色・砂の中か外かは traits）
+    buddyIds: new Set([BUDDY_ID, ...worms.ids]),
     tankIds: new Set([HOME_TANK]),
     maxPrims: DIG.maxPrims,
     maxR: DIG.rMax,
@@ -510,6 +535,8 @@ async function boot() {
     const bs = d.buddies.find((b) => b.id === BUDDY_ID);
     if (bs) buddy.restore(bs, !!flags[FLAG_EXAMINED]);
     else buddy.examined = !!flags[FLAG_EXAMINED];
+    // ゴカイ：見つけたか・砂の中なら巣穴の口・外なら頭の位置と向き・個体差（地形を戻した後なので、掘った穴・盛った砂に合わせて置く）
+    swapWorms(worms.restore(d.buddies));
     // プレイヤー：保存した位置が固体の中なら（あり得ないが）スタート地点へ
     const P = d.player;
     if (world.contactSolid(P.x, P.y + crab.radius, P.z) > crab.radius * 0.5) {
@@ -560,7 +587,7 @@ async function boot() {
     player: { tank: HOME_TANK, x: crab.x, y: crab.y, z: crab.z, heading: crab.heading, camera: camera.mode, sand: Math.max(0, crab.sandHeld), tool: crab.tool },
     progress: { visited: [...tracker.visited], flags: { ...flags, [FLAG_EXAMINED]: buddy.examined } },
     tanks: { [HOME_TANK]: { dig: { prims: world.dig.exportPrims() } } },
-    buddies: [buddy.toSave()],
+    buddies: [buddy.toSave(), ...worms.toSave()],
   });
   const saver = new AutoSaver(store, gather);
   const saveMenu = new SaveMenu(menu, { saver, ctx: saveCtx, bootNote, toast });
@@ -611,7 +638,7 @@ async function boot() {
   // 右上の「音」（消音・音量・試し聞き）
   const audioMenu = new AudioMenu(menu, audio);
   // 同じ欄に表示の設定（ボタンの大きさ・濃さ・案内）
-  mountUiPrefs(audioMenu.panel, uiPrefs, { touch, cam: true, plants: true, gait: true });
+  mountUiPrefs(audioMenu.panel, uiPrefs, { touch, cam: true, plants: true, gait: true, worm: true });
   // ゲームパッド（つないだら使える。割り当ては AquaGamepad.ts の先頭）
   const pad = new AquaGamepad(input, {
     toggleTool,
@@ -716,7 +743,7 @@ async function boot() {
         if (e.kind === 'slip') audio.slip();
         else if (e.kind === 'grab') audio.click(true);
         else if (e.kind === 'release') audio.click(false);
-        if (e.kind === 'slip' && e.prop === buddy.tug) {
+        if (e.kind === 'slip' && (e.prop === buddy.tug || worms.worms.some((w) => w === e.prop && w.anchored))) {
           guideToast('ハサミが滑った！ 強く引きすぎ（暴れている間は少しゆるめる）');
           vibrate(40);
         } else if (e.kind === 'slip' && e.prop === G.fixed) guideToast(`ハサミが${G.fixed.name}から外れた（強く引きすぎ）`);
@@ -728,6 +755,19 @@ async function boot() {
   };
   /** 巣穴の生き物を挟んでいる鋏（右・左。どちらも挟んでいなければ null） */
   const tugClaw = (): GS | null => (grab.holdingCreature === buddy.tug ? grab : grabL.holdingCreature === buddy.tug ? grabL : null);
+  /** 挟んでいるゴカイ（鋏と個体。巣穴に踏ん張っているか anchored） */
+  const wormHeld = (): { G: GS; w: Worm } | null => {
+    for (const G of [grab, grabL]) {
+      const c = G.holdingCreature;
+      if (c && worms.worms.includes(c as Worm)) return { G, w: c as Worm };
+    }
+    return null;
+  };
+  /** 巣穴から引っ張っているゴカイ（体の一部がまだ砂の中） */
+  const wormTug = () => {
+    const h = wormHeld();
+    return h && h.w.anchored ? h : null;
+  };
   /** 2 本の鋏の手応えを合わせる（力は足し、速さの上限は小さい方） */
   const mergeTow = (a: Tow | null, b: Tow | null): Tow | null => (!a ? b : !b ? a : { ax: a.ax + b.ax, ay: a.ay + b.ay, az: a.az + b.az, slow: Math.min(a.slow, b.slow) });
   // 抜けた瞬間の「スポン！」の文字と衝撃の輪（穴の上。カニ・生き物を隠さないよう、穴より上にずらして短く出す）
@@ -758,14 +798,20 @@ async function boot() {
    * 引っ張っている間の手応え（毎フレーム）：つかんだ所の輪・引く向きの矢印・短い言葉と、砂粒・泡・カニの踏ん張りの砂・
    * カメラの揺れを、生き物の段階・引き戻し・張力に合わせて出す
    */
-  const T = buddy.tug;
   let fxCrumble = 0, fxKick = 0, slackT = 0, sayT = 0, say = '';
   const updateTug = (dt: number) => {
-    const TG = tugClaw();
+    // 巣穴に踏ん張っている生き物：スナモグリ、または巣穴から体の一部が出ているゴカイ（どちらも同じ手応えの見せ方）
+    const tw = wormTug();
+    const TG = tugClaw() ?? tw?.G ?? null;
+    const T = tugClaw() ? buddy.tug : tw?.w ?? buddy.tug;
     const held = !!TG;
     tugCue.classList.toggle('show', held);
     rig.tugShake = held ? T.env : 0;
-    camera.focus = held ? [T.p[0], T.p[1], T.p[2]] : null;
+    // ゴカイ：つかみ点と口の中ほどを、より上から見下ろす（体が鋏から口へ視線に沿って伸び、後ろからでは縮んで見えるので）
+    const wm = tw ? tw.w.mouth : null;
+    camera.focus = !held ? null : wm ? [(T.p[0] + wm[0]) / 2, (T.p[1] + wm[1]) / 2, (T.p[2] + wm[2]) / 2] : [T.p[0], T.p[1], T.p[2]];
+    // （離した・抜けた後は値を変えない：寄せ具合 focusW と一緒になめらかに戻る）
+    if (held) camera.focusPitch = wm ? 0.6 : 0.22;
     // 音：砂のこすれ・踏ん張り（張力で大きく・高く）
     audio.setTug(held ? { load: T.load, rub: T.rub, extV: T.extV, env: T.env } : null);
     if (!held) {
@@ -774,7 +820,7 @@ async function boot() {
       if (say) tugCue.querySelector('.say')!.textContent = say = '';
       return;
     }
-    const [bx, by, bz] = buddy.burrow;
+    const [bx, by, bz] = tw ? tw.w.mouth : buddy.burrow;
     const cdx = crab.x - bx, cdz = crab.z - bz, cl = Math.hypot(cdx, cdz) || 1;
     const away: [number, number] = [cdx / cl, cdz / cl];
     // 砂：終盤は激しく崩れる。滑り出ている間・横に引いて縁にこすれている間もこぼれる
@@ -823,6 +869,67 @@ async function boot() {
       tugCue.querySelector('.say')!.textContent = say;
     }
   };
+  /**
+   * ゴカイの出来事：抜けた（砂煙・砂粒・泡・「ちゅぽん」・カニのよろめき。体が飛び出して縮み・くねるのは物理）・引き戻した・
+   * 隠れた・掘り出された・潜った
+   */
+  const onWormEvents = () => {
+    for (const { worm: w, e } of worms.drainEvents()) {
+      if (e.kind === 'pop') {
+        view.puff(e.x, e.y, e.z, e.power > 0.5);
+        view.tugFx('crumble', e.x, e.y, e.z, 10 + Math.round(e.power * 10), null);
+        view.tugFx('bubble', e.x, e.y, e.z, 6 + Math.round(e.power * 8));
+        audio.slurp(e.power);
+        // 張っていた力に応じて：ふつうは後ろへよろめく、目いっぱい張っていたら転ぶ
+        if (e.power > 0.93) crab.tumble(e.dir[0], e.dir[1], (e.power - 0.93) * 8);
+        else crab.stagger(e.dir[0], e.dir[1], e.power);
+        camera.kick(e.dir[0] * 0.35 * e.power, 0.2, e.dir[1] * 0.35 * e.power);
+        popAt = [e.x, e.y + 0.3, e.z];
+        popT = 0.7;
+        hitStop = 0.04 + 0.04 * e.power;
+        popWord.classList.remove('show');
+        popWord.classList.add('ring-only');
+        void popWord.offsetWidth;
+        popWord.classList.add('show');
+        vibrate([20, 30, 45]);
+        if (e.first) {
+          banner.className = 'show first hidden buddy';
+          banner.querySelector('.kicker')!.textContent = '見つけた！';
+          banner.querySelector('.name')!.textContent = WORM_NAME;
+          banner.querySelector('.desc')!.textContent = WORM_DESC;
+          bannerT = 4.5;
+        }
+        saver.markImportant();
+      } else if (e.kind === 'tug') {
+        // 引き戻した：口から泡、カメラが口の方へ少し引かれる、「ぐっ」
+        const m = w.mouth;
+        view.tugFx('bubble', m[0], m[1], m[2], e.stage === 'early' ? 2 : 4);
+        const dx = m[0] - crab.x, dz = m[2] - crab.z, l = Math.hypot(dx, dz) || 1;
+        const k = e.stage === 'early' ? 0.1 : e.stage === 'mid' ? 0.18 : 0.25;
+        camera.kick((dx / l) * k, -0.04, (dz / l) * k);
+        audio.grunt(e.stage === 'early' ? 0.25 : e.stage === 'mid' ? 0.5 : 0.75);
+        if (e.stage !== 'early') vibrate(14);
+      } else if (e.kind === 'stage' && e.stage === 'late') {
+        const m = w.mouth;
+        view.tugFx('crumble', m[0], m[1], m[2], 6, null);
+      } else if (e.kind === 'grab' && w.anchored) {
+        const m = w.mouth;
+        view.tugFx('bubble', m[0], m[1], m[2], 2);
+      } else if (e.kind === 'hide') {
+        // すばやく引っ込んだ：砂が少し跳ね、小さな泡
+        view.tugFx('crumble', e.x, e.y, e.z, 2, null);
+        view.tugFx('bubble', e.x, e.y, e.z, 2);
+        if (Math.hypot(crab.x - e.x, crab.z - e.z) < 3) audio.bubble(undefined, 0.06);
+      } else if (e.kind === 'exposed') {
+        view.tugFx('crumble', e.x, e.y, e.z, 5, null);
+        saver.markDirty();
+      } else if (e.kind === 'dig') view.puff(e.x, e.y, e.z, false);
+      else if (e.kind === 'buried') {
+        view.tugFx('crumble', e.x, e.y, e.z, 4, null);
+        saver.markDirty();
+      }
+    }
+  };
   const onBuddyEvents = () => {
     for (const e of buddy.drainEvents()) {
       if (e.kind === 'examined') {
@@ -840,7 +947,7 @@ async function boot() {
         popAt = [e.x, e.y + 0.35, e.z];
         popT = 0.9;
         hitStop = 0.07;
-        popWord.classList.remove('show');
+        popWord.classList.remove('show', 'ring-only');
         void popWord.offsetWidth; // 文字の動きを最初から
         popWord.classList.add('show');
         vibrate([30, 40, 60]);
@@ -925,6 +1032,12 @@ async function boot() {
       const br = buddy.update(dt, crab);
       showPrompt((grab.busy && !grab.holdingCreature) || (grabL.busy && !grabL.holdingCreature) ? null : br.prompt);
       onBuddyEvents();
+      // ゴカイ（挟まれていない個体。挟まれている個体は鋏の側 GrabSystem.post で進む）
+      worms.update(dt, { x: crab.x, y: crab.y + crab.radius, z: crab.z, speed: crab.speed, grounded: crab.grounded, vy: crab.vy, inTank: crab.region === 'tank' }, world.dig.stats.carves + world.dig.stats.fills);
+      onWormEvents();
+      // 巣穴からゴカイを引っ張っている間も、スナモグリと同じくカニは巣穴の口へ向き、口の上に乗らない
+      const wt = wormTug();
+      const pull = br.pull ?? (wt ? { x: wt.w.mouth[0], z: wt.w.mouth[2], t: clamp(wt.w.load, 0, 1) } : null);
       // 狙いの補助：「挟む」を押している（閉じている）がまだ挟んでいない間は、鋏の側を近くの挟める物へ向け直す
       // （横歩きで横を向いていても届く。巣穴の触角は少し遠くからでも向く）。押していないときは向きを変えない（勝手につかまない）
       const [bx, , bz] = buddy.burrow;
@@ -955,7 +1068,7 @@ async function boot() {
       const mv = input.moveAxis();
       if (moveLatch && (Math.hypot(mv.x, mv.y) < 0.2 || Math.abs(Math.atan2(Math.sin(Math.atan2(mv.x, mv.y) - moveLatch.ang), Math.cos(Math.atan2(mv.x, mv.y) - moveLatch.ang))) > 1.0)) moveLatch = null;
       // 鋏が挟む方に使われている間は掘れない（掘るのも鋏を使うので）
-      crab.update(dt, { move: mv, run: input.isRunning(), jumpHeld: input.isJumpHeld(), cameraYaw: moveLatch?.yaw ?? camera.yaw, dig: digNow && !grab.busy && !grabL.busy, digAim: debug.digAim ?? input.digAim(), pull: br.pull, face: pg ? { x: pg.p[0], z: pg.p[2] } : face, tow: mergeTow(grab.tow, grabL.tow), support: rig.gait !== 'cycle' && rig.feet && rig.ikW > 0.5 ? rig.feet.support : null, lead: rig.gait === 'lead' || rig.gait === 'hybrid' });
+      crab.update(dt, { move: mv, run: input.isRunning(), jumpHeld: input.isJumpHeld(), cameraYaw: moveLatch?.yaw ?? camera.yaw, dig: digNow && !grab.busy && !grabL.busy, digAim: debug.digAim ?? input.digAim(), pull, face: pg ? { x: pg.p[0], z: pg.p[2] } : face, tow: mergeTow(grab.tow, grabL.tow), support: rig.gait !== 'cycle' && rig.feet && rig.ikW > 0.5 ? rig.feet.support : null, lead: rig.gait === 'lead' || rig.gait === 'hybrid' });
       camera.update(dt, input, crab);
       // 挟む：鋏の構え → 体と鋏の姿勢 → 左右の鋏の状態 → 物・生き物を進める（ばね。2 本で 1 回）→ 動いた物へ鋏を伸ばし直す・生き物の体を置き直す
       Object.assign(rig.grip, grab.rigGrip());
@@ -1133,7 +1246,7 @@ async function boot() {
   let rendered = 0, beatT = 0;
   const selftest: { mode: string | null } = { mode: null };
   const beat = () =>
-    diag(`frame ${rendered} fps=${debug.fps.toFixed(0)} gpu=${gpu.state} holes=${world.dig.count} sand=${crab.sandHeld.toFixed(2)} buddy=${buddy.found ? buddy.mode : 'hidden'} pos=${crab.x.toFixed(2)},${crab.z.toFixed(2)} save=${saver.state} writes=${store.stats.writes}`);
+    diag(`frame ${rendered} fps=${debug.fps.toFixed(0)} gpu=${gpu.state} holes=${world.dig.count} sand=${crab.sandHeld.toFixed(2)} buddy=${buddy.found ? buddy.mode : 'hidden'} worms=${worms.worms.map((w) => w.life).join('/')} pos=${crab.x.toFixed(2)},${crab.z.toFixed(2)} save=${saver.state} writes=${store.stats.writes}`);
   const loop = (now: number) => {
     requestAnimationFrame(loop);
     if (!gpu.canRender) {
@@ -1208,7 +1321,7 @@ async function boot() {
       }, 2500);
     }, 4000);
   }
-  (window as unknown as Record<string, unknown>).__aqua = Object.assign(debug, { world, crab, rig, camera, view, settings, input, spots, finds, tracker, life, resetDiscovery, goto, places, sump: SUMP, save: { store, saver, menu: saveMenu, ctx: saveCtx, gather, restore: restoreInfo, loaded }, help, viewport, buddy, toggleBuddy, grab, grabL, plantField, pushers, plantSet: plants.set, weeds, plantGrabR, plantGrabL, lifeGrabR, lifeGrabL, props, decor, touchUi, setView, cycleView, toggleClose, picker, viewToast, moveLatch: () => moveLatch, uiPrefs, audio, audioMenu, pad, buildMs, bootMs, gpu, diagLog, buildPhases: built.ms, plantMs: plants.ms, plantCounts: plants.counts, plantTimes: plants.times });
+  (window as unknown as Record<string, unknown>).__aqua = Object.assign(debug, { world, crab, rig, camera, view, settings, input, spots, finds, tracker, life, resetDiscovery, goto, places, sump: SUMP, save: { store, saver, menu: saveMenu, ctx: saveCtx, gather, restore: restoreInfo, loaded }, help, viewport, buddy, toggleBuddy, worms, grab, grabL, plantField, pushers, plantSet: plants.set, weeds, plantGrabR, plantGrabL, lifeGrabR, lifeGrabL, props, decor, touchUi, setView, cycleView, toggleClose, picker, viewToast, moveLatch: () => moveLatch, uiPrefs, audio, audioMenu, pad, buildMs, bootMs, gpu, diagLog, buildPhases: built.ms, plantMs: plants.ms, plantCounts: plants.counts, plantTimes: plants.times });
 }
 
 // 読み込み表示を先に描画させてから重い生成処理に入る

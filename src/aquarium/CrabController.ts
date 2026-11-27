@@ -451,6 +451,23 @@ export class CrabController {
     if (this.climbing) this.releaseClimb('drops');
   }
 
+  /**
+   * 引っこ抜いた反動の小さい方（ゴカイ）：(dx, dz) へ押されて少し跳ねる（転ばない。操作はそのまま）。power = 0..1
+   * （張っていた力が小さいほど小さく。目いっぱい張っていたら tumble）
+   */
+  stagger(dx: number, dz: number, power: number) {
+    const sp = 0.7 + 1.5 * power;
+    this.vx += dx * sp;
+    this.vz += dz * sp;
+    if (this.grounded) {
+      this.vy = Math.max(this.vy, 0.6 + 0.9 * power);
+      this.grounded = false;
+      this.coyote = 0;
+    }
+    this.landImpact = Math.max(this.landImpact, 0.5 + 0.4 * power);
+    if (this.climbing) this.releaseClimb('drops');
+  }
+
   update(dt: number, inp: CrabInput) {
     // 引っ張っている間：穴へ向く（移動の入力はふだんどおり）。穴掘りはしない（鋏を使っている）
     this.pulling = !!inp.pull;
