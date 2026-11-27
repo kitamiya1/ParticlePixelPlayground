@@ -89,56 +89,47 @@
   // ---------------- 場面 ----------------
   const inside = () => W.bodyCheck().inside;
   window.__wormCases = {
-    /** 岩・流木の近くの砂に巣穴を移し、岩・流木の側から引く */
+    /**
+     * 石の隙間（岩・流木の根元）から：開いた側から近づいて挟み、口のまわりを横へ回って体を岩の縁にこすらせてから引き抜き、
+     * 抜いた体を岩の方へ引きずる
+     */
     rock() {
       const w = W.w;
-      const h = w.home;
-      let site = null;
-      for (let r = 0.5; r < 8 && !site; r += 0.25) {
-        for (let k = 0; k < 24 && !site; k++) {
-          const x = h[0] + Math.sin(k * 0.26) * r, z = h[2] + Math.cos(k * 0.26) * r;
-          const g = wd.groundAt(x, z);
-          const d = wd.hardSolid(x, g + 0.05, z);
-          if (d > 0.18 && d < 0.32 && w.canBurrowAt(x, z)) site = [x, wd.surfaceBelow(x, g + 0.4, z), z];
-        }
-      }
-      if (!site) return { site: null };
-      a.hold = false; G.release(); step(2);
-      if (!w.placeBuried(site)) return { site, placed: false };
-      // 岩の向き（硬い物の勾配の逆）からカニを寄せる
-      const e = 0.05, d0 = wd.hardSolid(site[0], site[1] + 0.05, site[2]);
-      const gx = wd.hardSolid(site[0] + e, site[1] + 0.05, site[2]) - d0, gz = wd.hardSolid(site[0], site[1] + 0.05, site[2] + e) - d0;
-      const ang = Math.atan2(-gx, -gz);
-      // 岩の反対側（開いた側）から近づいて挟み、口のまわりを岩の側へ回り込みながら引く（体が岩の縁にこすれる）
+      W.reset();
+      const m = w.mouth;
+      const d0 = wd.hardSolid(m[0], m[1] + 0.03, m[2]);
+      const ang = W.openYaw() + Math.PI;
       let grabbed = false, used = null;
-      for (const da of [Math.PI, Math.PI - 0.8, Math.PI + 0.8, Math.PI / 2, -Math.PI / 2]) {
+      for (const da of [0.4, -0.4, 0.9, -0.9]) {
         for (const dd of [0.52, 0.45]) {
-          W.approach(dd, ang + da);
+          W.approach(dd, da);
           if (W.grab().held) { grabbed = true; used = r3(da); break; }
           a.hold = false; step(20);
         }
         if (grabbed) break;
       }
-      if (!grabbed) return { site: site.map(r3), grabbed };
+      if (!grabbed) return { mouth: m.map(r3), grabbed };
       const r1 = W.side(3);
       const r = W.back(12);
       // 抜いた体を岩の方へ引きずる
       const r2 = W.run(3, () => ({ x: Math.sin(ang), z: Math.cos(ang) }));
-      return { site: site.map(r3), rockDist: r3(d0), approach: used, sideInside: r1.insideFrames, ...pick(r), dragToRock: { insideFrames: r2.insideFrames, maxInside: r2.maxInside, maxNodeJump: r2.maxNodeJump } };
+      return { mouth: m.map(r3), rockDist: r3(d0), approach: used, sideInside: r1.insideFrames, ...pick(r), dragToRock: { insideFrames: r2.insideFrames, maxInside: r2.maxInside, maxNodeJump: r2.maxNodeJump } };
     },
-    /** 隠れている巣穴の口のまわりをカニが掘る */
+    /** 隠れている巣穴の口のまわりをカニが掘る（2026-11-28：石の隙間なので巣は壊れない） */
     digAround() {
       W.reset();
       const w = W.w, m = w.mouth;
       a.hold = false;
-      c.teleport(m[0] + 0.55, m[2]);
+      const oy = W.openYaw();
+      c.teleport(m[0] + Math.sin(oy) * 0.55, m[2] + Math.cos(oy) * 0.55);
       c.heading = Math.atan2(m[0] - c.x, m[2] - c.z);
       step(10);
       w.life = 'hidden'; w.lifeT = 99;
       const ev = [];
       let inMax = 0, frames = 0;
       c.tool = 'dig';
-      for (let i = 0; i < 360 && w.nb > 0; i++) {
+      // （石の隙間の巣は掘っても壊れない：3 秒掘り続けて、隠れたまま・体が自由にならないことを確かめる）
+      for (let i = 0; i < 180; i++) {
         a.dig = true;
         a.digAim = { x: 0, y: -0.7 };
         c.heading = Math.atan2(m[0] - c.x, m[2] - c.z);
@@ -156,7 +147,8 @@
       W.reset();
       const w = W.w, m0 = w.mouth;
       a.hold = false;
-      c.teleport(m0[0] + 0.6, m0[2]);
+      const oy = W.openYaw();
+      c.teleport(m0[0] + Math.sin(oy) * 0.6, m0[2] + Math.cos(oy) * 0.6);
       c.heading = Math.atan2(m0[0] - c.x, m0[2] - c.z);
       step(10);
       c.tool = 'fill'; c.sandHeld = 4;
@@ -164,7 +156,7 @@
       a.dig = false; a.digAim = null; c.tool = 'dig';
       step(30);
       const m1 = w.mouth;
-      c.teleport(m0[0] + 2.5, m0[2]);
+      c.teleport(m0[0] + Math.sin(oy) * 2.5, m0[2] + Math.cos(oy) * 2.5);
       w.life = 'hidden'; w.lifeT = 0.1;
       const r = W.run(6, () => null);
       return { fills: wd.dig.fillCount, mouthRise: r3(m1[1] - m0[1]), life: w.life, nb: w.nb, out: r3(w.outLen()), insideFrames: r.insideFrames };

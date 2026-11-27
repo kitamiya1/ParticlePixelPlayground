@@ -1,4 +1,4 @@
-// ゴカイ（多毛類）：砂の中に細い巣穴を掘ってすむ、細長い生き物。ゲームロジック側（Three.js に依存しない）。
+// ゴカイ（多毛類）：岩・流木が砂に接する根元の石の隙間にすむ、細長い生き物（2026-11-28 改：以前は砂に巣穴を掘っていた）。ゲームロジック側（Three.js に依存しない）。
 // 見た目は AquaWormView（AquariumRenderer が毎フレーム頂点を書き換える）。
 //
 // 体（柔らかい体の物理）
@@ -11,21 +11,23 @@
 // - 水の中：ゆっくり沈み、水の抵抗で減速する。地面に触れている節は、横には滑りにくく前後には滑りやすい（這うとうねりが前へ進む力になる）。
 // - 当たり：外に出ている節は AquariumWorld.contactSolid（砂・岩・流木・ガラス・管）から押し出す（巣穴の口の近くだけは穴なので除く）。
 //
-// 巣穴（砂の中）
-// - 巣穴は砂の中の折れ線（tunnel。口 = 砂の表面の点から下へ）。砂の中にある節は「動かせない節」（逆質量 0）として、巣穴に沿った
-//   位置に置く：いちばん口に近い節が口から feed の深さ、その奥は自然な長さの間隔（砂の壁に疣足で踏ん張っているので伸びない）。
+// 巣穴（石の隙間。2026-11-28 改）
+// - 巣穴は、岩・流木が砂に接する根元から、その面に沿って下・奥へ続く隙間の折れ線（tunnel。口 = 根元の砂の上の点。面から体の半径 +
+//   HUG の幅の中を通る：tunOk・extendTunnel）。隙間の中にある節は「動かせない節」（逆質量 0）として、巣穴に沿った
+//   位置に置く：いちばん口に近い節が口から feed の深さ、その奥は自然な長さの間隔（隙間の壁に疣足で踏ん張っているので伸びない）。
 //   feed が負になった節は外へ出る（自由な質点になる）。feed が節 1 つ分より深くなり、外の節が口まで来ていれば砂の中へ入る。
 // - 巣穴に入っている端は尾の側（bEnd = 1：頭を出す）か頭の側（bEnd = 0：頭から潜っている途中）。潜り終えたら砂の中で
 //   向きを入れ替え（見えない）、頭を口の側にする。
 // - 挟まれて引かれている間の feed の速さは、スナモグリ（AquaTug.BurrowTug）と同じ考え方：口の所の節の張力が踏ん張り（hold）を
 //   越えた分だけ滑り出て、下回れば引き戻す。抵抗の段階（最初・中盤・終盤）・引き戻し（tug）・力が抜ける間（rest）・疲れ・横に引いた
-//   分の穴の縁の摩擦、最後の give から先は踏ん張りが急に抜ける。最後の節が口を出た瞬間に抵抗が消える（抜ける）。
-// - 掘って周りの砂が無くなった・巣穴の途中が空洞になった：体が自由になって動き出す。砂を盛って口が埋まった：巣穴を上へ延ばす。
+//   分の隙間の縁の摩擦（石なので砂より大きい：隙間に沿って引くと抜けやすく、斜めだと引っかかる）、最後の give から先は
+//   踏ん張りが急に抜ける。最後の節が口を出た瞬間に抵抗が消える（抜ける）。
+// - 掘ってまわりの砂が無くなっても巣は壊れない（体は岩の面に沿う隙間に収まったまま）。砂を盛って口が埋まった：巣穴を上へ延ばす。
 //
 // 暮らし（life）
-// - hidden（砂の中）→ peek（頭と触角を出して周りを探る）→ カニが近づくと alert（出す長さを減らして頭をカニへ向け、震える）→
+// - hidden（隙間の中）→ peek（頭と触角を出して周りを探る）→ カニが近づくと alert（出す長さを減らして頭をカニへ向け、震える）→
 //   速く近づく・跳んで着地する・すぐそばで掘る・口のすぐそばへ来ると hide（すばやく引っ込む）→ しばらくして hidden → peek。
-// - まれに forage（カニが遠いとき、自分で這い出る）。抜けた・掘り出された・自分で出た後は free（這う）→ seek（砂のある所を探す）→
+// - まれに forage（カニが遠いとき、自分で這い出る）。抜けた・自分で出た後は free（這う）→ seek（近くの石の隙間を探す：creviceAt）→
 //   dig（頭から潜る）→ hidden。挟まれて離されたら writhe（くねる）→ seek。
 // 挟む（AquaGrab.GrabSystem の GrabCreature）：外に出ている体のどこでも挟める（頭・胴体の途中）。挟んだ点は節の間の点で、
 // 鋏とつなぐ制約（強さは AquaGrab の SPRING_K、力の上限は握る力 grip）が体へ力を伝える。抜けた後も挟んだまま運べる。
@@ -38,7 +40,7 @@ import { TANK, type AquariumWorld } from './AquariumWorld';
 
 export const WORM_SPECIES = 'gokai';
 export const WORM_NAME = 'ゴカイ';
-export const WORM_DESC = '砂に細い巣穴を掘ってすむ多毛類。たくさんの節と疣足で這い、砂に潜る';
+export const WORM_DESC = '岩や流木の根元の、石の隙間にすむ多毛類。たくさんの節と疣足で這い、隙間に潜り込む';
 /** 一度も抜く前の名前（挟んでいる間の表示） */
 export const WORM_UNKNOWN = '細長い何か';
 
@@ -129,7 +131,7 @@ export const WORM_SPEC_BASE: WormSpec = {
   slide: 0.5,
   holdRef: 4,
   drive: 0.06,
-  rimMu: 0.3,
+  rimMu: 0.55,
   stages: [
     { until: 0.3, tremorA: 0.12, tremorF: 7, tugP: 1.3, tugDur: 0.25, tugGap: [0.9, 1.5], tugDrive: 3, restK: 1, restT: 0 },
     { until: 0.7, tremorA: 0.06, tremorF: 4, tugP: 1.55, tugDur: 0.45, tugGap: [1.2, 1.9], tugDrive: 2.6, restK: 0.65, restT: 0.8 },
@@ -152,6 +154,7 @@ const FEEL_OVERRIDE: Record<WormFeel, Partial<WormSpec>> = {
     maxStrain: 2.0,
     hold: [2.6, 3.0, 3.6, 4.0],
     slide: 0.6,
+    rimMu: 0.45,
     grip: 9.5,
     stages: [
       { until: 0.3, tremorA: 0.08, tremorF: 6, tugP: 1.2, tugDur: 0.3, tugGap: [1.0, 1.7], tugDrive: 2.6, restK: 1, restT: 0 },
@@ -168,6 +171,7 @@ const FEEL_OVERRIDE: Record<WormFeel, Partial<WormSpec>> = {
     maxStrain: 1.45,
     hold: [3.5, 4.1, 5.0, 5.6],
     slide: 0.42,
+    rimMu: 0.65,
     grip: 8.6,
     stages: [
       { until: 0.3, tremorA: 0.16, tremorF: 8, tugP: 1.4, tugDur: 0.2, tugGap: [0.8, 1.3], tugDrive: 3.3, restK: 1, restT: 0 },
@@ -205,9 +209,7 @@ export type WormEvent =
   | { kind: 'pop'; x: number; y: number; z: number; power: number; dir: [number, number]; first: boolean }
   | { kind: 'hide'; x: number; y: number; z: number }
   | { kind: 'peek'; x: number; y: number; z: number }
-  /** 掘られて体が砂から出た */
-  | { kind: 'exposed'; x: number; y: number; z: number }
-  /** 潜り始めた・潜り終えた */
+  /** 隙間に潜り始めた・潜り終えた */
   | { kind: 'dig'; x: number; y: number; z: number }
   | { kind: 'buried'; x: number; y: number; z: number };
 
@@ -242,6 +244,9 @@ const TOUCH_R = 0.3;
 const FAST = 0.9;
 /** 巣穴を作る刻み */
 const TUN_STEP = 0.035;
+/** 石の隙間：巣穴が岩・流木の面に沿ってよい幅（面から体の半径 + これまで）・口にする縁（砂の上で岩・流木の面からこの範囲） */
+const HUG = 0.17;
+const CREVICE_EDGE: [number, number] = [0.03, 0.11];
 /** 暴れている間に強く張ったときの滑り（GrabSystem の tugOver）のうち、体が吸わずに鋏へ伝わる割合 */
 const TUG_ABSORB = 0.8;
 /** 速さの上限（発散を防ぐ） */
@@ -309,6 +314,8 @@ export class Worm implements GrabCreature {
   /** 巣穴を延ばす向き・深さの目標（潜っている間） */
   private tunDir: V3 = [0, -1, 0];
   private tunDepth = 0.22;
+  /** 隙間の開いている水平の向き（口で岩・流木から離れる向き。巣穴を作るときに決める。縁にこすれる力に使う） */
+  private openDir: [number, number] = [0, 1];
   /** 口の所の節の張力・横の力 */
   mouthT = 0;
   // ---- 暮らし ----
@@ -345,6 +352,8 @@ export class Worm implements GrabCreature {
   /** 張力 / 踏ん張り・横の力・引き出しの速さ（体長 / 秒。ならした値）・踏ん張り */
   load = 0;
   rub = 0;
+  /** 引く向きが隙間の開いている向きから外れている割合（0..1） */
+  side = 0;
   extV = 0;
   hold = 0;
   private clock = 0;
@@ -354,7 +363,7 @@ export class Worm implements GrabCreature {
   /** 離された直後の残り時間（この間はゆっくり引き込む） */
   private afterT = 0;
   readonly events: WormEvent[] = [];
-  readonly stats = { grabs: 0, pops: 0, tugs: 0, rests: 0, heldT: 0, maxExt: 0, maxStrain: 0, maxTension: 0, digs: 0, exposed: 0, diverge: 0, maxV: 0, pushMax: 0, stepMs: 0, steps: 0, hides: 0 };
+  readonly stats = { grabs: 0, pops: 0, tugs: 0, rests: 0, heldT: 0, maxExt: 0, maxStrain: 0, maxTension: 0, digs: 0, diverge: 0, maxV: 0, pushMax: 0, stepMs: 0, steps: 0, hides: 0 };
 
   constructor(
     readonly id: string,
@@ -509,16 +518,23 @@ export class Worm implements GrabCreature {
     return out;
   }
 
-  /** 巣穴の点にしてよいか（砂の中・岩や流木・ガラス・管から離れている・底より上） */
-  private tunOk(x: number, y: number, z: number, mg: number): boolean {
+  /**
+   * 巣穴の点にしてよいか（2026-11-28 改：石の隙間）。岩・流木の面に沿う所（面から mg より離れ、HUG + mg より近い）で、
+   * 作るときは砂に覆われている（隠れている）こと。ガラス・管・底からは離れる。よければ岩・流木までの距離、だめなら −1
+   */
+  private tunOk(x: number, y: number, z: number, mg: number): number {
     const W = this.world;
-    if (!W.insideTank(x, z, 0.4) || y < TANK.floorY + 0.06 + mg || y > TANK.waterY - 0.2) return false;
-    if (W.pipeClear(x, z) < 0.16) return false;
-    if (W.sandSolid(x, y, z) > -mg) return false;
-    return W.hardSolid(x, y, z) > mg + 0.03;
+    if (!W.insideTank(x, z, 0.4) || y < TANK.floorY + 0.06 + mg || y > TANK.waterY - 0.2) return -1;
+    if (W.pipeClear(x, z) < 0.16) return -1;
+    if (W.sandSolid(x, y, z) > -mg * 0.6) return -1;
+    const h = W.hardSolid(x, y, z);
+    return h < mg + 0.008 || h > HUG + mg ? -1 : h;
   }
 
-  /** 巣穴を 1 刻み延ばす（深さの目標へ寄せ、ゆるく曲がる）。延ばせなければ false */
+  /**
+   * 巣穴を 1 刻み延ばす：岩・流木の面に沿って（面からの距離を mg + 0.05 に保つ）下へ、深さの目標に近づいたら面に沿って横へ。
+   * 延ばせなければ false
+   */
   private extendTunnel(): boolean {
     const P = this.tun, n = P.length / 3;
     const px = P[n * 3 - 3], py = P[n * 3 - 2], pz = P[n * 3 - 1];
@@ -526,39 +542,46 @@ export class Worm implements GrabCreature {
     const len = this.tunLen();
     const mg = Math.min(this.rad[0] + 0.015, 0.012 + len * 0.6);
     const depth = -this.world.sandSolid(px, py, pz);
-    // 口からしばらくは下へ。深さの目標に近づいたら水平へ（少しうねる）
     const wantDy = depth < this.tunDepth ? -0.75 : depth > this.tunDepth + 0.08 ? 0.35 : Math.sin(len * 7 + this.traits.seed) * 0.15;
     const yaw0 = Math.atan2(d[0], d[2]);
+    let best: { s: number; q: V3; c: V3 } | null = null;
     for (const k of [0, 0.3, -0.3, 0.65, -0.65, 1.05, -1.05, 1.6, -1.6, 2.3, -2.3]) {
-      const yaw = yaw0 + k + (this.rng() - 0.5) * 0.25;
-      const dy = lerp(d[1], wantDy, 0.35) * (Math.abs(k) > 1 ? 0.6 : 1);
-      const h = Math.sqrt(Math.max(0.05, 1 - dy * dy));
-      let cx = Math.sin(yaw) * h, cy = dy, cz = Math.cos(yaw) * h;
-      const cl = Math.hypot(cx, cy, cz);
-      cx /= cl;
-      cy /= cl;
-      cz /= cl;
-      const qx = px + cx * TUN_STEP, qy = py + cy * TUN_STEP, qz = pz + cz * TUN_STEP;
-      if (!this.tunOk(qx, qy, qz, mg)) continue;
-      P.push(qx, qy, qz);
-      this.tunC.push(len + TUN_STEP);
-      d[0] = cx;
-      d[1] = cy;
-      d[2] = cz;
-      return true;
+      const yaw = yaw0 + k + (this.rng() - 0.5) * 0.2;
+      for (const dyK of [1, 0.4]) {
+        const dy = lerp(d[1], wantDy, 0.35) * dyK;
+        const hh = Math.sqrt(Math.max(0.05, 1 - dy * dy));
+        let cx = Math.sin(yaw) * hh, cy = dy, cz = Math.cos(yaw) * hh;
+        const cl = Math.hypot(cx, cy, cz);
+        cx /= cl;
+        cy /= cl;
+        cz /= cl;
+        const q: V3 = [px + cx * TUN_STEP, py + cy * TUN_STEP, pz + cz * TUN_STEP];
+        const h = this.tunOk(q[0], q[1], q[2], mg);
+        if (h < 0) continue;
+        // 面に沿う（隙間の中ほど）ほど・まっすぐなほど良い
+        const s = Math.abs(h - (mg + 0.05)) * 4 + Math.abs(k) * 0.06 + (1 - dyK) * 0.05;
+        if (!best || s < best.s) best = { s, q, c: [cx, cy, cz] };
+      }
     }
-    return false;
+    if (!best) return false;
+    P.push(best.q[0], best.q[1], best.q[2]);
+    this.tunC.push(len + TUN_STEP);
+    d[0] = best.c[0];
+    d[1] = best.c[1];
+    d[2] = best.c[2];
+    return true;
   }
 
-  /** 口 m から dir（水平の向き yaw、下へ pitch）へ長さ len の巣穴を作る。作れなければ false（巣穴は元のまま） */
+  /** 口 m から dir（水平の向き yaw = 岩の方、下へ pitch）へ長さ len の巣穴を作る。作れなければ false（巣穴は元のまま） */
   private makeTunnel(m: readonly number[], yaw: number, len: number): boolean {
     const old = { tun: this.tun, tunC: this.tunC, dir: this.tunDir };
     this.tun = [m[0], m[1], m[2]];
     this.tunC = [0];
-    const pitch = 0.95 + this.rng() * 0.3;
+    this.setOpen(m);
+    const pitch = 0.9;
     this.tunDir = [Math.sin(yaw) * Math.cos(pitch), -Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)];
     const g = this.world.groundAt(m[0], m[2]);
-    this.tunDepth = clamp(0.16 + this.rng() * 0.12, 0.1, Math.max(0.1, g - TANK.floorY - 0.12));
+    this.tunDepth = clamp(0.2, 0.1, Math.max(0.1, g - TANK.floorY - 0.12));
     while (this.tunLen() < len) {
       if (!this.extendTunnel()) {
         this.tun = old.tun;
@@ -570,31 +593,89 @@ export class Worm implements GrabCreature {
     return true;
   }
 
+  /** 巣穴を作れるか確かめるだけ（巣穴は元のまま） */
+  private canTunnel(m: readonly number[], yaw: number): boolean {
+    const old = { tun: this.tun, tunC: this.tunC, dir: this.tunDir, depth: this.tunDepth, open: this.openDir };
+    const ok = this.makeTunnel(m, yaw, this.length + HIDE_DEPTH + 0.12);
+    this.tun = old.tun;
+    this.tunC = old.tunC;
+    this.tunDir = old.dir;
+    this.tunDepth = old.depth;
+    this.openDir = old.open;
+    return ok;
+  }
+
   /** 砂の表面の点（x, z の真上から探る） */
   private surfaceAt(x: number, y: number, z: number): number {
     return this.world.surfaceBelow(x, y + 0.4, z);
   }
 
-  /** 潜れる場所か（砂の厚さ・岩から離れている・水の中） */
-  canBurrowAt(x: number, z: number, y?: number): boolean {
+  /** 砂だけの表面（岩・流木の上に乗っていても、その下・横の砂の面。石の隙間の口を決める） */
+  private sandSurface(x: number, y: number, z: number): number {
     const W = this.world;
-    if (!W.insideTank(x, z, 0.7) || W.pipeClear(x, z) < 0.4) return false;
-    const sy = this.surfaceAt(x, y ?? W.groundAt(x, z) + 0.3, z);
-    if (sy > TANK.waterY - 0.4) return false;
-    if (W.surfaceMaterial(x, sy + 0.02, z) !== 'sand') return false;
-    // 砂の厚さ（下に 0.3 は砂）
-    if (W.sandSolid(x, sy - 0.3, z) > -0.03) return false;
-    return W.hardSolid(x, sy - 0.15, z) > 0.4;
+    let py = y + 0.4;
+    for (let i = 0; i < 60; i++) {
+      const d = W.sandSolid(x, py, z);
+      if (d < 0.01) return py;
+      py -= Math.max(d * 0.9, 0.015);
+      if (py < TANK.floorY) break;
+    }
+    return W.groundAt(x, z);
+  }
+
+  /**
+   * 石の隙間の口の候補：(x, z) の近くの、岩・流木が砂に接している縁の砂の上の点と、岩・流木の方への水平の向き。
+   * 縁から離れていれば、岩・流木の面の方へ寄せる。無ければ null
+   */
+  creviceAt(x: number, z: number, y?: number): { m: V3; yaw: number } | null {
+    const W = this.world;
+    for (let it = 0; it < 3; it++) {
+      if (!W.insideTank(x, z, 0.6) || W.pipeClear(x, z) < 0.35) return null;
+      const sy = this.sandSurface(x, y ?? W.groundAt(x, z) + 0.3, z);
+      if (sy > TANK.waterY - 0.4) return null;
+      const h = W.hardSolid(x, sy + 0.03, z);
+      if (h > 0.8) return null;
+      const e = 0.03;
+      const gx = W.hardSolid(x + e, sy + 0.03, z) - W.hardSolid(x - e, sy + 0.03, z);
+      const gz = W.hardSolid(x, sy + 0.03, z + e) - W.hardSolid(x, sy + 0.03, z - e);
+      const gl = Math.hypot(gx, gz);
+      if (gl < 1e-4) return null;
+      const yaw = Math.atan2(-gx, -gz);
+      if (h >= CREVICE_EDGE[0] && h <= CREVICE_EDGE[1]) {
+        if (W.surfaceMaterial(x, sy + 0.02, z) !== 'sand' || W.sandSolid(x, sy - 0.25, z) > -0.03) return null;
+        return { m: [x, sy, z], yaw };
+      }
+      // 縁へ寄せる（岩の面までの距離が 0.06 になる所へ。勾配 = 岩から離れる向き）
+      const step = h - 0.06;
+      x -= (gx / gl) * step;
+      z -= (gz / gl) * step;
+      y = undefined;
+    }
+    return null;
+  }
+
+  /** 岩・流木の方への水平の向き（口 m のそば） */
+  private rockYaw(m: readonly number[]): number {
+    const W = this.world, e = 0.03, y = m[1] + 0.03;
+    const gx = W.hardSolid(m[0] + e, y, m[2]) - W.hardSolid(m[0] - e, y, m[2]);
+    const gz = W.hardSolid(m[0], y, m[2] + e) - W.hardSolid(m[0], y, m[2] - e);
+    return Math.atan2(-gx, -gz);
+  }
+
+  /** 隙間の開いている向き（岩・流木から離れる水平の向き）を口 m で決める */
+  private setOpen(m: readonly number[]) {
+    const ry = this.rockYaw(m);
+    this.openDir = [-Math.sin(ry), -Math.cos(ry)];
   }
 
   // ---------------- 置く ----------------
 
-  /** 砂の中に置く（口 m。体はすべて巣穴の中）。巣穴が作れなければ false */
+  /** 石の隙間に置く（口 m。体はすべて隙間の中）。yaw = 隙間の奥への水平の向き（省略 = 岩の方）。作れなければ false */
   placeBuried(m: readonly number[], yaw?: number): boolean {
     const len = this.length + HIDE_DEPTH + 0.12;
-    const y0 = yaw ?? this.rng() * Math.PI * 2;
+    const y0 = yaw ?? this.rockYaw(m);
     let ok = false;
-    for (let k = 0; k < 6 && !ok; k++) ok = this.makeTunnel(m, y0 + k * 1.05, len);
+    for (const k of [0, 0.4, -0.4, 0.8, -0.8, 1.3, -1.3]) if (!ok) ok = this.makeTunnel(m, y0 + k, len);
     if (!ok) return false;
     this.bEnd = 1;
     this.nb = this.N;
@@ -875,16 +956,23 @@ export class Worm implements GrabCreature {
     if (this.nb > 0 && this.nb < N) {
       const s = this.bEnd ? this.ea() : this.sb();
       this.mouthT = this.tension[s];
-      // 横の力：口の所の体の向きが、巣穴の外向きからずれている分
+      // 隙間の縁にこすれる力（石の隙間）：口の所の体の水平の向きが、隙間の開いている向き（岩から離れる水平の向き）から
+      // ずれている分。真上・開いている向きへ引くと小さく、岩の面に沿って横へ・岩の方へ引くと大きい（隙間の傾きには左右されない）
       const e = this.ea(), m = this.mouth;
       const dx = X[e * 3] - m[0], dy = X[e * 3 + 1] - m[1], dz = X[e * 3 + 2] - m[2];
-      const dl = Math.hypot(dx, dy, dz) || 1;
-      this.outward(tmpA);
-      const c = (dx * tmpA[0] + dy * tmpA[1] + dz * tmpA[2]) / dl;
-      this.rub = this.mouthT * Math.sqrt(Math.max(0, 1 - c * c));
+      const dl = Math.hypot(dx, dy, dz) || 1, dh = Math.hypot(dx, dz);
+      const od = this.openDir;
+      let side = 0;
+      if (dh > 1e-4) {
+        const c = (dx * od[0] + dz * od[1]) / dh;
+        side = (c >= 0 ? Math.sqrt(Math.max(0, 1 - c * c)) : 1) * (dh / dl);
+      }
+      this.side = side;
+      this.rub = this.mouthT * side;
     } else {
       this.mouthT = 0;
       this.rub = 0;
+      this.side = 0;
     }
     // ---- 速さ ----
     const kd = 1 - Math.exp(-h * 40);
@@ -936,7 +1024,9 @@ export class Worm implements GrabCreature {
     if (this.held) {
       // 張力が踏ん張りを越えた分だけ滑り出る。下回れば引き戻す（引き戻している間は速い）
       const st = this.stageSpec();
-      const H = this.holdNow() + S.rimMu * this.rub;
+      // 隙間の縁に引っかかる：開いている向きから外れて引くほど踏ん張りが増える（張力に比例させると、斜めでは引くほど強く
+      // 引っかかって決して抜けなくなるので、踏ん張りの倍率にする）
+      const H = this.holdNow() * (1 + S.rimMu * this.side);
       this.hold = H;
       const T = this.mouthT;
       if (T > H) v = -(S.slide * (this.restT > 0 ? 2 : 1) * (T - H)) / S.holdRef;
@@ -1441,7 +1531,10 @@ export class Worm implements GrabCreature {
 
   // ---------------- 砂の変化 ----------------
 
-  /** 掘られた・盛られた（0.25 秒ごと）：口が埋まったら巣穴を上へ延ばし、巣穴が掘り出されたら体を自由にする */
+  /**
+   * 盛られた（0.25 秒ごと）：口が砂で埋まったら巣穴を上へ延ばす（口を新しい表面へ）。
+   * 掘られても巣は壊れない（2026-11-28 改：巣穴は岩・流木の面に沿う石の隙間なので、まわりの砂が無くなっても体は隙間に収まったまま）
+   */
   private checkSand(dt: number) {
     if ((this.checkT -= dt) > 0) return;
     this.checkT = 0.25;
@@ -1456,70 +1549,6 @@ export class Worm implements GrabCreature {
       this.tunC.unshift(0);
       this.feed += add;
     }
-    // 口のあたりの砂が掘られた：砂の中にある最初の所まで口を下げる（その分の節は外へ出る）
-    let cut = 0;
-    const L = this.tunLen();
-    for (let t = 0.02; t < Math.min(L, 0.5); t += 0.02) {
-      this.tunAt(t, tmpA);
-      if (W.sandSolid(tmpA[0], tmpA[1], tmpA[2]) < -0.012) break;
-      cut = t;
-    }
-    if (cut > 0.035) this.trimTunnel(cut);
-    // 巣穴の途中が空洞になった（横から掘った・トンネルが通った）：体が自由になる
-    for (let mm = 1; mm < this.nb; mm++) {
-      const t = this.feed + mm * this.Lb;
-      if (t < 0.06) continue;
-      this.tunAt(t, tmpA);
-      if (W.sandSolid(tmpA[0], tmpA[1], tmpA[2]) > 0.004 || W.hardSolid(tmpA[0], tmpA[1], tmpA[2]) < 0.01) {
-        this.release('exposed');
-        return;
-      }
-    }
-  }
-
-  /** 巣穴の最初の cut の長さを取り除く（口を下げる） */
-  private trimTunnel(cut: number) {
-    this.tunAt(cut, tmpA);
-    const C = this.tunC;
-    let k = 0;
-    while (k < C.length - 1 && C[k] <= cut) k++;
-    const P = this.tun.slice(k * 3);
-    const CC = C.slice(k).map((c) => c - cut);
-    this.tun = [tmpA[0], tmpA[1], tmpA[2], ...P];
-    this.tunC = [0, ...CC];
-    this.feed -= cut;
-    if (this.tunLen() < (this.nb - 1) * this.Lb + Math.max(0, this.feed) + 0.02) {
-      this.release('exposed');
-      return;
-    }
-    this.stats.exposed++;
-    this.events.push({ kind: 'exposed', x: tmpA[0], y: tmpA[1], z: tmpA[2] });
-  }
-
-  /** 砂の中の節をすべて自由にする（掘り出された） */
-  private release(why: 'exposed') {
-    if (this.nb === 0) return;
-    const m = this.mouth;
-    for (let mm = 0; mm < this.nb; mm++) {
-      const i = this.bIdx(mm);
-      this.w[i] = this.invM;
-      this.v[i * 3] = this.v[i * 3 + 1] = this.v[i * 3 + 2] = 0;
-      this.xp[i * 3] = this.x[i * 3];
-      this.xp[i * 3 + 1] = this.x[i * 3 + 1];
-      this.xp[i * 3 + 2] = this.x[i * 3 + 2];
-    }
-    this.nb = 0;
-    this.feed = 0;
-    this.feedV = 0;
-    this.mouthT = 0;
-    this.ext = 1;
-    this.sleep = false;
-    if (!this.held) {
-      this.life = 'writhe';
-      this.lifeT = 1.4;
-    }
-    this.stats.exposed++;
-    this.events.push({ kind: why, x: m[0], y: m[1], z: m[2] });
   }
 
   // ---------------- 暮らし ----------------
@@ -1610,10 +1639,22 @@ export class Worm implements GrabCreature {
         this.watchStuck(dt);
         break;
       case 'seek': {
-        if (!this.goal) this.goal = this.pickSand();
+        // 近くの石の隙間（岩・流木が砂に接する縁）を探して、その口へ頭を向けて這う
+        if (!this.goal) this.goal = this.pickCrevice();
         this.watchStuck(dt);
-        const hx = this.x[0], hy = this.x[1], hz = this.x[2];
-        if (this.goal && this.reached(0.22) && (this.touch[0] || this.touch[1]) && this.canBurrowAt(hx, hz, hy)) this.startDig();
+        // 頭が岩・流木に触れたら、そこの隙間に入れるか確かめる（行き先の隙間が岩の向こう側でも、ぶつかった所の隙間に潜り込む）
+        if ((this.bumpT -= dt) <= 0 && (this.touch[0] || this.touch[1])) {
+          this.bumpT = 0.5;
+          const hx = this.x[0], hy = this.x[1], hz = this.x[2];
+          if (this.world.hardSolid(hx, hy, hz) < this.rad[0] + 0.1) {
+            const c = this.creviceAt(hx, hz, hy + 0.2);
+            if (c && Math.hypot(c.m[0] - hx, c.m[2] - hz) < 0.6 && this.canTunnel(c.m, c.yaw)) {
+              this.crevice = c;
+              this.goal = [c.m[0], c.m[2]];
+            }
+          }
+        }
+        if (this.goal && this.crevice && this.reached(0.1) && (this.touch[0] || this.touch[1])) this.startDig();
         else if (this.lifeT <= 0) {
           this.goal = null;
           this.lifeT = 12;
@@ -1643,7 +1684,7 @@ export class Worm implements GrabCreature {
     this.stuckT = sp < 0.03 ? this.stuckT + dt : Math.max(0, this.stuckT - dt);
     if (this.stuckT > 3.5) {
       this.stuckT = 0;
-      this.goal = this.life === 'seek' ? this.pickSand(true) : this.pickWander(0.6, 1.6);
+      this.goal = this.life === 'seek' ? this.pickCrevice(true) : this.pickWander(0.6, 1.6);
     }
   }
 
@@ -1660,30 +1701,36 @@ export class Worm implements GrabCreature {
     return [this.home[0], this.home[2]];
   }
 
-  /** 潜れる砂のある所（近い順。見つからなければ住みか） */
-  private pickSand(far = false): [number, number] {
-    const best: [number, number][] = [];
-    for (const R of far ? [1.5, 3, 5] : [0.4, 1, 2, 3.5]) {
-      for (let k = 0; k < 8; k++) {
+  /** 潜り込む石の隙間（口と奥への向き。seek の行き先） */
+  private crevice: { m: V3; yaw: number } | null = null;
+  /** 頭が岩に触れたときに、そこの隙間を調べる間隔 */
+  private bumpT = 0;
+
+  /** 近くの石の隙間（近い順。体が収まる隙間を作れる所。見つからなければ住みか）。行き先（x, z）を返す */
+  private pickCrevice(far = false): [number, number] {
+    for (const R of far ? [1.5, 3, 5, 8, 12] : [0.4, 1, 2, 3.5, 6, 9, 12]) {
+      for (let k = 0; k < 10 + R * 3; k++) {
         const a = this.rng() * Math.PI * 2, r = R * (0.6 + 0.4 * this.rng());
-        const x = this.x[0] + Math.sin(a) * r, z = this.x[2] + Math.cos(a) * r;
-        if (this.canBurrowAt(x, z, this.x[1])) best.push([x, z]);
+        const c = this.creviceAt(this.x[0] + Math.sin(a) * r, this.x[2] + Math.cos(a) * r, this.x[1] + 0.3);
+        if (c && this.canTunnel(c.m, c.yaw)) {
+          this.crevice = c;
+          return [c.m[0], c.m[2]];
+        }
       }
-      if (best.length) return best[0];
     }
+    this.crevice = { m: [this.home[0], this.home[1], this.home[2]], yaw: this.rockYaw(this.home) };
     return [this.home[0], this.home[2]];
   }
 
-  /** 頭の所から潜り始める（巣穴を作れなければ別の所を探す） */
+  /** 石の隙間の口から頭を差し込んで潜り始める（隙間を作れなければ別の所を探す） */
   private startDig(): boolean {
-    const W = this.world, X = this.x;
-    const sy = this.surfaceAt(X[0], X[1], X[2]);
-    const m: V3 = [X[0], sy, X[2]];
-    // 頭の向き（水平）から少しずつずらして試す
-    const yaw0 = Math.atan2(X[0] - X[3], X[2] - X[5]);
+    const W = this.world;
+    const c = this.crevice!;
+    const m: V3 = [c.m[0], this.sandSurface(c.m[0], c.m[1], c.m[2]), c.m[2]];
+    const yaw0 = c.yaw;
     const old = this.tun, oldC = this.tunC;
     let ok = false;
-    for (const k of [0, 0.5, -0.5, 1.1, -1.1]) {
+    for (const k of [0, 0.4, -0.4, 0.8, -0.8]) {
       this.tun = [m[0], m[1], m[2]];
       this.tunC = [0];
       const pitch = 0.9;
@@ -1700,9 +1747,10 @@ export class Worm implements GrabCreature {
     if (!ok) {
       this.tun = old;
       this.tunC = oldC;
-      this.goal = this.pickSand(true);
+      this.goal = this.pickCrevice(true);
       return false;
     }
+    this.setOpen(m);
     this.bEnd = 0;
     this.nb = 1;
     this.feed = 0;
@@ -1850,8 +1898,9 @@ export class Worm implements GrabCreature {
     const yaw = typeof s.traits.yaw === 'number' ? s.traits.yaw : 0;
     const W = this.world;
     if (s.traits.state === 'buried') {
-      const sy = this.surfaceAt(s.x, s.y + 0.2, s.z);
-      if (this.canBurrowAt(s.x, s.z, s.y + 0.2) && this.placeBuried([s.x, sy, s.z])) return;
+      const sy = this.sandSurface(s.x, s.y + 0.2, s.z);
+      // 同じ口から石の隙間を作り直す（岩・流木の方へ）
+      if (this.placeBuried([s.x, sy, s.z])) return;
     } else if (W.insideTank(s.x, s.z, 0.4) && s.y < TANK.waterY - 0.2 && W.contactSolid(s.x, s.y + 0.05, s.z) > -0.02) {
       this.layFree(s.x, s.y, s.z, yaw);
       return;
@@ -1882,39 +1931,50 @@ export class WormSystem {
   constructor(private readonly world: AquariumWorld, opts: { count: number; avoid: WormAvoid[]; near: { x: number; z: number }; feel: WormFeel; seed?: number }) {
     this.feel = opts.feel;
     const rng = mulberry32(opts.seed ?? 9177);
-    const sites = this.findSites(opts.count, opts.avoid, opts.near);
-    sites.forEach((s, i) => {
+    const cand = this.findSites(opts.avoid, opts.near);
+    const placed: V3[] = [];
+    for (let i = 0; i < opts.count; i++) {
       const tr: WormTraits = { len: 0.72 + rng() * 0.3, thick: 0.85 + rng() * 0.3, tone: rng(), seed: Math.floor(rng() * 1e6) };
-      const w = new Worm(wormId(i), world, tr, wormSpec(this.feel), s, mulberry32(tr.seed + 17));
-      if (!w.placeBuried(s)) w.layFree(s[0], s[1] + 0.1, s[2], rng() * 6.28);
+      const w = new Worm(wormId(i), world, tr, wormSpec(this.feel), [opts.near.x, world.groundAt(opts.near.x, opts.near.z), opts.near.z], mulberry32(tr.seed + 17));
+      // 最初の 1 匹はスタート地点の近く（2.2 以上離す）、残りは互いに 3.5 以上離して近い順。縁へ寄せた口から体が収まる隙間を作れる所
+      let tries = 0;
+      for (const c of cand) {
+        if (tries > 40) break;
+        if (placed.some((o) => Math.hypot(o[0] - c[0], o[2] - c[2]) < 3.5)) continue;
+        const cr = w.creviceAt(c[0], c[2]);
+        if (!cr || opts.avoid.some((a) => Math.hypot(a.x - cr.m[0], a.z - cr.m[2]) < a.r)) continue;
+        tries++;
+        if (!w.placeBuried(cr.m, cr.yaw)) continue;
+        w.home.splice(0, 3, cr.m[0], cr.m[1], cr.m[2]);
+        placed.push(cr.m);
+        break;
+      }
+      if (w.home[0] === opts.near.x && w.home[2] === opts.near.z) w.layFree(opts.near.x + 2.5, w.home[1] + 0.2, opts.near.z, rng() * 6.28);
       this.worms.push(w);
-    });
+    }
   }
 
-  /** 巣穴の場所：水の中の砂（厚さがあり、岩・流木・管・ガラスから離れている）を近い所から、互いに離して選ぶ */
-  private findSites(count: number, avoid: WormAvoid[], near: { x: number; z: number }): V3[] {
+  /**
+   * 石の隙間の候補（2026-11-28 改）：水の中の砂で、岩・流木の面の近く（0.5 以内）にある格子の点を、スタート地点から近い順に
+   * （2.2 より近い所は除く）。口の位置は各個体が縁へ寄せて決める（Worm.creviceAt）
+   */
+  private findSites(avoid: WormAvoid[], near: { x: number; z: number }): V3[] {
     const W = this.world;
     const cand: { p: V3; d: number }[] = [];
-    for (let x = TANK.minX + 1.2; x < TANK.maxX - 1.2; x += 0.55) {
-      for (let z = TANK.minZ + 1.2; z < TANK.maxZ - 1.2; z += 0.55) {
+    for (let x = TANK.minX + 1; x < TANK.maxX - 1; x += 0.3) {
+      for (let z = TANK.minZ + 1; z < TANK.maxZ - 1; z += 0.3) {
         const g = W.groundAt(x, z);
-        if (g > TANK.waterY - 0.8 || g - TANK.floorY < 0.6) continue;
-        if (W.groundNormal(x, z)[1] < 0.88 || W.pipeClear(x, z) < 0.8) continue;
+        if (g > TANK.waterY - 0.8 || g - TANK.floorY < 0.4) continue;
+        const d = Math.hypot(x - near.x, z - near.z);
+        if (d < 2.2 || W.pipeClear(x, z) < 0.6) continue;
         if (avoid.some((a) => Math.hypot(a.x - x, a.z - z) < a.r)) continue;
-        if (W.surfaceMaterial(x, g + 0.03, z) !== 'sand' || W.hardSolid(x, g, z) < 0.9) continue;
-        cand.push({ p: [x, g, z], d: Math.hypot(x - near.x, z - near.z) });
+        const h = W.hardSolid(x, g + 0.03, z);
+        if (h < 0.03 || h > 0.5) continue;
+        cand.push({ p: [x, g, z], d });
       }
     }
     cand.sort((a, b) => a.d - b.d);
-    const out: V3[] = [];
-    // 最初の 1 匹はスタート地点の近く（2.2 以上離す）、残りは互いに 3.5 以上離して近い順
-    for (const c of cand) {
-      if (out.length >= count) break;
-      if (c.d < 2.2) continue;
-      if (out.some((o) => Math.hypot(o[0] - c.p[0], o[2] - c.p[2]) < 3.5)) continue;
-      out.push(c.p);
-    }
-    return out;
+    return cand.map((c) => c.p);
   }
 
   setFeel(f: WormFeel) {

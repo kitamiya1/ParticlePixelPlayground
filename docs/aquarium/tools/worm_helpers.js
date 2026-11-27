@@ -70,9 +70,18 @@
       step(2);
       return { life: W.life, nb: W.nb, feel: S.feel };
     },
+    /** 口から岩・流木と反対の向き（開いている側。方位、ラジアン） */
+    openYaw() {
+      const m = anchor(), e = 0.03, y = m[1] + 0.03;
+      const gx = wd.hardSolid(m[0] + e, y, m[2]) - wd.hardSolid(m[0] - e, y, m[2]);
+      const gz = wd.hardSolid(m[0], y, m[2] + e) - wd.hardSolid(m[0], y, m[2] - e);
+      return Math.atan2(gx, gz);
+    },
+    /** ang = 開いている側（岩と反対）からのずれ（2026-11-28：石の隙間にすむので、岩の側からは近づけない） */
     approach(d = 0.62, ang = 0) {
       a.hold = false;
       step(2);
+      ang += worm.openYaw();
       const m = anchor();
       c.teleport(m[0] + Math.sin(ang) * d, m[2] + Math.cos(ang) * d);
       c.heading = Math.atan2(m[0] - c.x, m[2] - c.z);
