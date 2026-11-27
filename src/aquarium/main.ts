@@ -444,13 +444,15 @@ async function boot() {
     toastTimer = window.setTimeout(() => toastEl.classList.remove('show'), 2600);
   };
   const M = 1.5;
+  // 手持ちの砂の帯（上限が無いので、持っている量の目安：2 で約 63%、6 で約 95%）
+  const sandBar = (v: number) => 1 - Math.exp(-v / 2);
   const saveCtx: SaveContext = {
     spotIds: new Set(spots.map((s) => s.id)),
     buddyIds: new Set([BUDDY_ID]),
     tankIds: new Set([HOME_TANK]),
     maxPrims: DIG.maxPrims,
     maxR: DIG.rMax,
-    sandCap: SAND.capacity,
+    sandCap: SAND.maxStore,
     tankBox: { min: [TANK.minX - M, TANK.floorY - M, TANK.minZ - M], max: [TANK.maxX + M, TANK.topY + M, TANK.maxZ + M] },
     worldBox: { min: [ROOM.minX, ROOM.floorY - 1, ROOM.minZ], max: [ROOM.maxX, ROOM.ceilY, ROOM.maxZ] },
   };
@@ -502,6 +504,10 @@ async function boot() {
     if (P.camera !== 'adventure') camera.setView(P.camera, crab);
   }
   showTool();
+  // 第 10 段階（救済）：手持ちの砂を、地形から「掘って手元にあるはずの量」と見比べ、少なければ戻す（以前の版の持てる量の上限 4 で
+  // 捨てた砂があっても、掘った穴を埋め直せる）。フレームに分けて測る。手持ちが 0 で盛ろうとしたときにも見直す
+  crab.onSandRescue = (v) => toast(`砂を ${Math.floor(v / SAND.unit)} 杯ぶん手持ちに戻しました（掘った地形から数え直し）`);
+  if (world.dig.count > 0) crab.auditSand(true);
   const bootNote =
     loaded.status === 'recovered' ? `保存データが壊れていたため、1 つ前のデータから再開しました（${loaded.error}）。壊れたデータは別に残しています。`
     : loaded.status === 'corrupt' ? `保存データを読み込めなかったため、初期状態で始めました（${loaded.error}）。読めなかったデータは別に残しています。`
@@ -522,7 +528,7 @@ async function boot() {
     // 世代と識別子は SaveStore が書くときに付ける
     rev: 0,
     saveId: '',
-    player: { tank: HOME_TANK, x: crab.x, y: crab.y, z: crab.z, heading: crab.heading, camera: camera.mode, sand: crab.sandHeld, tool: crab.tool },
+    player: { tank: HOME_TANK, x: crab.x, y: crab.y, z: crab.z, heading: crab.heading, camera: camera.mode, sand: Math.max(0, crab.sandHeld), tool: crab.tool },
     progress: { visited: [...tracker.visited], flags: { ...flags, [FLAG_EXAMINED]: buddy.examined } },
     tanks: { [HOME_TANK]: { dig: { prims: world.dig.exportPrims() } } },
     buddies: [buddy.toSave()],
@@ -920,7 +926,7 @@ async function boot() {
       const mv = input.moveAxis();
       if (moveLatch && (Math.hypot(mv.x, mv.y) < 0.2 || Math.abs(Math.atan2(Math.sin(Math.atan2(mv.x, mv.y) - moveLatch.ang), Math.cos(Math.atan2(mv.x, mv.y) - moveLatch.ang))) > 1.0)) moveLatch = null;
       // 鋏が挟む方に使われている間は掘れない（掘るのも鋏を使うので）
-      crab.update(dt, { move: mv, run: input.isRunning(), jumpHeld: input.isJumpHeld(), cameraYaw: moveLatch?.yaw ?? camera.yaw, dig: digNow && !grab.busy && !grabL.busy, digAim: debug.digAim ?? input.digAim(), pull: br.pull, face: pg ? { x: pg.p[0], z: pg.p[2] } : face, tow: mergeTow(grab.tow, grabL.tow), support: rig.gait !== 'cycle' && rig.feet && rig.ikW > 0.5 ? rig.feet.support : null, lead: rig.gait === 'lead' });
+      crab.update(dt, { move: mv, run: input.isRunning(), jumpHeld: input.isJumpHeld(), cameraYaw: moveLatch?.yaw ?? camera.yaw, dig: digNow && !grab.busy && !grabL.busy, digAim: debug.digAim ?? input.digAim(), pull: br.pull, face: pg ? { x: pg.p[0], z: pg.p[2] } : face, tow: mergeTow(grab.tow, grabL.tow), support: rig.gait !== 'cycle' && rig.feet && rig.ikW > 0.5 ? rig.feet.support : null, lead: rig.gait === 'lead' || rig.gait === 'hybrid' });
       camera.update(dt, input, crab);
       // 挟む：鋏の構え → 体と鋏の姿勢 → 左右の鋏の状態 → 物・生き物を進める（ばね。2 本で 1 回）→ 動いた物へ鋏を伸ばし直す・生き物の体を置き直す
       Object.assign(rig.grip, grab.rigGrip());
@@ -996,7 +1002,7 @@ async function boot() {
     }
     vistaTag.classList.toggle('show', camera.viewing);
     view.render(settings, camera, crab, time, dt);
-    footDiag.draw(rig.feet, (x, y, z) => view.project(x, y, z), rig.gait !== 'cycle' && rig.ikW > 0.05, rig.gait === 'lead' ? crab : null);
+    footDiag.draw(rig.feet, (x, y, z) => view.project(x, y, z), rig.gait !== 'cycle' && rig.ikW > 0.05, rig.gait === 'lead' || rig.gait === 'hybrid' ? crab : null);
     input.consume();
 
     // 箱庭カメラ・ガラス越しで砂に隠れているときは、カニの位置に印を出す
@@ -1050,14 +1056,15 @@ async function boot() {
         heavy: (!!grab.held && grab.strain > 0.45) || (!!grabL.held && grabL.strain > 0.45),
       };
       // 手持ちの砂（1 杯 = SAND.unit）
-      const cups = Math.floor(crab.sandHeld / SAND.unit + 1e-6), capCups = Math.round(SAND.capacity / SAND.unit);
+      // （第 10 段階：持てる量の上限なし。帯は持っている量の目安＝多いほど満ちる）
+      const held = Math.max(0, crab.sandHeld), cups = Math.floor(held / SAND.unit + 1e-6), capCups = 0;
       const st = saver.state;
       const fs = view.digFx.stats;
       const nf = world.dig.fillCount;
       hud.update({
         place: tracker.current ? tracker.current.name : `${REGION_LABEL[crab.region]}のどこか`,
         placeHidden: tracker.current?.kind === 'hidden',
-        sand: crab.sandHeld / SAND.capacity,
+        sand: sandBar(held),
         cups,
         capCups,
         fill: crab.tool === 'fill',
@@ -1082,7 +1089,7 @@ async function boot() {
         viewport: viewport.viewportText(),
         device: ` ・ 音：（）`,
       });
-      toolBtn.style.setProperty('--sand', (crab.sandHeld / SAND.capacity).toFixed(3));
+      toolBtn.style.setProperty('--sand', sandBar(held).toFixed(3));
       // 道具がほかの道（保存データの復元・自動検証）で変わったときも、切り替えとボタンの文字を合わせる
       if (toolBtn.classList.contains('fill') !== (crab.tool === 'fill')) showTool();
     }

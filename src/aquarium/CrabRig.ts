@@ -22,6 +22,14 @@ import type { AquariumWorld } from './AquariumWorld';
 import { CrabFeet } from './CrabFeet';
 import { BODY_HEIGHT, CLAWS, CRAB_BONE, CRAB_BONE_COUNT, LEGS, legBone, legTip } from './crabModel';
 
+export type GaitStyleRig = 'cycle' | 'ik' | 'lead' | 'hybrid';
+
+/**
+ * ハイブリッド歩行（第 10 段階）：B へ切り替える複雑さ・A へ戻す複雑さ（ヒステリシス）・A へ戻すまでに下回り続ける秒・
+ * B へ寄せる / A へ戻す速さ（/ 秒）・A の足先の高さを足場へ合わせる上限
+ */
+export const HYBRID = { on: 0.55, off: 0.3, hold: 0.7, rise: 4, fall: 1.6, hMax: 0.06 } as const;
+
 interface Weights {
   idle: number;
   walk: number;
@@ -160,10 +168,26 @@ export class CrabRig {
    * 'cycle' = 従来（歩行周期と体の向きから足先を決める）。空中・遊泳・沈降・転倒・掘る前脚は、どちらでも従来の動き
    */
   // 'lead' = 接地主導（第 7 段階）：脚は接地 IK と同じ。CrabController が脚の接地から崖・段差の降り方を決める（縁の状態を脚へ渡す）
-  gait: 'cycle' | 'ik' | 'lead' = 'lead';
+  // 'hybrid' = ハイブリッド（第 10 段階。既定）：移動・支え・縁 / 面の手がかりは接地主導と同じ（CrabFeet は毎フレーム足場を探し、
+  // 支えを CrabController へ返す）。見た目の足運びだけを、単純な地形では従来の足運び A（歩行の位相で足先を振る）、複雑な所
+  // （縁・壁 / 天井・面の移り・足場の高さがそろわない・足場が消えた）では接地の足運び B へ、なめらかに混ぜて切り替える（footW）
+  gait: GaitStyleRig = 'hybrid';
   feet: CrabFeet | null = null;
-  /** 接地 IK を混ぜる割合（平滑化） */
+  /** 接地 IK（足場を探す・支え）を使う割合（平滑化。見た目の混ぜ具合ではない：CrabController へ支えを渡すかもこれで決める） */
   ikW = 0;
+  /**
+   * ハイブリッド：見た目の足運びを B（接地）へ寄せる割合（0 = A、1 = B）。複雑さ（hyNeed）が HYBRID.on を越えたら 1 へ、
+   * HYBRID.off を下回った状態が HYBRID.hold 秒続いたら 0 へ、上げは速く・下げはゆっくり（境目で行ったり来たりしない）
+   */
+  footW = 0;
+  hyNeed = 0;
+  private hyTarget = 0;
+  private hyHold = 0;
+  /** 見た目の重み（ikW × footW。'lead' / 'ik' では ikW）と、A の足運びの足先の高さを足場へ合わせる量（脚ごと、平滑化） */
+  visW = 0;
+  private readonly hOff = new Float32Array(8);
+  /** 切り替えの数え（自動検証用）：B へ / A へ切り替えた回数・B で過ごした時間 */
+  readonly hyStats = { toB: 0, toA: 0, bT: 0, t: 0 };
   private readonly rootInv = new THREE.Matrix4();
   private readonly fv = new THREE.Vector3();
 
@@ -252,13 +276,23 @@ export class CrabRig {
     const ik = this.gait !== 'cycle';
     const ikWant = ik && this.feet ? Math.max(0, 1 - W.air - W.swim - W.sink - tumble) * (grounded ? 1 : 0) : 0;
     this.ikW += (ikWant - this.ikW) * (1 - Math.exp(-dt * 10));
+    const hybrid = this.gait === 'hybrid';
+    const leadLike = this.gait === 'lead' || hybrid;
     if (this.feet && ik) {
-      this.feet.update(dt, this.root, this.body.elements[13], [c.vx, c.vy, c.vz], grounded, c.climbing ? c.climbN : null, this.gait === 'lead' ? c.ledge : null, this.gait === 'lead' ? c.faceHint : null);
-      if (this.ikW > 1e-3) {
-        const o = this.feet.bodyOffset;
-        this.qTmp.identity().slerp(o.q, this.ikW);
-        this.root.multiply(this.m1.makeTranslation(0, o.up * this.ikW, 0)).multiply(this.m2.makeRotationFromQuaternion(this.qTmp));
-      }
+      // ハイブリッド：歩いている間は B の踏み替えの番を A の位相に合わせる（A の組 0 が上がり始める ph = −π/2 を 0 にする）
+      const sync = hybrid ? { phase: (((c.stridePhase + Math.PI / 2) / (2 * Math.PI)) % 1 + 1) % 1, stride: Math.PI * 0.64 * (c.speed > 3.2 ? 0.1 : 0.075) } : null;
+      this.feet.update(dt, this.root, this.body.elements[13], [c.vx, c.vy, c.vz], grounded, c.climbing ? c.climbN : null, leadLike ? c.ledge : null, leadLike ? c.faceHint : null, sync);
+    }
+    if (hybrid && this.feet && ik) this.updateHybrid(dt, c, W.dig);
+    else {
+      this.footW = ik ? 1 : 0;
+      this.hyNeed = 0;
+    }
+    this.visW = this.ikW * this.footW;
+    if (this.feet && ik && this.visW > 1e-3) {
+      const o = this.feet.bodyOffset;
+      this.qTmp.identity().slerp(o.q, this.visW);
+      this.root.multiply(this.m1.makeTranslation(0, o.up * this.visW, 0)).multiply(this.m2.makeRotationFromQuaternion(this.qTmp));
     }
     this.rootInv.copy(this.root).invert();
 
@@ -336,8 +370,16 @@ export class CrabRig {
           fz += W.swim * szs;
           fy += W.swim * sys;
         }
+        // ハイブリッドで A の足運びを使っている間：足先の高さだけ、接地している足場の高さへ合わせる（浮き・めり込みを抑える。
+        // 前後・左右の振りは A のまま）
+        const k8 = (sx === 1 ? 0 : 4) + i;
+        if (this.gait === 'hybrid' && this.feet) {
+          const ly = this.feet.localY[k8];
+          if (Number.isFinite(ly)) this.hOff[k8] += (clamp(ly, -HYBRID.hMax, HYBRID.hMax) - this.hOff[k8]) * (1 - Math.exp(-dt * 12));
+          fy += this.hOff[k8] * this.ikW * (1 - this.footW) * (1 - W.dig);
+        }
         // 接地 IK：足先を世界に固定した足場（根の座標へ直す）へ。掘っている間の前脚は従来の動きのまま
-        const kI = this.ikW * (i === 0 ? 1 - W.dig : 1);
+        const kI = this.visW * (i === 0 ? 1 - W.dig : 1);
         if (kI > 1e-3 && this.feet) {
           const P = this.feet.feet[(sx === 1 ? 0 : 4) + i].pos;
           this.fv.set(P[0], P[1], P[2]).applyMatrix4(this.rootInv);
@@ -421,6 +463,33 @@ export class CrabRig {
       void k; void arm; void hand; void finger;
       this.poseGripClawL();
     }
+  }
+
+  /**
+   * ハイブリッド：見た目の足運びの混ぜ具合（footW）を決める。B を使う場面（1）：崖・段差の縁の近く（縁を見つけて近づいている・
+   * 縁で待っている・脚で支えて下ろしている）、壁・天井に張り付いている・逆さから起き上がっている、面の移り・次の面を探している・
+   * 縁を回り込んでいる。それ以外は足場の複雑さ（CrabFeet.rough）。掘っている間は前脚が掘る動きなので、足場の複雑さだけ
+   */
+  private updateHybrid(dt: number, c: CrabController, dig: number) {
+    const L = c.ledge;
+    const scene = c.climbing || c.frameMode || !!c.xfer || !!c.faceHint || c.mantling || (!!L && (L.lowering || L.committed || L.holdT > 0 || L.over > -0.35));
+    const need = dig > 0.5 ? this.feet!.rough : scene ? 1 : this.feet!.rough;
+    this.hyNeed = need;
+    if (need >= HYBRID.on) {
+      if (this.hyTarget === 0) this.hyStats.toB++;
+      this.hyTarget = 1;
+      this.hyHold = HYBRID.hold;
+    } else if (need <= HYBRID.off) {
+      this.hyHold -= dt;
+      if (this.hyHold <= 0 && this.hyTarget === 1) {
+        this.hyTarget = 0;
+        this.hyStats.toA++;
+      }
+    } else this.hyHold = HYBRID.hold;
+    const k = 1 - Math.exp(-dt * (this.hyTarget > this.footW ? HYBRID.rise : HYBRID.fall));
+    this.footW += (this.hyTarget - this.footW) * k;
+    this.hyStats.t += dt;
+    if (this.footW > 0.5) this.hyStats.bT += dt;
   }
 
   /** 右の鋏の、挟む構えを混ぜる前の角（このフレームのふだんの動き）と掌の傾き */

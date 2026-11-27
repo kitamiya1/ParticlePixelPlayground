@@ -138,7 +138,8 @@ export class AquaHud {
     setText(e['h-place'], h.place);
     e['h-place'].classList.toggle('hidden', h.placeHidden);
     e['h-sand'].style.width = `${Math.round(h.sand * 100)}%`;
-    setText(e['h-sandn'], `${h.cups}/${h.capCups}${h.cups >= h.capCups ? ' 満杯' : ''}`);
+    // （capCups ≤ 0 = 持てる量の上限なし（第 10 段階）：杯数だけ）
+    setText(e['h-sandn'], h.capCups > 0 ? `${h.cups}/${h.capCups}${h.cups >= h.capCups ? ' 満杯' : ''}` : `${h.cups}`);
     e['h-tool'].classList.toggle('off', !h.fill);
     setText(e['h-tool'], h.fill ? '盛る' : '');
     e['h-tool'].classList.toggle('fill', h.fill);

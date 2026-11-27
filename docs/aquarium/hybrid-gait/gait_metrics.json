@@ -1,0 +1,762 @@
+[
+    {
+        "scene":  "flat",
+        "gait":  "cycle",
+        "slip":  {
+                     "avg":  8.63,
+                     "max":  62.25
+                 },
+        "float":  0.077,
+        "pen":  0.006,
+        "jump":  0,
+        "tilt":  0.44,
+        "dv":  20.67,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  null,
+        "end":  {
+                    "state":  "idle",
+                    "dy":  0,
+                    "air":  0
+                }
+    },
+    {
+        "scene":  "flat",
+        "gait":  "lead",
+        "slip":  {
+                     "avg":  6.94,
+                     "max":  43.43
+                 },
+        "float":  0.028,
+        "pen":  0,
+        "jump":  0,
+        "tilt":  0.5,
+        "dv":  20.68,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  null,
+        "end":  {
+                    "state":  "idle",
+                    "dy":  0,
+                    "air":  0
+                }
+    },
+    {
+        "scene":  "flat",
+        "gait":  "hybrid",
+        "slip":  {
+                     "avg":  7.66,
+                     "max":  55.92
+                 },
+        "float":  0.003,
+        "pen":  0.002,
+        "jump":  0,
+        "tilt":  0.43,
+        "dv":  20.68,
+        "blend":  {
+                      "frames":  111,
+                      "slipAvg":  9.59,
+                      "slipMax":  55.92
+                  },
+        "hy":  {
+                   "toB":  0,
+                   "toA":  1,
+                   "bShare":  0.26
+               },
+        "end":  {
+                    "state":  "idle",
+                    "dy":  0,
+                    "air":  0
+                }
+    },
+    {
+        "scene":  "turnInPlace",
+        "gait":  "cycle",
+        "slip":  {
+                     "avg":  12.22,
+                     "max":  82.08
+                 },
+        "float":  0.055,
+        "pen":  0.037,
+        "jump":  0,
+        "tilt":  7.66,
+        "dv":  20.67,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  null,
+        "end":  {
+                    "state":  "idle",
+                    "dy":  -0.09,
+                    "air":  0
+                }
+    },
+    {
+        "scene":  "turnInPlace",
+        "gait":  "lead",
+        "slip":  {
+                     "avg":  5.63,
+                     "max":  53.45
+                 },
+        "float":  0.012,
+        "pen":  0,
+        "jump":  10,
+        "tilt":  7.67,
+        "dv":  20.68,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  null,
+        "end":  {
+                    "state":  "idle",
+                    "dy":  -0.08,
+                    "air":  0
+                }
+    },
+    {
+        "scene":  "turnInPlace",
+        "gait":  "hybrid",
+        "slip":  {
+                     "avg":  13.19,
+                     "max":  84.75
+                 },
+        "float":  0.013,
+        "pen":  0.008,
+        "jump":  0,
+        "tilt":  7.68,
+        "dv":  20.68,
+        "blend":  {
+                      "frames":  82,
+                      "slipAvg":  20.55,
+                      "slipMax":  84.75
+                  },
+        "hy":  {
+                   "toB":  0,
+                   "toA":  0,
+                   "bShare":  0
+               },
+        "end":  {
+                    "state":  "idle",
+                    "dy":  -0.08,
+                    "air":  0
+                }
+    },
+    {
+        "scene":  "turnWalk",
+        "gait":  "cycle",
+        "slip":  {
+                     "avg":  18.09,
+                     "max":  67.19
+                 },
+        "float":  0.102,
+        "pen":  0.004,
+        "jump":  0,
+        "tilt":  2.93,
+        "dv":  20.67,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  null,
+        "end":  {
+                    "state":  "idle",
+                    "dy":  0,
+                    "air":  0
+                }
+    },
+    {
+        "scene":  "turnWalk",
+        "gait":  "lead",
+        "slip":  {
+                     "avg":  6.48,
+                     "max":  60.62
+                 },
+        "float":  0.017,
+        "pen":  0,
+        "jump":  0,
+        "tilt":  2.93,
+        "dv":  20.68,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  null,
+        "end":  {
+                    "state":  "idle",
+                    "dy":  0,
+                    "air":  0
+                }
+    },
+    {
+        "scene":  "turnWalk",
+        "gait":  "hybrid",
+        "slip":  {
+                     "avg":  17.19,
+                     "max":  67.85
+                 },
+        "float":  0.048,
+        "pen":  0.002,
+        "jump":  0,
+        "tilt":  2.93,
+        "dv":  20.68,
+        "blend":  {
+                      "frames":  82,
+                      "slipAvg":  25.49,
+                      "slipMax":  67.85
+                  },
+        "hy":  {
+                   "toB":  0,
+                   "toA":  0,
+                   "bShare":  0
+               },
+        "end":  {
+                    "state":  "idle",
+                    "dy":  0,
+                    "air":  0
+                }
+    },
+    {
+        "scene":  "steep",
+        "gait":  "cycle",
+        "slip":  {
+                     "avg":  15.98,
+                     "max":  87.1
+                 },
+        "float":  0.002,
+        "pen":  0.037,
+        "jump":  0,
+        "tilt":  9.19,
+        "dv":  20.63,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  null,
+        "end":  {
+                    "state":  "idle",
+                    "dy":  1.93,
+                    "air":  16
+                }
+    },
+    {
+        "scene":  "steep",
+        "gait":  "lead",
+        "slip":  {
+                     "avg":  8.62,
+                     "max":  63.45
+                 },
+        "float":  0.033,
+        "pen":  0,
+        "jump":  2,
+        "tilt":  9.1,
+        "dv":  41.21,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  null,
+        "end":  {
+                    "state":  "idle",
+                    "dy":  1.74,
+                    "air":  0
+                }
+    },
+    {
+        "scene":  "steep",
+        "gait":  "hybrid",
+        "slip":  {
+                     "avg":  10.74,
+                     "max":  60.26
+                 },
+        "float":  0.013,
+        "pen":  0.002,
+        "jump":  3,
+        "tilt":  9.1,
+        "dv":  47.73,
+        "blend":  {
+                      "frames":  111,
+                      "slipAvg":  15.43,
+                      "slipMax":  48.88
+                  },
+        "hy":  {
+                   "toB":  0,
+                   "toA":  1,
+                   "bShare":  0.18
+               },
+        "end":  {
+                    "state":  "idle",
+                    "dy":  1.73,
+                    "air":  3
+                }
+    },
+    {
+        "scene":  "rockEdge",
+        "gait":  "cycle",
+        "slip":  {
+                     "avg":  8.86,
+                     "max":  85.79
+                 },
+        "float":  0.202,
+        "pen":  0.041,
+        "jump":  0,
+        "tilt":  3.52,
+        "dv":  28.7,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  null,
+        "end":  {
+                    "state":  "idle",
+                    "dy":  -1.95,
+                    "air":  13
+                }
+    },
+    {
+        "scene":  "rockEdge",
+        "gait":  "lead",
+        "slip":  {
+                     "avg":  9.23,
+                     "max":  128.07
+                 },
+        "float":  0.128,
+        "pen":  0.002,
+        "jump":  15,
+        "tilt":  8.04,
+        "dv":  83.22,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  null,
+        "end":  {
+                    "state":  "idle",
+                    "dy":  -1.12,
+                    "air":  0
+                }
+    },
+    {
+        "scene":  "rockEdge",
+        "gait":  "hybrid",
+        "slip":  {
+                     "avg":  7.62,
+                     "max":  104.81
+                 },
+        "float":  0.147,
+        "pen":  0.001,
+        "jump":  26,
+        "tilt":  8.41,
+        "dv":  97.41,
+        "blend":  {
+                      "frames":  40,
+                      "slipAvg":  2.04,
+                      "slipMax":  13.02
+                  },
+        "hy":  {
+                   "toB":  0,
+                   "toA":  1,
+                   "bShare":  0.92
+               },
+        "end":  {
+                    "state":  "idle",
+                    "dy":  -1.23,
+                    "air":  0
+                }
+    },
+    {
+        "scene":  "logOver",
+        "gait":  "cycle",
+        "slip":  {
+                     "avg":  24.52,
+                     "max":  103.54
+                 },
+        "float":  0.426,
+        "pen":  0.216,
+        "jump":  13,
+        "tilt":  22.3,
+        "dv":  71.21,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  null,
+        "end":  {
+                    "state":  "climb",
+                    "dy":  0.42,
+                    "air":  63
+                }
+    },
+    {
+        "scene":  "logOver",
+        "gait":  "lead",
+        "slip":  {
+                     "avg":  3.72,
+                     "max":  114.71
+                 },
+        "float":  0.22,
+        "pen":  0.023,
+        "jump":  3,
+        "tilt":  8.56,
+        "dv":  84.14,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  null,
+        "end":  {
+                    "state":  "idle",
+                    "dy":  1.43,
+                    "air":  1
+                }
+    },
+    {
+        "scene":  "logOver",
+        "gait":  "hybrid",
+        "slip":  {
+                     "avg":  4.78,
+                     "max":  185.21
+                 },
+        "float":  0.12,
+        "pen":  0.021,
+        "jump":  5,
+        "tilt":  8.68,
+        "dv":  91.97,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  {
+                   "toB":  0,
+                   "toA":  0,
+                   "bShare":  1
+               },
+        "end":  {
+                    "state":  "climb",
+                    "dy":  0.94,
+                    "air":  1
+                }
+    },
+    {
+        "scene":  "cliff",
+        "gait":  "cycle",
+        "slip":  {
+                     "avg":  23.86,
+                     "max":  129.68
+                 },
+        "float":  0.171,
+        "pen":  0.227,
+        "jump":  37,
+        "tilt":  10.47,
+        "dv":  138,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  null,
+        "end":  {
+                    "state":  "idle",
+                    "dy":  -3.05,
+                    "air":  76
+                }
+    },
+    {
+        "scene":  "cliff",
+        "gait":  "lead",
+        "slip":  {
+                     "avg":  5.33,
+                     "max":  163.74
+                 },
+        "float":  0.12,
+        "pen":  0.056,
+        "jump":  16,
+        "tilt":  9.87,
+        "dv":  93.63,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  null,
+        "end":  {
+                    "state":  "idle",
+                    "dy":  -2.97,
+                    "air":  0
+                }
+    },
+    {
+        "scene":  "cliff",
+        "gait":  "hybrid",
+        "slip":  {
+                     "avg":  3.86,
+                     "max":  75.94
+                 },
+        "float":  0.099,
+        "pen":  0.032,
+        "jump":  12,
+        "tilt":  9.85,
+        "dv":  94.27,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  {
+                   "toB":  0,
+                   "toA":  0,
+                   "bShare":  1
+               },
+        "end":  {
+                    "state":  "idle",
+                    "dy":  -2.94,
+                    "air":  0
+                }
+    },
+    {
+        "scene":  "wallStart",
+        "gait":  "cycle",
+        "slip":  {
+                     "avg":  13.24,
+                     "max":  73.76
+                 },
+        "float":  0.325,
+        "pen":  0.1,
+        "jump":  10,
+        "tilt":  23.51,
+        "dv":  108.52,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  null,
+        "end":  {
+                    "state":  "idle",
+                    "dy":  3.1,
+                    "air":  4
+                }
+    },
+    {
+        "scene":  "wallStart",
+        "gait":  "lead",
+        "slip":  {
+                     "avg":  5.91,
+                     "max":  83.39
+                 },
+        "float":  0.067,
+        "pen":  0.086,
+        "jump":  2,
+        "tilt":  7.85,
+        "dv":  117.53,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  null,
+        "end":  {
+                    "state":  "climb",
+                    "dy":  1.88,
+                    "air":  0
+                }
+    },
+    {
+        "scene":  "wallStart",
+        "gait":  "hybrid",
+        "slip":  {
+                     "avg":  4.73,
+                     "max":  118.68
+                 },
+        "float":  0.032,
+        "pen":  0.077,
+        "jump":  10,
+        "tilt":  7.7,
+        "dv":  91.5,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  {
+                   "toB":  0,
+                   "toA":  0,
+                   "bShare":  1
+               },
+        "end":  {
+                    "state":  "climb",
+                    "dy":  2.31,
+                    "air":  0
+                }
+    },
+    {
+        "scene":  "wallCeil",
+        "gait":  "cycle",
+        "slip":  {
+                     "avg":  49.83,
+                     "max":  90.56
+                 },
+        "float":  0.011,
+        "pen":  0.752,
+        "jump":  0,
+        "tilt":  9.35,
+        "dv":  68.82,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  null,
+        "end":  {
+                    "state":  "idle",
+                    "dy":  -0.01,
+                    "air":  54
+                }
+    },
+    {
+        "scene":  "wallCeil",
+        "gait":  "lead",
+        "slip":  {
+                     "avg":  2.07,
+                     "max":  82.35
+                 },
+        "float":  0.052,
+        "pen":  0.315,
+        "jump":  0,
+        "tilt":  9.35,
+        "dv":  66.83,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  null,
+        "end":  {
+                    "state":  "climb",
+                    "dy":  0.08,
+                    "air":  0
+                }
+    },
+    {
+        "scene":  "wallCeil",
+        "gait":  "hybrid",
+        "slip":  {
+                     "avg":  2.84,
+                     "max":  88.88
+                 },
+        "float":  0.042,
+        "pen":  0.356,
+        "jump":  0,
+        "tilt":  9.22,
+        "dv":  214.52,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  {
+                   "toB":  0,
+                   "toA":  0,
+                   "bShare":  1
+               },
+        "end":  {
+                    "state":  "idle",
+                    "dy":  0.03,
+                    "air":  0
+                }
+    },
+    {
+        "scene":  "tunnel",
+        "gait":  "cycle",
+        "slip":  {
+                     "avg":  20.66,
+                     "max":  92
+                 },
+        "float":  0,
+        "pen":  0.484,
+        "jump":  0,
+        "tilt":  13.45,
+        "dv":  47.75,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  null,
+        "end":  {
+                    "state":  "climb",
+                    "dy":  0.47,
+                    "air":  22
+                }
+    },
+    {
+        "scene":  "tunnel",
+        "gait":  "lead",
+        "slip":  {
+                     "avg":  6.16,
+                     "max":  167.1
+                 },
+        "float":  0.015,
+        "pen":  0.336,
+        "jump":  12,
+        "tilt":  9.35,
+        "dv":  36.51,
+        "blend":  {
+                      "frames":  0,
+                      "slipAvg":  0,
+                      "slipMax":  0
+                  },
+        "hy":  null,
+        "end":  {
+                    "state":  "idle",
+                    "dy":  0.2,
+                    "air":  2
+                }
+    },
+    {
+        "scene":  "tunnel",
+        "gait":  "hybrid",
+        "slip":  {
+                     "avg":  7.62,
+                     "max":  147.64
+                 },
+        "float":  0,
+        "pen":  0.363,
+        "jump":  9,
+        "tilt":  9.35,
+        "dv":  45.28,
+        "blend":  {
+                      "frames":  102,
+                      "slipAvg":  15.11,
+                      "slipMax":  147.64
+                  },
+        "hy":  {
+                   "toB":  1,
+                   "toA":  1,
+                   "bShare":  0.81
+               },
+        "end":  {
+                    "state":  "idle",
+                    "dy":  0.2,
+                    "air":  3
+                }
+    }
+]
