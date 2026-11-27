@@ -79,10 +79,12 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - uses: android-actions/setup-android@v3
+      # ランナーに入っている Android SDK（ANDROID_HOME）を使う。NDK は版を固定して入れる（SDK Platform・Build-Tools は Gradle が取る）
       - name: Install NDK
         run: |
-          sdkmanager --install "ndk;${NDK_VERSION}"
+          SDKM="$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" --install "ndk;${NDK_VERSION}" > /dev/null
           echo "NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
         with:
