@@ -30,6 +30,11 @@ tauri-plugin-fs = "2"
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2 = "0.6"
 
+[features]
+# 自動検証（環境変数 AQUA_SELFTEST）をリリース版でも受け付ける。CI の試験用ビルドだけで使う（`tauri ios build --features selftest`）。
+# 配布するビルドには付けない（付けなければ、リリース版は環境変数を読まない）
+selftest = []
+
 [profile.release]
 codegen-units = 1
 lto = true

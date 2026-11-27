@@ -222,6 +222,8 @@ export class SaveMenu {
         <button type="button" data-k="export">書き出す（ファイル）</button>
         <button type="button" data-k="import">読み込む（ファイル）</button>
         <button type="button" data-k="orphan" hidden>使わなかった進捗を書き出す</button>
+        <button type="button" data-k="altexport" hidden>残したもう一方の進捗を書き出す</button>
+        <button type="button" data-k="altswap" hidden>もう一方の進捗に切り替える</button>
         <button type="button" data-k="persist" hidden>消されにくくする</button>
         <button type="button" data-k="reset" class="danger">初期状態に戻す…</button>
       </div>
@@ -267,6 +269,26 @@ export class SaveMenu {
       if (t && !(await downloadText(t, fileName(Date.now(), '-使わなかった進捗'), d.toast))) return;
       s.store.dropOrphan();
       this.refresh();
+    });
+    // 引き継ぎで残したもう一方の進捗（AquaSave の adoptFallback）：書き出したら消す（ファイルから読み込めば戻せる）。
+    // 切り替えは、いまの進捗をもう一方として残してから置き換える（どちらも消えない）
+    q('altexport').addEventListener('click', async () => {
+      const t = await s.store.altText();
+      if (t && !(await downloadText(t, fileName(s.store.info.alt?.savedAt ?? Date.now(), '-もう一方の進捗'), d.toast))) return;
+      await s.store.dropAlt();
+      this.refresh();
+    });
+    q('altswap').addEventListener('click', async () => {
+      if (s.store.conflict) return d.toast('別のタブと競合しているため、切り替えません');
+      // いまの進捗を保存してから入れ替える（入れ替えた後は、いまの進捗が「もう一方」になる）。保存できなければ入れ替えない
+      if (!(await s.flush())) return d.toast(`いまの進捗を保存できなかったため、切り替えません（${s.store.stats.lastError || '競合'}）`);
+      s.suspended = true;
+      if (!(await s.store.swapAlt())) {
+        s.suspended = !!s.store.conflict;
+        d.toast(`切り替えられませんでした（${s.store.stats.lastError || '残した進捗を読めません'}）`);
+        return;
+      }
+      location.reload();
     });
     const persist = q('persist');
     persist.addEventListener('click', async () => {
@@ -344,6 +366,9 @@ export class SaveMenu {
     q('note').textContent = this.d.bootNote ?? '';
     q('now').toggleAttribute('disabled', !!s.store.conflict || s.store.kind === 'memory');
     q('orphan').hidden = !s.store.info.orphan;
+    const alt = s.store.info.alt;
+    q('altexport').hidden = q('altswap').hidden = !alt;
+    if (alt) q('altswap').textContent = `もう一方の進捗（${new Date(alt.savedAt).toLocaleString()} の保存）に切り替える`;
     // 消されにくくする：対応していて、まだ頼んでいないときだけ
     const persist = q('persist');
     const sm = navigator.storage as StorageManager | undefined;

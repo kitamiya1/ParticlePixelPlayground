@@ -10,12 +10,29 @@
 | ---: | --- | --- | --- |
 | 1 | IndexedDB（DB `ppp-aquarium`、ストア `saves`） | ふつうのブラウザ（スマホ含む） | 下の `SaveData` を構造化複製のまま（空洞は `Float64Array`） |
 | 2 | localStorage（鍵 `ppp-aquarium:<鍵>`） | IndexedDB が開けない（古いブラウザのプライベートモード等）・開くのに 4 秒以上かかる（主スレッドが空いていた時間で数える。重い生成の間は数えない） | 書き出しファイルと同じ JSON 文字列 |
-
-保存先は起動のたびに選び直す。IndexedDB と localStorage の中身は互いに見ないので、ある起動で localStorage へ落ちて保存した進捗は、
-次に IndexedDB が開けた起動では読まれない（以前は打ち切りを壁時計で数えていたため、重い生成と重なった初回起動で起きた。
-docs/app-packaging/report.md）。
 | 3 | メモリ | どちらも使えない・URL に `?nosave`（自動検証用） | 閉じると消える（メニューに「保存しません」と出す） |
 | 補 | localStorage（鍵 `ppp-aquarium:journal:<タブ>`） | IndexedDB のとき、ページが隠れる・閉じる直前だけ | 閉じる直前の控え（6 章） |
+
+保存先は起動のたびに選び直す。localStorage へ落ちた起動（メニューと短い知らせで「予備の保存先」を使っていると出す）で保存した進捗は、
+次に IndexedDB が開けた起動で引き継ぐ（1.1）。以前の版は互いを見なかったため、その進捗が読まれず、消えたように見えた
+（docs/app-packaging/report.md 5.1）。
+
+### 1.1 予備の保存先（localStorage）からの引き継ぎ（`SaveStore.adoptFallback`、2026-11-27）
+
+IndexedDB が開けた起動で、読み込みの前に localStorage の `ppp-aquarium:current`（読めなければ `backup`）を調べる。
+
+| localStorage | IndexedDB の `current` | すること |
+| --- | --- | --- |
+| 無い・どちらも検証を通らない | — | 何もしない（localStorage にも触れない） |
+| 正常 | 同じ識別子（引き継ぎ済み） | localStorage の分を消すだけ |
+| 正常 | 無い・読めない | localStorage の進捗を `current` にする（読めない `current` は先に `corrupt-*` へ隔離）。知らせ「予備の保存先の進捗を引き継ぎました」 |
+| 正常 | 別の正常な進捗 | **どちらも上書きしない**。`savedAt` が新しい方を `current` にし、もう一方を `alt-<時刻>` に残す（IndexedDB の方を残すときは `current` を書き換えるのと同じトランザクションで。`backup` にも回る）。知らせとメニューの説明を出す |
+
+- IndexedDB へ書けてから（トランザクションの完了）localStorage の `current` / `backup` を消す。読めなかった localStorage の `current` は消す前に `corrupt-*` へ写す。
+- 書くときは `current` の識別子を比べる（5 章）。その間にほかのタブが `current` を進めていたら何もせず、localStorage の分も残す（次の起動でもう一度）。
+- `alt-*` は最大 3 個（古い順に消す。同じ識別子は足さない）。メニューの「残したもう一方の進捗を書き出す」（書き出したら消す）と
+  「もう一方の進捗に切り替える」（いまの進捗を保存してから `alt` に残し、置き換えて読み込み直す。どちらも消えない）。
+- 確認：`docs/aquarium/tools/save_fallback_test.js`（F1〜F6。8 章の後の表）。
 
 IndexedDB を選んだ理由：掘った空洞は最大 6000 個 × 7 個の数（倍精度で 336 KB）。JSON 化せずに型付き配列のまま入れられ、
 書き込みは非同期で画面を止めない（2955 個・166 KB で書き込み 1.6 ms、集める処理 0.8 ms）。localStorage は 5 MB 程度の上限と
@@ -28,6 +45,7 @@ IndexedDB を選んだ理由：掘った空洞は最大 6000 個 × 7 個の数�
 | `current` | いまの進捗（世代 `rev` と更新の識別子 `saveId` 付き） |
 | `backup` | 1 つ前の正常なデータ。`current` が正常と分かっているとき（読めた・自分で書いた・置き換えのときは検証を通るとき）だけ、書く前に `current` をここへ写す（1 つのトランザクション） |
 | `corrupt-<時刻>` | 読めなかったデータの隔離（最大 3 個。古い順に消す） |
+| `alt-<時刻>-<乱数>` | 予備の保存先からの引き継ぎで `current` にしなかった方の正常な進捗（最大 3 個。1.1） |
 
 ## 2. 読み込みの流れ（起動時）
 
@@ -189,3 +207,18 @@ iPhone・iPad の Safari は、しばらく（目安 7 日）開かなかった�
 | 版 2 の書き出し → 初期状態に戻す → 読み込み | 完全に一致 |
 | 壊れた版 2（種類 2・長さが 7 の倍数・半径 0.9・砂が負 / NaN / 100 万・版 3・長さの合わない版 1） | すべて拒否（版 3 は「ページを更新してください」）。容量を少し超える砂（5）は 4 に丸めて読む |
 | 複数タブ・控え・保存の失敗（`save_conflict_test.js` の A〜H） | 版 1 のときと同じ結果（競合の検知・書き出し・置き換え・初期状態・隔離して backup から再開・控えから再開・使わなかった進捗・失敗の再試行） |
+
+## 10. 予備の保存先からの引き継ぎの確認（2026-11-27、開発サーバー、`docs/aquarium/tools/save_fallback_test.js`）
+
+IndexedDB を開けない起動は、init script で `window.indexedDB` を消したページ（URL に `noidb`）で作った。場面ごとに新しいブラウザの文脈。
+
+| 場面 | 結果 |
+| --- | --- |
+| F1：IndexedDB が空。予備で 9 個掘って保存 → 次の起動 | `imported`・穴 9 で再開。localStorage の `current` / `backup` は消え、IndexedDB の `current` に 9。もう一度開いても同じ（引き継ぎは 1 回だけ） |
+| F2：IndexedDB に A（12 個）、その後の予備の起動で B（6 個） | `kept`・新しい B で再開、A は `alt` に 1 個。「切り替える」→ A で再開・B が `alt` に。「書き出す」→ B（6 個）のファイルが出て `alt` は消える |
+| F3：予備の B が古い（以前の版の不具合の残りに見立てる） | `kept`・IndexedDB の A のまま、B は `alt` |
+| F4：localStorage の `current` が壊れていて `backup` も無い | 何もしない（IndexedDB の進捗で再開、localStorage はそのまま） |
+| F5：IndexedDB が空、localStorage の `current` が壊れ `backup` が正常 | `backup` を引き継ぐ。壊れた `current` は `corrupt-*` へ写してから消す |
+| F6：引き継ぐ読みと書きの間にほかのタブが `current` を書いた | 引き継がず（比べて書くで止まる）、localStorage の分は残る |
+
+あわせて `save_conflict_test.js` の A〜H（複数タブ・控え・失敗）が従来と同じ結果であることを確かめた。

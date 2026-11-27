@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 通信の権限（INTERNET）は debug ビルドだけ（src/debug/AndroidManifest.xml。開発サーバーへつなぐため）。ゲームは外へ通信しない -->
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />

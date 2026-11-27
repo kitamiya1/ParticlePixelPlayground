@@ -1,11 +1,21 @@
 # アプリ化の実証試験（iOS）：macOS ランナーで Tauri 2 の Xcode プロジェクトを作り、署名なしでビルドし、シミュレーターで起動して画面を撮る。
 # 署名（Apple Developer Program・証明書・プロビジョニング）は使わない。実機へ入れる .ipa はここでは作らない。
 # 成果物（Actions の Artifacts）：Xcode プロジェクト（gen/apple）、シミュレーター用 .app、ビルドログ、起動の試験の画面写真・記録・まとめ（sim/summary.md）。
-name: App PoC (iOS, unsigned)
+# 試験用のビルドは機能 selftest 付き（環境変数 AQUA_SELFTEST で自動検証を動かす。配布するビルドには付けない：src-tauri/Cargo.toml）。
+name: App (iOS, unsigned, simulator test)
 
 on:
   push:
-    branches: [feat/app-packaging-poc]
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'src-tauri/**'
+      - 'aquarium.html'
+      - 'package*.json'
+      - 'vite.config.ts'
+      - '.github/workflows/app-ios.yml'
+      - 'docs/app-packaging/tools/ios-sim-*'
+  pull_request:
     paths:
       - 'src/**'
       - 'src-tauri/**'
@@ -18,6 +28,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: app-ios-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   ios:
@@ -61,7 +75,7 @@ jobs:
       - name: tauri ios build for iOS Simulator (aarch64-sim, no signing team)
         run: |
           set -o pipefail
-          npx tauri ios build --target aarch64-sim --ci --verbose 2>&1 | tee "$OUT/tauri-ios-build-sim.log"
+          npx tauri ios build --target aarch64-sim --features selftest --ci --verbose 2>&1 | tee "$OUT/tauri-ios-build-sim.log"
 
       - name: tauri ios build for iOS device (aarch64) — expected to need a signing team
         continue-on-error: true

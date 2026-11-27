@@ -531,12 +531,21 @@ async function boot() {
   const bootNote =
     loaded.status === 'recovered' ? `保存データが壊れていたため、1 つ前のデータから再開しました（${loaded.error}）。壊れたデータは別に残しています。`
     : loaded.status === 'corrupt' ? `保存データを読み込めなかったため、初期状態で始めました（${loaded.error}）。読めなかったデータは別に残しています。`
+    : store.info.fallback?.result === 'imported' ? '前回は保存先（IndexedDB）を開けなかったため、予備の保存先（localStorage）に保存していました。その進捗を引き継いで再開しました。'
+    : store.info.fallback?.result === 'kept' ? `前回は保存先（IndexedDB）を開けず、予備の保存先（localStorage）に保存していました。両方に別の進捗があったため、保存した時刻が新しい方（${store.info.fallback.chosen === 'localStorage' ? '前回の起動' : 'IndexedDB'}の進捗）で再開し、もう一方は消さずに残しました。下のボタンで書き出す・切り替えることができます。`
+    : store.info.alt ? '以前の引き継ぎで残したもう一方の進捗があります。下のボタンで書き出す・切り替えることができます。'
+    : store.kind === 'localStorage' ? '保存先（IndexedDB）を開けなかったため、予備の保存先（localStorage）に保存しています。IndexedDB に以前の進捗があっても消えてはいません。次に IndexedDB を開けた起動で自動で引き継ぎます（両方に進捗があれば両方残します）。'
     : store.info.fromJournal ? '前回は閉じる・読み込み直す直前の保存が終わらなかったため、その直前の控えから再開しました（進捗は失われていません）。'
     : store.info.orphan ? '前回閉じる直前の進捗（控え）は、別のタブの保存の方が新しかったため使いませんでした。「使わなかった進捗を書き出す」でファイルに残せます。'
     : noSave ? '自動検証のため保存しません（?nosave）。'
     : null;
   // 知らせは利用者が気にすべきときだけ（控えから戻したのは、再読み込み・タブを閉じたときのふつうの流れなので出さない）
-  const bootToast = loaded.status === 'recovered' ? '保存データを 1 つ前から復元しました' : loaded.status === 'corrupt' ? '保存データを読めず、初期状態で始めました' : store.info.orphan ? '使わなかった進捗があります（セーブのメニュー）' : null;
+  const bootToast = loaded.status === 'recovered' ? '保存データを 1 つ前から復元しました' : loaded.status === 'corrupt' ? '保存データを読めず、初期状態で始めました'
+    : store.info.fallback?.result === 'kept' ? '別の保存先にも進捗がありました。両方残しています（セーブのメニュー）'
+    : store.info.fallback?.result === 'imported' ? '予備の保存先の進捗を引き継ぎました'
+    // 予備の保存先へ落ちた起動で、そこが空のとき（以前の進捗が見えないので知らせる。いつも localStorage の環境では最初の 1 回だけ）
+    : store.kind === 'localStorage' && loaded.status === 'empty' ? '保存先を開けず、予備の保存先を使っています（セーブのメニュー）'
+    : store.info.orphan ? '使わなかった進捗があります（セーブのメニュー）' : null;
   if (bootToast && !noSave) setTimeout(() => toast(bootToast), 600);
   // 掘った・盛った砂の量を測っている途中なら測り終えてから集める（保存する地形と手持ちの砂が食い違わない）
   const gather = (): SaveData => (world.dig.measureStep(Infinity), {

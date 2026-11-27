@@ -5,8 +5,13 @@
 // - iOS の WebView の余白：WKWebView のスクロールビューは既定で安全領域（ホームインジケーター・ノッチ）の分だけ
 //   中身を縮めるので、画面の下に WebView の地の色の帯が出る。縮めない（never）にして、ページ側の viewport-fit=cover と
 //   env(safe-area-inset-*) でボタンを安全領域の内側へ置く
+/// ページから書ける 1 行の長さの上限（文字）。これを超える分は切る（記録のファイルを大きくしない）
+const DIAG_LINE_MAX: usize = 2000;
+
 #[tauri::command]
 fn diag_log(app: tauri::AppHandle, line: String) {
+  // 改行を含めさせない（1 回の呼び出しで記録の行を偽らない）
+  let line: String = line.chars().take(DIAG_LINE_MAX).map(|c| if c.is_control() { ' ' } else { c }).collect();
   diag_write(&app, &line);
 }
 
@@ -30,9 +35,18 @@ fn diag_write(app: &tauri::AppHandle, line: &str) {
   }
 }
 
-/// 自動検証の指定（環境変数 AQUA_SELFTEST。iOS シミュレーターでは `SIMCTL_CHILD_AQUA_SELFTEST` で渡す）。ふだんは None
+/// 自動検証の指定（環境変数 AQUA_SELFTEST。iOS シミュレーターでは `SIMCTL_CHILD_AQUA_SELFTEST` で渡す）。ふだんは None。
+/// 読むのは debug ビルドと、機能 selftest を付けたビルド（CI）だけ。配布するリリース版は環境変数を見ない
+/// （自動検証の gpu はその場で掘って保存するので、外から利用者の進捗を変えさせない）
 #[tauri::command]
 fn diag_selftest() -> Option<String> {
+  selftest_env()
+}
+
+fn selftest_env() -> Option<String> {
+  if !cfg!(any(debug_assertions, feature = "selftest")) {
+    return None;
+  }
   std::env::var("AQUA_SELFTEST").ok().filter(|s| !s.is_empty())
 }
 
@@ -76,7 +90,7 @@ pub fn run() {
       }
       diag_write(
         app.handle(),
-        &format!("[native] start {} selftest={:?}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0), std::env::var("AQUA_SELFTEST").ok()),
+        &format!("[native] start {} selftest={:?}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0), selftest_env()),
       );
       #[cfg(target_os = "ios")]
       ios_fill_safe_area(app);

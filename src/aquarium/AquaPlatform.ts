@@ -53,9 +53,13 @@ export function diag(line: string) {
   if (IS_APP) void import('@tauri-apps/api/core').then(({ invoke }) => invoke('diag_log', { line: s })).catch(() => {});
 }
 
-/** 自動検証の指定（アプリ版：環境変数 AQUA_SELFTEST。ブラウザ版：URL の ?selftest=…）。無ければ null */
+/**
+ * 自動検証の指定（アプリ版：環境変数 AQUA_SELFTEST。ブラウザ版：URL の ?selftest=…）。無ければ null。
+ * URL の指定は開発サーバー（npm run dev）だけで受け付ける：gpu はその場で掘って保存するので、公開版ではリンクから
+ * 利用者の進捗を変えさせない。アプリ版の環境変数も、ネイティブ側が debug / 機能 selftest のビルドでだけ返す（src-tauri/src/lib.rs）
+ */
 export async function selftestMode(): Promise<string | null> {
-  const q = new URLSearchParams(location.search).get('selftest');
+  const q = import.meta.env.DEV ? new URLSearchParams(location.search).get('selftest') : null;
   if (q) return q;
   if (!IS_APP) return null;
   try {

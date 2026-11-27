@@ -66,7 +66,7 @@ Electron・Capacitor への切り替えが要るほどの互換性の問題は�
 | （第 3 段）iOS シミュレーター用 .app | 7.7 MB | — | [Actions run 45989742560](https://github.com/kitamiya1/ParticlePixelPlayground/actions/runs/45989742560) の Artifacts `ios-poc-6` |
 
 ビルドの時間（開発機・初回）：Windows 4 分 43 秒（2 回目以降 3 分）、Android release 4 ABI 17 分 52 秒（2 回目 6 分）、debug x86_64 4 分 31 秒、iOS（CI）約 11 分。
-ログ：`docs/app-packaging/logs/`。
+ログ：開発機の `docs/app-packaging/logs/`（`.gitignore` の `*.log` でリポジトリには入っていない。10 章の 8）。
 
 ## 4. 動作検証
 
@@ -123,8 +123,8 @@ Electron・Capacitor への切り替えが要るほどの互換性の問題は�
 - ブラウザでも起きる：Edge の新しいプロファイルで同じく `localStorage` へ落ちた（`results/browser-edge/first.json`、生成 4.7 秒）。生成が遅い端末ほど起きやすい。
 - 修正：打ち切りまでの時間を「主スレッドが空いていた時間」で数える（1 回の刻みで数えるのは最大 0.5 秒）。修正後は Edge の新しいプロファイル・アプリ版の初回とも `indexeddb`、
   再起動で復元された。
-- 残ること：本当に 4 秒以上開けなかった起動のあと、次の起動で IndexedDB が開けると、localStorage に保存した分は読まれない（保存先を起動ごとに選び直し、互いを見ない）。
-  移す処理（IndexedDB が空で localStorage に current があれば取り込む）を足すかは別に決める。
+- ~~残ること：本当に 4 秒以上開けなかった起動のあと、次の起動で IndexedDB が開けると、localStorage に保存した分は読まれない。~~
+  → **12 章で対応**：IndexedDB が開けた起動で localStorage の進捗を引き継ぐ（両方に別の進捗があれば両方残す）。
 
 ### 5.2 セーブの書き出し・読み込みが WebView では動かない（アプリ側の小さな修正で解決）
 
@@ -153,7 +153,7 @@ iOS の保存ダイアログ（ファイル App）での書き出し・読み込
 - 実行ファイルの名前が `app.exe` だった → `mainBinaryName: aquarium-explore` にした（上書き更新で入れ替わることを確認）。
 - Android の DevTools の画面写真に WebGL が写らない（試験道具の制約。ゲームの問題ではない）。
 - Android の `navigator.onLine` は機内モードでも `true` だった（エミュレーター。ゲームは使っていない）。
-- CSP は無効（`"csp": null`）のまま。外部への通信が無いので試作では問題ないが、公開前に `default-src 'self'` などを入れる。
+- ~~CSP は無効（`"csp": null`）のまま。~~ → 12 章で有効にした。
 
 ## 6. 代替手段の比較（Electron・Capacitor）
 
@@ -246,6 +246,13 @@ Tauri で重大な互換性の問題は出なかったので、乗り換えの�
    **ページの主スレッドが 21.7 秒止まっていた**（`finally received commit 21.69s after`）ことが分かった（11 章）。
 7. （第 3 段）この報告の 4.2 の表の Windows の FPS 75 は、第 3 段の同じ条件の比べでは第 2 段・第 3 段の版とも 69〜70（測った日の環境の差。変更による差ではない：
    `results/windows-stage3/README.md`）。
+8. （マージ前）3 章の「ログ：`docs/app-packaging/logs/`」は開発機にだけあり、`.gitignore` の `*.log` でリポジトリに入っていなかった（書き直した）。
+9. （マージ前）2 章は権限を「保存・開くダイアログとテキストの読み書きだけ」としていたが、`capabilities/default.json` には `core:default`（窓・イベント・メニュー・トレイなどの既定の権限）も入っていた。12 章で外した。
+10. （マージ前）`docs/aquarium/save-format.md` の保存先の表は、3 行目（メモリ）・補の行が説明の段落の後ろにはみ出し、表が切れていた（直した）。
+11. （マージ前）`docs/aquarium/roadmap.md`：冒頭の「最終更新 2026-11-26」より後の段階（8 章の第 7〜10 段階）が載っている。2 章の見出し「main = `2759275` + この PR」・砂の「容量 80 杯」は、
+    第 10 段階で持てる量の上限をなくした後のコード（`SAND.maxStore`）と合わない。今回は冒頭の日付と 9 章（アプリ化）だけ直し、2 章は変えていない。
+12. （マージ前・観察）Windows の再起動の試験で、保存した手持ちの砂 7.27 がそのまま読み込まれた後、第 10 段階の「砂の救済」（地形から数えた量より手持ちが少なければ戻す）で 8.55 に増えた。
+    ゲームの main のコード（PR #20）の動きで、この PR の変更とは関係しない。救済の数え方が多めに出ていないかは別に確かめる（12.4）。
 
 ## 11. 第 3 段：iOS の初回起動の白い画面・画面の下の帯・描画の喪失からの復旧
 
@@ -340,3 +347,116 @@ Tauri で重大な互換性の問題は出なかったので、乗り換えの�
 - アプリを裏へ回す・ロックする・電話が来るなどで GPU が止められたとき、復旧の知らせ（`webglcontextlost` / `restored`）が来るか・その場で戻るか。
 - 音・タッチ・保存と復元・ファイル App での書き出し / 読み込み（いずれも iOS では未確認）。
 - Android 実機（Adreno / Mali）での描画の準備の時間と、GPU のリセットからの復旧。
+## 12. main へのマージ前の対応（2026-11-27）
+
+方針：実証試験は十分な成果が得られたと判断し、**Tauri 2 を正式なアプリ化の基盤**にする（`docs/aquarium/roadmap.md` 9 章）。マージ前に次を対応した。
+
+### 12.1 セーブ：予備の保存先（localStorage）からの引き継ぎ（5.1 の残り）
+
+- `SaveStore.adoptFallback`（`AquaSave.ts`）：IndexedDB が開けた起動で、読み込みの前に localStorage の進捗を調べ、IndexedDB に無ければ引き継ぐ。
+  **両方に別の正常な進捗があれば、どちらも上書きしない**：保存した時刻が新しい方で再開し、もう一方は `alt-*` に残す（メニューで書き出す・切り替える。切り替えてもいまの進捗は `alt` に残る）。
+  書く前にほかのタブが `current` を進めていたら（比べて書く）引き継がず、localStorage の分も残す。詳細：`docs/aquarium/save-format.md` 1.1。
+- 予備の保存先へ落ちた起動は、メニューに「予備の保存先（localStorage）に保存しています。以前の進捗は消えていません。次に IndexedDB を開けた起動で引き継ぎます」と出す
+  （そこが空のときは短い知らせも）。
+- 確認：`docs/aquarium/tools/save_fallback_test.js` F1〜F6 すべて期待どおり（save-format.md 10 章）。既存の `save_conflict_test.js` A〜H も従来どおり。
+
+### 12.2 安全の設定（最小の権限）
+
+| 項目 | 変更前 | 変更後 | 確認 |
+| --- | --- | --- | --- |
+| CSP | 無効（`null`） | `default-src 'self'`・`script-src 'self'`・`style-src 'self'`・`img-src 'self' data: blob:`・`connect-src ipc: http://ipc.localhost`・`object-src / frame-src / worker-src 'none'`・`base-uri / form-action 'none'` | Windows のインストール版の中で：外部への fetch・外部の画像・挿入したインラインのスクリプト・`new Function` がすべて CSP で拒否された。ゲームは全項目 ok・例外 0・通信先は `tauri.localhost` と `ipc.localhost` だけ |
+| 権限（capabilities） | `core:default`・dialog の保存 / 開く・fs のテキストの読み書き | `core:default` を外し、`fs:allow-stat`（読み込む前の大きさの確認）を足す。fs の道は、ダイアログで利用者が選んだファイルだけが実行時に許される | 書き出し（OS の「名前を付けて保存」→ 6 KB の JSON）・読み込み（「開く」→ 位置が書き出した時へ）が動いた |
+| 外部への通信（Android） | `INTERNET` の権限あり（release も） | debug ビルドだけ（`src/debug/AndroidManifest.xml`） | release の APK の権限の一覧に `INTERNET` が無い（aapt）。release をエミュレーターで起動し、OS のタッチで歩く・掘る（砂 0→25）ができた |
+| 自動検証（`AQUA_SELFTEST=gpu` は掘って保存する） | リリース版でも環境変数を読む。ブラウザ版は公開版でも `?selftest=` を読む | アプリは debug と機能 `selftest`（CI だけ）のビルドだけ。ブラウザは開発サーバーだけ | インストール版に `AQUA_SELFTEST=gpu` を渡して起動 → 記録は `selftest=None`。公開用ビルド（`vite preview`）の `?selftest=gpu&nosave` → 穴 0 |
+| 記録（`diag_log`） | 長さの制限なし | 1 行 2000 文字まで・制御文字（改行）は空白へ | — |
+| デバッグ用の機能 | release は DevTools なし（Tauri の既定）・`tauri-plugin-log` は debug だけ | 変えていない | Windows の WebView2 は環境変数 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` でリリース版にも DevTools をつなげる（WebView2 の仕様。その PC の利用者の環境を書き換えられる人だけ）。受け入れるリスクとして BUILD.md に書いた |
+| リポジトリ | macOS の付随ファイル `._*` が 2 個入っていた | 消して `.gitignore` に `._*`・署名の鍵（`*.jks`・`*.keystore`・`*.p12`・`*.mobileprovision`）・`.kotlin/` | — |
+
+### 12.3 main からビルドと検証を再現する
+
+- `.github/workflows/app-build.yml`（新規）：Windows（NSIS・MSI）と Android（universal release APK・未署名、release に `INTERNET` が無いことの確認）を、main への push・PR・手動で作る。
+- `.github/workflows/app-ios.yml`：動くブランチを `feat/app-packaging-poc` から main・PR・手動へ。試験用ビルドは `--features selftest`。
+- 手順書 `docs/app-packaging/BUILD.md`（新規）：CI の中身、手元でのビルド（Windows・Android・iOS）、アプリの中での検証（`smoke.mjs`・`gpu-recovery.mjs`）、セキュリティの設定の一覧。
+- PR #21 のブランチで 3 つのジョブを実行した結果は 12.5。
+
+### 12.4 回帰試験（この章の変更の後）
+
+| 対象 | 結果 |
+| --- | --- |
+| ブラウザ版（`npm run build` → `vite preview` を Edge の新しいプロファイルで） | `smoke.mjs` の 11 項目すべて ok・ページの例外 0・通信先は同じ起点だけ・保存先 IndexedDB・75 FPS |
+| ブラウザ版の保存（開発サーバー・Playwright） | `save_fallback_test.js` F1〜F6・`save_conflict_test.js` A〜H すべて期待どおり |
+| Windows（NSIS をインストール・CSP あり） | 11 項目すべて ok・例外 0・68 FPS。窓を閉じる → 起動で穴 64・砂山 38・位置が一致（`loaded: ok`）。書き出し・読み込み・描画の喪失（その場で復旧 / 読み込み直し）とも一致 |
+| Android エミュレーター（debug APK・x86_64） | 11 項目すべて ok・例外 0・60 FPS・通信先は `tauri.localhost` だけ。force-stop → 起動で穴 69・砂山 43・砂・位置が一致。描画の喪失（その場 / 読み込み直し）とも一致 |
+| Android エミュレーター（release APK・x86_64・使い捨ての鍵で署名） | 起動・描画・OS のタッチで歩く / 掘る。`INTERNET` の権限なし・debuggable なし |
+| iOS | CI（12.5） |
+
+試験の前に Windows・Android のアプリのデータを退避し、試験の後に戻した（試験の分は `EBWebView.merge-test`・`app_webview.merge-test` に残した。消してよい）。
+エミュレーターの以前の release 版（以前の使い捨ての鍵で署名）は、署名が違って上書きできないため削除して入れ直した（中身は試験のデータだけ）。
+
+観察（この PR とは別）：Windows の再起動の後、手持ちの砂が保存した 7.27 から「砂の救済」で 8.55 に増えた（10 章の 12）。
+
+### 12.5 CI の結果
+
+（このブランチへ push した後の実行。下に追記する）
+
+## 13. Mac を持たずに、GitHub Actions で自分の iPhone に入れる方法（調査）
+
+結論：**iPhone の実機に入れるには、必ず Apple の署名が要る**（署名の無い .ipa は入らない）。Mac が無くても、ビルドと署名は GitHub Actions の macOS ランナーで
+行える。ただし Apple のアカウントの種類で、できることが大きく違う。**有料の Apple Developer Program に入ると、CI だけで完結する**（下の B）。
+無料の Apple ID だけの方法（A）は、Windows 用の第三者の道具に Apple ID でログインする必要があり、7 日ごとに入れ直しになる。
+
+### 13.1 方法の比較
+
+| | A. 無料の Apple ID（Personal Team）+ Windows の道具で署名 | B. Apple Developer Program（有料）+ CI で署名 + TestFlight | C. B と同じ契約 + CI で開発用（Ad Hoc）署名 + 直接インストール |
+| --- | --- | --- | --- |
+| 費用 | 0 円 | 年 99 米ドル（日本の App Store の表示は ¥12,800、税込 12,980 円という案内もある。為替・税で変わる。自動更新） | B と同じ |
+| CI の役割 | 署名なしの .ipa（`--target aarch64`）を作るだけ | 署名・書き出し・App Store Connect への送信まで | 署名・書き出し（.ipa） |
+| 署名する場所 | Windows の PC（Sideloadly・AltStore などの第三者の道具が Apple ID で無料の証明書を取る） | CI（App Store Connect API の鍵で自動署名、または証明書 + プロファイルを Secrets で渡す） | CI（開発 / Ad Hoc の証明書 + iPhone の UDID を登録したプロファイル） |
+| iPhone への入れ方 | USB（または同じ Wi-Fi）で PC の道具から | iPhone の TestFlight App から（ケーブル・PC 不要） | PC の道具（Sideloadly 等）・`ideviceinstaller` など、または HTTPS で配る（itms-services） |
+| 有効期限 | **7 日**（切れると起動しなくなり、入れ直し） | TestFlight のビルドは **90 日**（2026 年に早く切れる不具合の報告が Apple のフォーラムにある） | プロファイルの期限（1 年） |
+| 制限 | 無料のアカウントで同時に入れられるのは 3 個まで・App ID の数の制限 | 内部テスター（自分）は審査なし。外部に配るときは審査 | 登録できる端末は種類ごとに年 100 台 |
+| リスク・注意 | 第三者の道具に Apple ID とパスワードを入力する（2 ファクタ認証のコードも）。道具の信頼性・Apple の仕様変更で動かなくなることがある | 鍵（.p8）・証明書（.p12）を GitHub の Secrets に入れる。漏れると自分の名前でアプリに署名される | B と同じ + UDID の登録 |
+| おすすめ | 1 回試すだけなら | **継続して実機で確かめるならこれ** | TestFlight を使いたくないとき |
+
+どの方法でも、iOS 16 以降は iPhone の「設定 → プライバシーとセキュリティ → デベロッパモード」を入れて再起動する必要がある
+（開発用の署名のアプリを入れると項目が出る。TestFlight で入れるアプリでは不要）。
+
+### 13.2 A：無料の Apple ID で試す手順（費用 0 円・7 日）
+
+1. CI（`app-ios.yml`）に「署名なしの実機用 .ipa を作る」手順を足す（今はシミュレーター用だけ。実機用は Team が無いので失敗する）：
+   Xcode の設定で署名を切ってビルドし（`CODE_SIGNING_ALLOWED=NO`）、`.app` を `Payload/` に入れて zip → `.ipa`。Tauri の CLI は Team が無いと止まるので、
+   Rust の部分は `tauri ios build` の仕組みの中で作り、最後の書き出しだけを手で行う形になる（未検証。実装は確認してから）。
+2. Windows に Apple の「iTunes」または「Apple Devices」と、Sideloadly（または AltServer）を入れる。
+3. iPhone を USB でつなぎ、Sideloadly で .ipa を選び、Apple ID でログインして入れる（無料の証明書がその場で作られる）。
+4. iPhone：「設定 → 一般 → VPN とデバイス管理」で自分の Apple ID の開発元を信頼、デベロッパモードを入れる。
+5. 7 日で切れるので、同じ手順で入れ直す（道具の自動更新の機能もある）。
+
+注意：Apple ID のパスワードを第三者の道具へ入れることになる。気になる場合は B を選ぶ。
+
+### 13.3 B：Apple Developer Program + CI + TestFlight（おすすめ）
+
+利用者が行うこと（**有料の契約・認証情報の登録なので、行う前に確認する**）：
+
+1. Apple Account で 2 ファクタ認証を入れ、[Apple Developer Program](https://developer.apple.com/jp/programs/enroll/) に個人で登録（年 99 米ドル。Apple Developer App から登録すると円で払える）。
+2. App Store Connect で「アプリ」を作る（バンドル ID = `tauri.conf.json` の `identifier`。いまの `io.github.kitamiya1.aquariumexplore` は仮なので、先に決める）。
+3. App Store Connect の「ユーザとアクセス → 統合 → App Store Connect API」で鍵を作り、Issuer ID・Key ID・.p8 ファイルを控える（.p8 は 1 回しかダウンロードできない）。
+4. GitHub のリポジトリの Secrets に `APPLE_API_ISSUER`・`APPLE_API_KEY`・`APPLE_API_KEY_CONTENT`（.p8 の中身）と Team ID（`APPLE_DEVELOPMENT_TEAM`）を入れる。
+5. iPhone に TestFlight App を入れ、App Store Connect で自分を内部テスターにする。
+
+CI 側（契約の後に足す）：`app-ios.yml` に、タグや手動で動く「署名して TestFlight へ送る」ジョブを足す。
+Tauri の自動署名（`APPLE_API_ISSUER`・`APPLE_API_KEY`・`APPLE_API_KEY_PATH` の環境変数）で `npx tauri ios build --export-method app-store-connect` を実行し、
+できた .ipa を `xcrun altool --upload-app`（または App Store Connect API）で送る。数分〜数十分の処理の後、iPhone の TestFlight に出る。
+手動の署名にする場合は、Windows でも `openssl` で証明書の要求（CSR）を作り、Apple の開発者サイトで証明書とプロファイルを作って
+`IOS_CERTIFICATE`（.p12 の base64）・`IOS_CERTIFICATE_PASSWORD`・`IOS_MOBILE_PROVISION` を Secrets に入れる（Mac は要らない）。
+
+### 13.4 費用のまとめ
+
+| 項目 | 費用 |
+| --- | --- |
+| GitHub Actions の macOS ランナー | 公開リポジトリは無料（いまの iOS の CI は 1 回 約 50〜60 分） |
+| Apple ID（無料の Personal Team） | 0 円 |
+| Apple Developer Program | 年 99 米ドル（自動更新） |
+| Windows のコード署名（参考） | 証明書は有料（iPhone には関係しない） |
+
+出典：Apple「[Apple Developer Program への登録](https://developer.apple.com/jp/programs/enroll/)」「[メンバーシップの比較](https://developer.apple.com/jp/support/compare-memberships/)」「[TestFlight の概要](https://developer.apple.com/help/app-store-connect/test-a-beta-version/overview-of-testflight/)」「[デベロッパモードを有効にする](https://developer.apple.com/documentation/xcode/enabling-developer-mode-on-a-device)」、
+Tauri「[iOS Code Signing](https://v2.tauri.app/distribute/sign/ios/)」、[Sideloadly の FAQ](https://sideloadly.io/faq)。価格・制限は 2026-11-27 に調べたもので、変わることがある。

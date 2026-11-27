@@ -1,0 +1,111 @@
+# アプリ版（Tauri 2）の Windows・Android のビルド（署名なし）。main・PR で同じ手順を再現する。iOS は app-ios.yml（macOS）。
+# 成果物（Actions の Artifacts）：Windows の NSIS / MSI のインストーラー、Android の universal release APK（未署名）、ビルドのログ。
+# 署名（Windows のコード署名・Android の配布用の鍵）はここでは行わない。手順と確認の方法：docs/app-packaging/BUILD.md
+name: App (Windows, Android, unsigned)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'src-tauri/**'
+      - 'aquarium.html'
+      - 'package*.json'
+      - 'vite.config.ts'
+      - '.github/workflows/app-build.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'src-tauri/**'
+      - 'aquarium.html'
+      - 'package*.json'
+      - 'vite.config.ts'
+      - '.github/workflows/app-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      # tauri build が beforeBuildCommand（npm run build:app = 型の確認 + dist-app）から NSIS・MSI まで作る
+      - name: tauri build (NSIS, MSI)
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p out
+          npx tauri build --ci 2>&1 | tee out/tauri-build-windows.log
+      - name: Collect installers
+        shell: bash
+        run: |
+          cp src-tauri/target/release/bundle/nsis/*.exe out/
+          cp src-tauri/target/release/bundle/msi/*.msi out/
+          (cd out && sha256sum *.exe *.msi | tee SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-windows-${{ github.run_number }}
+          path: out
+          retention-days: 30
+
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      NDK_VERSION: 28.2.13676358
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+      - name: Install NDK
+        run: |
+          sdkmanager --install "ndk;${NDK_VERSION}"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - name: tauri android build (universal release APK, unsigned)
+        run: |
+          set -o pipefail
+          mkdir -p out
+          npx tauri android build --apk --ci 2>&1 | tee out/tauri-build-android.log
+      - name: Collect APK
+        run: |
+          find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' -exec cp {} out/ \;
+          (cd out && sha256sum *.apk | tee SHA256SUMS.txt)
+          # 権限の確認（release に INTERNET が入っていないこと：docs/app-packaging/BUILD.md）
+          AAPT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/aapt"
+          for f in out/*.apk; do "$AAPT" dump permissions "$f"; done | tee out/permissions.txt
+          ! grep -q 'android.permission.INTERNET' out/permissions.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-android-${{ github.run_number }}
+          path: out
+          retention-days: 30

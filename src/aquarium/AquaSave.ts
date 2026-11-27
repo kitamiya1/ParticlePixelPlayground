@@ -3,9 +3,11 @@
 //   （空洞 1 個 = 7 個の数、上限 6000 個でも 336 KB。JSON にしないので書き込みも読み込みも軽い。
 //   倍精度のままにするのは、ゲーム中の空洞（JavaScript の数 = 倍精度）と同じ値に戻すため：単精度に丸めると
 //   砂の膜の境目に近い格子点の符号が変わりうる＝保存前と三角形がずれる）。
-//   IndexedDB が使えない環境（古いブラウザのプライベートモード等）は localStorage（書き出し形式の文字列）、
-//   それも使えなければ保存しない（遊べるが、閉じると消える。画面に出す）。
-// - 鍵：current（いまの進捗）・backup（1 つ前の正常なデータ）・corrupt-<時刻>（読めなかったデータの隔離。最大 3 個）。
+//   IndexedDB が開けない・開くのに時間がかかりすぎた起動（古いブラウザのプライベートモード・まれに遅い端末の初回起動）は
+//   localStorage（書き出し形式の文字列）、それも使えなければ保存しない（遊べるが、閉じると消える。画面に出す）。
+//   localStorage へ保存した進捗は、次に IndexedDB が開けた起動で引き継ぐ（SaveStore.adoptFallback。両方に別の進捗があれば両方残す）。
+// - 鍵：current（いまの進捗）・backup（1 つ前の正常なデータ）・corrupt-<時刻>（読めなかったデータの隔離。最大 3 個）・
+//   alt-<時刻>（引き継ぎで current にしなかった方の正常な進捗。最大 3 個。メニューで書き出す・切り替える）。
 //   書き込みは「current が正常と分かっているときだけ」current を backup へ写してから current を書く（1 つのトランザクション）。
 //   読み込みで current が壊れていたら、current は消さずに隔離し、backup を試す。どちらも読めなければ初期状態で始める
 //   （壊れたデータは隔離に残るので、自動保存が上書きしても失われない）。
@@ -360,6 +362,11 @@ function revOf(raw: unknown): number {
   return isObj(raw) && typeof raw.rev === 'number' && Number.isFinite(raw.rev) ? raw.rev : 0;
 }
 
+/** alt の鍵：alt-<時刻（13 桁）>-<乱数>（文字列の並びが時刻の順） */
+function altKey(): string {
+  return `alt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
 function newId(): string {
   const c = globalThis.crypto;
   if (c?.randomUUID) return c.randomUUID();
@@ -374,6 +381,8 @@ interface CommitOpts {
   expect?: string | null;
   /** いまの current を backup へ回すか（current を受け取って決める。正常な保存データのときだけ回す） */
   rotate: (cur: unknown) => boolean;
+  /** いまの current を別の鍵にも残す（[鍵, 値]。null なら残さない）。書くのと同じまとまりの中で */
+  stash?: (cur: unknown) => [string, unknown] | null;
 }
 
 interface Backend {
@@ -476,6 +485,8 @@ class IdbBackend implements Backend {
           return; // 何も書かずに終わる
         }
         if (cur !== undefined && o.rotate(cur)) st.put(cur, 'backup');
+        const keep = cur !== undefined ? o.stash?.(cur) : null;
+        if (keep) st.put(keep[1], keep[0]);
         if (value) st.put(value, 'current');
         else st.delete('current');
       };
@@ -509,9 +520,12 @@ class IdbBackend implements Backend {
 }
 
 /** localStorage：書き出し形式の文字列で入れる（同期の API なので、読む・比べる・書くの間にほかのタブの処理は入らない） */
+/** localStorage の保存先の鍵の頭（ppp-aquarium:current など。IndexedDB のときの引き継ぎでも読む） */
+const LS_PREFIX = 'ppp-aquarium:';
+
 class LocalBackend implements Backend {
   readonly kind = 'localStorage' as const;
-  private readonly prefix = 'ppp-aquarium:';
+  private readonly prefix = LS_PREFIX;
 
   static open(): LocalBackend {
     const k = 'ppp-aquarium:test';
@@ -531,6 +545,8 @@ class LocalBackend implements Backend {
     if (o.expect !== undefined && saveToken(cur) !== o.expect) return conflictOf(cur);
     const text = value ? encodeSaveFile(value) : null;
     if (curText !== null && o.rotate(cur)) localStorage.setItem(this.prefix + 'backup', curText);
+    const keep = curText !== null ? o.stash?.(cur) : null;
+    if (keep) localStorage.setItem(this.prefix + keep[0], curText!);
     if (text !== null) localStorage.setItem(this.prefix + 'current', text);
     else localStorage.removeItem(this.prefix + 'current');
     return { ok: true };
@@ -574,6 +590,8 @@ class MemoryBackend implements Backend {
     const cur = this.m.get('current');
     if (o.expect !== undefined && saveToken(cur) !== o.expect) return conflictOf(cur);
     if (cur !== undefined && o.rotate(cur)) this.m.set('backup', cur);
+    const keep = cur !== undefined ? o.stash?.(cur) : null;
+    if (keep) this.m.set(keep[0], keep[1]);
     if (value) this.m.set('current', value);
     else this.m.delete('current');
     return { ok: true };
@@ -650,6 +668,14 @@ export interface LoadInfo {
   fromJournal: boolean;
   /** 控えがあったが、ほかのタブの保存の方が新しかったので使わなかった（書き出せる） */
   orphan: boolean;
+  /**
+   * この起動で予備の保存先（localStorage）の進捗を引き継いだ（adoptFallback）。無ければ null。
+   * imported = IndexedDB に進捗が無かった（読めなかった）ので、localStorage の進捗を current にした。
+   * kept = 両方に別の進捗があった：保存した時刻が新しい方（chosen）を current にし、もう一方を alt に残した
+   */
+  fallback: { result: 'imported' | 'kept'; chosen: 'indexeddb' | 'localStorage' } | null;
+  /** 引き継ぎで current にしなかった方の進捗（いちばん新しい alt）。無ければ null */
+  alt: { key: string; savedAt: number; playTime: number } | null;
 }
 
 export interface SaveConflict {
@@ -689,7 +715,7 @@ export class SaveStore {
   private consumed: string | null = null;
   private channel: BroadcastChannel | null = null;
   private readonly conflictHooks: ((c: SaveConflict) => void)[] = [];
-  readonly info: LoadInfo = { fromJournal: false, orphan: false };
+  readonly info: LoadInfo = { fromJournal: false, orphan: false, fallback: null, alt: null };
   readonly stats = { writes: 0, conflicts: 0, lastWriteMs: 0, maxWriteMs: 0, lastBytes: 0, failures: 0, lastError: '', journals: 0 };
 
   private constructor(private readonly be: Backend) {
@@ -755,8 +781,130 @@ export class SaveStore {
     }
   }
 
+  /**
+   * 予備の保存先（localStorage）に残った進捗の引き継ぎ（IndexedDB のときだけ。load の最初）。
+   * IndexedDB を開けなかった起動は localStorage に保存する。その後の起動で IndexedDB が開けたとき、localStorage の進捗を見ないと
+   * 進捗が消えたように見える（docs/app-packaging/report.md 5.1）。
+   * - 候補は localStorage の current（読めなければ backup）。どちらも検証を通らなければ何もしない（localStorage にも触れない）。
+   * - IndexedDB の current と同じ（識別子が同じ）：引き継ぎ済み。localStorage の分を消すだけ。
+   * - IndexedDB の current が無い・読めない：候補を current にする（読めない current は隔離してから）。
+   * - 両方に別の正常な進捗がある：どちらも上書きしない。保存した時刻が新しい方を current にし、もう一方は alt-<時刻> に残す
+   *   （IndexedDB の方を残すときは、current を書き換えるのと同じトランザクションで）。メニューで書き出す・切り替えられる。
+   * IndexedDB へ書けてから（トランザクションの完了）localStorage の分を消す。書く前にほかのタブが current を進めていたら
+   * （比べて書く）何もせず、localStorage の分も残す（次の起動でもう一度）
+   */
+  private async adoptFallback(ctx: SaveContext): Promise<void> {
+    let curText: string | null, bakText: string | null;
+    try {
+      curText = localStorage.getItem(LS_PREFIX + 'current');
+      bakText = localStorage.getItem(LS_PREFIX + 'backup');
+    } catch {
+      return; // localStorage が使えない = 引き継ぐものも無い
+    }
+    let cand: SaveData | null = null;
+    let curBad = false;
+    for (const t of [curText, bakText]) {
+      if (t === null) continue;
+      const r = validateSave(decodeSaveFile(t), ctx);
+      if (r.ok) {
+        cand = r.data;
+        break;
+      }
+      if (t === curText) curBad = true;
+    }
+    if (!cand) return;
+    const idbCur = await this.be.get('current');
+    const token = saveToken(idbCur);
+    const clearLocal = async () => {
+      // 読めなかった localStorage の current も、消す前に IndexedDB の隔離へ写す
+      if (curBad && curText !== null) await this.quarantine(curText);
+      localStorage.removeItem(LS_PREFIX + 'current');
+      localStorage.removeItem(LS_PREFIX + 'backup');
+    };
+    if (token !== null && token === saveToken(cand)) return clearLocal();
+    const idb = idbCur === undefined ? null : validateSave(idbCur, ctx);
+    if (!idb || !idb.ok) {
+      if (idbCur !== undefined) await this.quarantine(idbCur);
+      const r = await this.be.commit(cand, { expect: token, rotate: () => false });
+      if (!r.ok) return;
+      this.info.fallback = { result: 'imported', chosen: 'localStorage' };
+    } else if (cand.savedAt > idb.data.savedAt) {
+      const r = await this.be.commit(cand, { expect: token, rotate: () => true, stash: (cur) => [altKey(), cur] });
+      if (!r.ok) return;
+      this.info.fallback = { result: 'kept', chosen: 'localStorage' };
+    } else {
+      await this.putAlt(cand);
+      this.info.fallback = { result: 'kept', chosen: 'indexeddb' };
+    }
+    await clearLocal();
+  }
+
+  /** alt の鍵（新しい順に並ぶよう時刻を頭に） */
+  private async altKeys(): Promise<string[]> {
+    return (await this.be.keys()).filter((k) => k.startsWith('alt-')).sort();
+  }
+
+  /** 引き継ぎで current にしなかった進捗を残す（同じ識別子のものがあれば足さない。古いものから消して最大 3 個） */
+  private async putAlt(d: SaveData) {
+    const keys = await this.altKeys();
+    for (const k of keys) if (saveToken(await this.be.get(k)) === saveToken(d)) return;
+    while (keys.length >= 3) await this.be.del(keys.shift()!);
+    await this.be.put(altKey(), d);
+  }
+
+  /** いちばん新しい alt を info.alt へ（読めないものは飛ばす） */
+  private async refreshAlt() {
+    this.info.alt = null;
+    if (!this.ctx) return;
+    const keys = await this.altKeys().catch(() => [] as string[]);
+    for (const key of keys.reverse()) {
+      const r = validateSave(await this.be.get(key).catch(() => undefined), this.ctx);
+      if (r.ok) {
+        this.info.alt = { key, savedAt: r.data.savedAt, playTime: r.data.playTime };
+        return;
+      }
+    }
+  }
+
+  /** 残した進捗（info.alt）を書き出す文字列（無ければ null） */
+  async altText(): Promise<string | null> {
+    if (!this.info.alt || !this.ctx) return null;
+    const r = validateSave(await this.be.get(this.info.alt.key), this.ctx);
+    return r.ok ? encodeSaveFile(r.data) : null;
+  }
+
+  /** 残した進捗を消す（書き出した後） */
+  async dropAlt() {
+    if (!this.info.alt) return;
+    await this.be.del(this.info.alt.key);
+    await this.refreshAlt();
+  }
+
+  /**
+   * 残した進捗（info.alt）へ切り替える（明示した操作）：いまの current は alt に残してから置き換える（どちらも消えない）。
+   * 書けたら true（呼んだ側が読み込み直す）
+   */
+  async swapAlt(): Promise<boolean> {
+    if (!this.info.alt || !this.ctx) return false;
+    const key = this.info.alt.key;
+    const r = validateSave(await this.be.get(key), this.ctx);
+    if (!r.ok) return false;
+    if (!(await this.replace(r.data, true))) return false;
+    await this.be.del(key);
+    await this.refreshAlt();
+    return true;
+  }
+
   async load(ctx: SaveContext): Promise<LoadResult> {
     this.ctx = ctx;
+    if (this.be.kind === 'indexeddb') {
+      try {
+        await this.adoptFallback(ctx);
+      } catch {
+        /* 引き継げなくても localStorage の分は消していないので、次の起動でもう一度 */
+      }
+      await this.refreshAlt();
+    }
     let cur: unknown;
     try {
       cur = await this.be.get('current');
@@ -932,13 +1080,16 @@ export class SaveStore {
     if (this.journaled) this.clearJournals(null);
   }
 
-  /** 読み込んだファイル（検証済み）を current にする（明示した操作なので比べない。いまの current は backup へ） */
-  async replace(d: SaveData): Promise<boolean> {
+  /**
+   * 読み込んだファイル（検証済み）を current にする（明示した操作なので比べない。いまの current は backup へ）。
+   * keepCurrent = true：いまの current（正常なとき）を alt にも残す（swapAlt。backup は次の保存で上書きされるので）
+   */
+  async replace(d: SaveData, keepCurrent = false): Promise<boolean> {
     await this.writing;
     d.rev = Math.max(this.knownRev, d.rev) + 1;
     d.saveId = newId();
     try {
-      await this.be.commit(d, { rotate: this.isGood });
+      await this.be.commit(d, { rotate: this.isGood, stash: keepCurrent ? (cur) => (this.isGood(cur) ? [altKey(), cur] : null) : undefined });
     } catch (e) {
       this.stats.lastError = (e as Error)?.message ?? String(e);
       return false;
