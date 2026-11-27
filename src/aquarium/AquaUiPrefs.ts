@@ -13,8 +13,11 @@ export type CamStyle = 'classic' | 'tps' | 'close' | 'free';
 export const CAM_STYLE_LABEL: Record<CamStyle, string> = { classic: '従来', tps: '三人称', close: '肩越し', free: '自由追従' };
 
 /** 歩き方（第 4 段階）。cycle = 従来（歩行周期）、ik = 接地 IK（移動は従来）、lead = 接地主導（第 7 段階：脚の接地から崖・段差の降り方を決める） */
-export type GaitStyle = 'cycle' | 'ik' | 'lead';
-const GAITS: GaitStyle[] = ['lead', 'ik', 'cycle'];
+// hybrid = ハイブリッド（第 10 段階・既定）：移動と支えは接地主導、足運びは単純な地形で従来（A）・複雑な所で接地（B）
+export type GaitStyle = 'cycle' | 'ik' | 'lead' | 'hybrid';
+const GAITS: GaitStyle[] = ['hybrid', 'lead', 'ik', 'cycle'];
+/** 歩き方の既定を hybrid に変えた版（これより前に覚えた既定の lead は hybrid として読む。従来・接地 IK を選んでいたらそのまま） */
+const GAIT_PREF_V = 10;
 
 /** 水草をかき分ける方式（第 3 段階）。dyn = 近くの植物だけばね、gpu = GPU だけ（状態なし） */
 export type PlantStyle = 'dyn' | 'gpu';
@@ -32,7 +35,7 @@ export interface UiPrefs {
   labels: boolean;
 }
 
-export const UI_DEFAULTS: UiPrefs = { btnScale: 0.75, btnAlpha: 0.25, guides: false, camStyle: 'tps', gait: 'lead', plants: 'dyn', footDiag: false, labels: false };
+export const UI_DEFAULTS: UiPrefs = { btnScale: 0.75, btnAlpha: 0.25, guides: false, camStyle: 'tps', gait: 'hybrid', plants: 'dyn', footDiag: false, labels: false };
 export const BTN_SCALE_RANGE: [number, number] = [0.55, 1.1];
 export const BTN_ALPHA_RANGE: [number, number] = [0.08, 0.6];
 
@@ -78,7 +81,7 @@ function readPrefs(): UiPrefs {
         btnAlpha: typeof v.btnAlpha === 'number' ? clamp(v.btnAlpha, ...BTN_ALPHA_RANGE) : UI_DEFAULTS.btnAlpha,
         guides: typeof v.guides === 'boolean' ? v.guides : UI_DEFAULTS.guides,
         camStyle: CAMS.includes(v.camStyle) ? v.camStyle : UI_DEFAULTS.camStyle,
-        gait: GAITS.includes(v.gait) ? v.gait : UI_DEFAULTS.gait,
+        gait: GAITS.includes(v.gait) ? (v.gaitV !== GAIT_PREF_V && v.gait === 'lead' ? 'hybrid' : v.gait) : UI_DEFAULTS.gait,
         plants: v.plants === 'dyn' || v.plants === 'gpu' ? v.plants : UI_DEFAULTS.plants,
         footDiag: typeof v.footDiag === 'boolean' ? v.footDiag : UI_DEFAULTS.footDiag,
         labels: typeof v.labels === 'boolean' ? v.labels : UI_DEFAULTS.labels,
@@ -92,7 +95,7 @@ function readPrefs(): UiPrefs {
 
 function writePrefs(p: UiPrefs) {
   try {
-    localStorage.setItem(UI_KEY, JSON.stringify(p));
+    localStorage.setItem(UI_KEY, JSON.stringify({ ...p, gaitV: GAIT_PREF_V }));
   } catch {
     /* 覚えられない環境では、このページの間だけ */
   }
@@ -112,7 +115,7 @@ export function mountUiPrefs(panel: HTMLElement, store: UiPrefStore, opts: { tou
     <div class="sec">冒険カメラの方式（視点の一覧・カメラのボタンでも選べる）</div>
     <div class="row seg" data-k="cam">${CAMS.map((c) => `<button type="button" data-v="${c}">${CAM_STYLE_LABEL[c]}</button>`).join('')}</div>` : ''}${opts.gait ? `
     <div class="sec">歩き方</div>
-    <div class="row seg" data-k="gait"><button type="button" data-v="lead">接地主導</button><button type="button" data-v="ik">接地 IK</button><button type="button" data-v="cycle">従来</button></div>
+    <div class="row seg" data-k="gait"><button type="button" data-v="hybrid">ハイブリッド</button><button type="button" data-v="lead">接地主導</button><button type="button" data-v="cycle">従来</button></div>
     <label class="row"><input type="checkbox" data-k="footdiag"> 接地の診断を表示（足先・次の足場・届く範囲・支え）</label>` : ''}${opts.plants ? `
     <div class="sec">水草のかき分け</div>
     <div class="row seg" data-k="plants"><button type="button" data-v="dyn">しなる（近くだけ計算）</button><button type="button" data-v="gpu">GPU だけ</button></div>` : ''}

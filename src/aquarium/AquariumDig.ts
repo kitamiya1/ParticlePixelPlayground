@@ -77,23 +77,69 @@ export const DIG = {
  * reach = 盛れる距離（体の中心から）。pitch = 照準を上下へずらしていないときの向き（掘るより浅い斜め下：体から離れた所へ盛る）
  */
 export const FILL = {
-  rMin: 0.2,
-  rMax: 0.42,
-  grow: 0.05,
+  // 第 10 段階：1 回の量を増やす（rMin 0.2 → 0.22・grow 0.05 → 0.08・rMax 0.42 → 0.56。保存の検証の半径の上限 DIG.rMax 0.58 以下）。
+  // 1 回たたくと小さな砂山（小さな所を埋める）、押し続けると大きく・横に広い砂山（カプセル。wMax まで左右へ伸ばす）になり、
+  // いっぱいになったら上へ rStack から積む（つながった砂山・幅のある足場）
+  rMin: 0.22,
+  rMax: 0.56,
+  grow: 0.08,
+  rStack: 0.34,
+  /** 押し続けて大きくした砂山を、盛る向きに垂直な横へ伸ばす長さの半分の上限（半径が rMin → rMax の間に 0 → wMax） */
+  wMax: 0.34,
   sink: 0.45,
   blendK: 0.22,
   reach: 1.5,
   pitch: -0.3,
-  /** 体・仲間から砂山の面まで空けておく距離（なじませのふくらみの分を含む） */
-  clearance: 0.1,
+  /**
+   * 体・仲間から砂山の面まで空けておく距離（なじませのふくらみの分を含む）。第 10 段階：0.1 → 0.2（砂山どうしのなじませ unionK と
+   * 地面とのなじませ blendK が重なると 0.1 ほどふくらみ、押し続けるとカニが砂山に囲まれて 0.1 めり込んだまま動けなくなった）
+   */
+  clearance: 0.2,
+  /** 砂山の体積のうち、地面の上へ出る分の見積もり（手持ちの砂で盛れる大きさの上限を決める。実際に使う量は測った体積） */
+  aboveK: 0.6,
 } as const;
 
-/** 手持ちの砂：容量（体積。ワールド単位の 3 乗）・表示の 1 杯の体積・1 回盛るのに要る最小の量 */
+/**
+ * 手持ちの砂：表示の 1 杯の体積・1 回盛るのに要る最小の量・保存データの検証で受け付ける上限（水槽の砂の全部より十分大きい）。
+ * 第 10 段階：持てる量の上限（以前の capacity 4。超えた分は捨てていた）をなくした。掘った砂は全部手持ちになり、盛ると測った体積だけ減る
+ */
 export const SAND = {
-  capacity: 4,
   unit: 0.05,
   minPlace: 0.02,
+  maxStore: 100000,
 } as const;
+
+/** 砂山（両端 a, b・半径 r のカプセル）の体積 */
+export function fillVolume(r: number, halfLen: number): number {
+  return (4 / 3) * Math.PI * r * r * r + 2 * Math.PI * r * r * halfLen;
+}
+
+/** 半径 r の砂山を横へ伸ばす長さの半分（押し続けて大きくなるほど幅が広い） */
+export function fillWidth(r: number): number {
+  return FILL.wMax * clamp((r - FILL.rMin) / (FILL.rMax - FILL.rMin), 0, 1);
+}
+
+/** 盛る計画の結果（a, b = 砂山の両端・c = 中心・r = 半径・grow = 大きくする砂山の番号（新しく足すなら −1）・add = 増える体積の見積もり） */
+export interface FillPlan {
+  a: V3;
+  b: V3;
+  c: V3;
+  r: number;
+  grow: number;
+  add: number;
+  why: DigMaterial | 'near' | 'empty' | null;
+}
+
+/** 砂山の両端 a, b・半径 r に許す半径の上限（カニ・仲間を埋めない。呼ぶ側が決める） */
+export type FillMaxR = (a: V3, b: V3, r: number) => number;
+
+/** 盛る所のまわり（呼ぶ側が決める）：積む砂山の上の端の上限（カニの足元 + 登れる高さ）・(x, y, z) から真下の面の高さ */
+export interface FillEnv {
+  topMax?: number;
+  /** いまの地形の距離（負 = 固体の中）。もう砂の中になる所には新しい砂山を置かない */
+  solid?: (x: number, y: number, z: number) => number;
+  surf?: (x: number, y: number, z: number) => number;
+}
 
 /** 近くに空洞が無いときの下限（区画への登録の余白と同じ） */
 const PAD = 0.45;
@@ -251,7 +297,7 @@ export class DigField {
   /** かき出しの続き（同じ場所で続けて掘ると、直前の空洞を伸ばす・太らせる） */
   private session = { last: -1, r: 0, time: -10, recent: [] as number[] };
   /** 盛り続け（同じ場所へ続けて盛ると、直前の砂山を大きくする） */
-  private fillSession = { last: -1, time: -10 };
+  private fillSession = { last: -1, time: -10, side: [1, 0, 0] as readonly number[] };
   /** いまの層の番号と種類（次に足す物が同じ種類なら同じ層） */
   private layerNo = 0;
   private layerFill: 0 | 1 = 0;
@@ -264,7 +310,7 @@ export class DigField {
   /** 'before' の版（measure の間だけ作る） */
   private beforeArr: (CarvePrim | null)[] | null = null;
   /** 計測（自動検証・表示用）。fills = 盛った回数 */
-  readonly stats = { strokes: 0, carves: 0, blocked: 0, carveMs: 0, lastCarveMs: 0, maxCarveMs: 0, fills: 0, fillMs: 0 };
+  readonly stats = { strokes: 0, carves: 0, blocked: 0, carveMs: 0, lastCarveMs: 0, maxCarveMs: 0, fills: 0, fillMs: 0, auditMs: 0, fillShift: 0 };
 
   constructor(columns: readonly { x: number; z: number; r: number }[]) {
     this.ncx = Math.round((TANK.maxX - TANK.minX) / DIG.chunk);
@@ -569,7 +615,7 @@ export class DigField {
     }
     // 掘り続け（伸ばす・太らせる）・盛り続けは戻した物につながない（次に掘る・盛るときは新しく始める）
     this.session = { last: -1, r: 0, time: -10, recent: [] };
-    this.fillSession = { last: -1, time: -10 };
+    this.fillSession = { last: -1, time: -10, side: [1, 0, 0] };
     this.editOld = null;
     return k;
   }
@@ -630,8 +676,8 @@ export class DigField {
     }
     const before = this.prims.slice() as (CarvePrim | null)[];
     for (const [id, p] of old) before[id] = p;
-    // 余白：空洞のつなぎの丸み（rimK）・盛った砂のなじませ（blendK）で面が動く分
-    const B = this.editBox, m = 0.15;
+    // 余白：空洞のつなぎの丸み（rimK）・盛った砂のなじませ（blendK 0.22）で面が動く分（第 10 段階：0.15 → 0.25。なじませの分を測り漏らしていた）
+    const B = this.editBox, m = 0.25;
     const i0 = Math.ceil((B.min[0] - m) / h), i1 = Math.floor((B.max[0] + m) / h);
     const j0 = Math.ceil((Math.max(B.min[1] - m, TANK.floorY)) / h), j1 = Math.floor((B.max[1] + m) / h);
     const k0 = Math.ceil((B.min[2] - m) / h), k1 = Math.floor((B.max[2] + m) / h);
@@ -673,6 +719,84 @@ export class DigField {
     return true;
   }
 
+  // ---------------- 砂の量の見直し（第 10 段階：救済） ----------------
+
+  /** 形を変えた回数（add / modify ごとに 1 増える。見直しの途中で形が変わったら測り直す） */
+  private editSerial = 0;
+  private audit: { cells: number[]; ci: number; i: number; k: number; serial: number; delta: number; h: number; after: (x: number, y: number, z: number) => number; base: (x: number, y: number, z: number) => number; done: (v: number) => void; t0: number } | null = null;
+
+  /** 盛る計画の候補の記録（自動検証用。配列を入れたときだけ書く） */
+  planDbg: { c: V3; room: number; why: string }[] | null = null;
+
+  /** 砂の量を見直している途中か */
+  get auditing(): boolean {
+    return this.audit !== null;
+  }
+
+  /**
+   * 全部の編集（掘った・盛った）で変わった砂の体積（取り除いた分は負）を測り始める（auditStep で少しずつ進め、終わったら done(体積)）。
+   * 編集の記録を持たない古い保存データ（以前の持てる量の上限で捨てた砂がある）でも、地形から「掘って手元にあるはずの砂」が分かる。
+   * 編集が登録された区画ごとに、区画の格子（startMeasure と同じ間隔 h の格子）で、編集の後 after と元の砂 base の符号の差を数える。
+   * 区画の高さは、その区画に登録された編集の外接箱 ± 0.3 だけ。途中で形が変わったら初めから測り直す
+   */
+  startAudit(after: (x: number, y: number, z: number) => number, base: (x: number, y: number, z: number) => number, done: (v: number) => void, h = 0.12) {
+    const cells: number[] = [];
+    for (let id = 0; id < this.cells.length; id++) if (this.cells[id].length > 0) cells.push(id);
+    this.audit = { cells, ci: 0, i: NaN, k: NaN, serial: this.editSerial, delta: 0, h, after, base, done, t0: performance.now() };
+  }
+
+  /** 見直しを進める（budgetMs を超えるまで、1 列ずつ）。返り値 = 終わったか */
+  auditStep(budgetMs: number): boolean {
+    const A = this.audit;
+    if (!A) return true;
+    if (A.serial !== this.editSerial) {
+      // 途中で形が変わった：測り直す
+      A.ci = 0;
+      A.i = A.k = NaN;
+      A.delta = 0;
+      A.serial = this.editSerial;
+    }
+    const t0 = performance.now(), h = A.h, P = this.prims;
+    while (A.ci < A.cells.length) {
+      const id = A.cells[A.ci];
+      const cx = id % this.ncx, cz = Math.floor(id / this.ncx);
+      const x0 = TANK.minX + cx * DIG.chunk, z0 = TANK.minZ + cz * DIG.chunk;
+      const i0 = Math.ceil(x0 / h), i1 = Math.ceil((x0 + DIG.chunk) / h) - 1, k0 = Math.ceil(z0 / h), k1 = Math.ceil((z0 + DIG.chunk) / h) - 1;
+      // （格子の番号は負にもなるので、区画の始めは NaN で表す）
+      if (Number.isNaN(A.i)) {
+        A.i = i0;
+        A.k = k0;
+      }
+      let ylo = Infinity, yhi = -Infinity;
+      for (const n of this.cells[id]) {
+        ylo = Math.min(ylo, P[n].min[1]);
+        yhi = Math.max(yhi, P[n].max[1]);
+      }
+      const j0 = Math.ceil(Math.max(ylo - 0.3, TANK.floorY) / h), j1 = Math.floor((yhi + 0.3) / h);
+      while (A.i <= i1) {
+        const x = A.i * h, z = A.k * h;
+        if (x > TANK.minX && x < TANK.maxX && z > TANK.minZ && z < TANK.maxZ) {
+          for (let j = j0; j <= j1; j++) {
+            const y = j * h;
+            const a = A.after(x, y, z) < 0, b = A.base(x, y, z) < 0;
+            if (a !== b) A.delta += a ? 1 : -1;
+          }
+        }
+        if (++A.k > k1) {
+          A.k = k0;
+          A.i++;
+        }
+        if (performance.now() - t0 > budgetMs) return false;
+      }
+      A.ci++;
+      A.i = A.k = NaN;
+    }
+    this.audit = null;
+    this.stats.auditMs = performance.now() - A.t0;
+    A.done(A.delta * h * h * h);
+    return true;
+  }
+
   /** 直前の編集の量をすぐ測る（startMeasure + 測り終えるまで。自動検証用） */
   measureEdit(sample: (x: number, y: number, z: number, view: DigView) => number, h = 0.12): number {
     let v = 0;
@@ -690,20 +814,21 @@ export class DigField {
    * （カニ・仲間を埋めない。呼ぶ側が決める）。打ち切り（ガラス・管・発見物・底）に中心が近すぎる所には盛らない。
    * 返り値：changed = 形が変わった、r = 砂山の半径、at = 砂山の中心、why = 盛れなかった理由
    */
-  place(at: V3, n: V3, now: number, maxR: (c: V3, r: number) => number): { changed: boolean; r: number; at: V3; why: DigMaterial | 'near' | null } {
+  place(at: V3, n: V3, now: number, maxR: FillMaxR, side: readonly number[] = [1, 0, 0], budget = Infinity, env: FillEnv = {}): { changed: boolean; r: number; at: V3; why: FillPlan['why'] } {
     const t0 = performance.now();
     const S = this.fillSession;
-    const pl = this.planPlace(at, n, now, maxR);
+    const pl = this.planPlace(at, n, now, maxR, side, budget, env);
     S.time = now;
-    let res: { changed: boolean; r: number; at: V3; why: DigMaterial | 'near' | null };
+    let res: { changed: boolean; r: number; at: V3; why: FillPlan['why'] };
     if (pl.why) {
       if (pl.grow < 0) S.last = -1;
       res = { changed: false, r: pl.r, at: pl.c, why: pl.why };
     } else if (pl.grow >= 0) {
-      this.modify(pl.grow, null, pl.r);
+      this.modify(pl.grow, pl.b, pl.r, pl.a);
       res = { changed: true, r: pl.r, at: pl.c, why: null };
     } else {
-      S.last = this.add(pl.c, pl.c, pl.r, true);
+      S.last = this.add(pl.a, pl.b, pl.r, true);
+      S.side = [side[0], side[1], side[2]];
       res = { changed: true, r: pl.r, at: pl.c, why: null };
     }
     if (res.changed) {
@@ -720,21 +845,115 @@ export class DigField {
    * - それ以外は、照準の面から半径 × sink 内側を中心に新しい砂山
    * 盛れない（why）：打ち切りの近く（ガラス・管・発見物・底）・カニや仲間に近すぎる（maxR で決まる半径が小さすぎる）・上限
    */
-  planPlace(at: readonly number[], n: readonly number[], now: number, maxR: (c: V3, r: number) => number): { c: V3; r: number; grow: number; why: DigMaterial | 'near' | null } {
+  planPlace(at: readonly number[], n: readonly number[], now: number, maxR: FillMaxR, side: readonly number[] = [1, 0, 0], budget = Infinity, env: FillEnv = {}): FillPlan {
     const S = this.fillSession;
     const lp = S.last >= 0 && now - S.time <= 0.6 ? this.prims[S.last] : null;
-    const near = lp && lp.fill && Math.hypot(at[0] - lp.a[0], at[1] - lp.a[1], at[2] - lp.a[2]) < lp.r + 0.35;
+    const lc: V3 | null = lp ? [(lp.a[0] + lp.b[0]) / 2, (lp.a[1] + lp.b[1]) / 2, (lp.a[2] + lp.b[2]) / 2] : null;
+    const lw = lp ? Math.hypot(lp.b[0] - lp.a[0], lp.b[1] - lp.a[1], lp.b[2] - lp.a[2]) / 2 : 0;
+    const near = lp && lp.fill && Math.hypot(at[0] - lc![0], at[1] - lc![1], at[2] - lc![2]) < lp.r + lw + 0.45;
+    // 砂山の両端（中心 c から、横 sd へ ±w。盛る向きに垂直な水平）
+    const ends = (c: V3, sd: readonly number[], w: number): [V3, V3] => [[c[0] - sd[0] * w, c[1] - sd[1] * w, c[2] - sd[2] * w], [c[0] + sd[0] * w, c[1] + sd[1] * w, c[2] + sd[2] * w]];
+    // 端がガラス・管・発見物の打ち切りに近ければ横へ伸ばさない（中心は打ち切りから離れている）
+    const clipW = (c: V3, sd: readonly number[], w: number) => {
+      for (let k = 0; k < 3 && w > 0.01; k++) {
+        const [a, b] = ends(c, sd, w);
+        if (this.fillClip(a[0], a[1], a[2]) <= -FILL.rMin * 0.5 && this.fillClip(b[0], b[1], b[2]) <= -FILL.rMin * 0.5) return w;
+        w *= 0.5;
+      }
+      return 0;
+    };
+    // 手持ちの砂で盛れる半径（増える体積の見積もり × aboveK が budget 以下）
+    const fit = (r0: number, w0: number, r: number, c: V3, sd: readonly number[]) => {
+      const v0 = fillVolume(r0, w0);
+      let rr = r;
+      for (let k = 0; k < 8; k++) {
+        const add = (fillVolume(rr, clipW(c, sd, fillWidth(rr))) - v0) * FILL.aboveK;
+        if (add <= budget) return { r: rr, add };
+        rr = r0 + (rr - r0) * 0.6;
+      }
+      return { r: r0, add: 0 };
+    };
     if (lp && near && lp.r < FILL.rMax - 1e-3) {
-      const r = Math.min(FILL.rMax, lp.r + FILL.grow, maxR(lp.a, lp.r + FILL.grow));
-      // 大きくできない（カニに近い）ときは、上へ積む方を試す
-      if (r > lp.r + 1e-3) return { c: [...lp.a], r, grow: S.last, why: null };
+      const sd = S.side;
+      let r = Math.min(FILL.rMax, lp.r + FILL.grow);
+      let [a, b] = ends(lc!, sd, clipW(lc!, sd, fillWidth(r)));
+      r = Math.min(r, maxR(a, b, r));
+      const f = fit(lp.r, lw, r, lc!, sd);
+      r = f.r;
+      // 大きくできない（カニに近い・砂が足りない）ときは、上へ積む方を試す
+      if (r > lp.r + 1e-3) {
+        [a, b] = ends(lc!, sd, Math.max(lw, clipW(lc!, sd, fillWidth(r))));
+        return { a, b, c: lc!, r, grow: S.last, add: f.add, why: null };
+      }
     }
-    const c: V3 = lp && near ? [lp.a[0], lp.a[1] + lp.r * 0.8, lp.a[2]] : [at[0] - n[0] * FILL.rMin * FILL.sink, at[1] - n[1] * FILL.rMin * FILL.sink, at[2] - n[2] * FILL.rMin * FILL.sink];
-    const r = Math.min(FILL.rMin, maxR(c, FILL.rMin));
-    if (this.prims.length >= DIG.maxPrims) return { c, r: 0, grow: -1, why: 'none' };
-    if (this.fillClip(c[0], c[1], c[2]) > -FILL.rMin * 0.5) return { c, r: 0, grow: -1, why: this.clipReason(c[0], c[1], c[2], false) };
-    if (r < FILL.rMin * 0.6) return { c, r: 0, grow: -1, why: 'near' };
-    return { c, r, grow: -1, why: null };
+    const stack = !!(lp && near);
+    const sd = stack ? S.side : side;
+    // 盛る向き（水平。side に垂直で、カニから離れる向き）
+    const fw: V3 = [-side[2], 0, side[0]];
+    // （押し続けている間に照準を動かして新しい砂山を始めるときも rStack から：小さな砂山から始めるのは押した最初の 1 回だけ）
+    const holding = now - S.time <= 0.6;
+    const r0 = stack || holding ? FILL.rStack : FILL.rMin;
+    // 新しい砂山の中心の候補（第 10 段階）：
+    // - 積む：上（ただし上の端がカニの足元より env.topMax を越えるなら後回し）→ 奥の肩 → 左右の肩。高い塔より、奥・横へつながって広がる
+    // - 新しく盛る：照準の所 → 奥へ 0.12 ずつ（照準がカニのすぐ前の地面に当たると、カニとの間を空けるために小さな砂山しか置けず、
+    //   上へ積み上がってカニの目の前に塔ができていた）。ずらした所は env.surf で真下の面の高さへ下ろす（穴の中なら穴の底：穴は底から埋まる）
+    const surf = env.surf;
+    let cands: V3[];
+    if (stack) {
+      const L = lp!, sh = lw + L.r * 0.9;
+      const top: V3 = [lc![0], lc![1] + L.r * 0.8, lc![2]];
+      const far: V3 = [lc![0] + fw[0] * L.r * 0.9, lc![1] + L.r * 0.15, lc![2] + fw[2] * L.r * 0.9];
+      const sl: V3 = [lc![0] + sd[0] * sh, lc![1] + L.r * 0.15, lc![2] + sd[2] * sh];
+      const sr: V3 = [lc![0] - sd[0] * sh, lc![1] + L.r * 0.15, lc![2] - sd[2] * sh];
+      cands = top[1] + r0 <= (env.topMax ?? Infinity) ? [top, far, sl, sr] : [far, sl, sr, top];
+    } else {
+      cands = [0, 0.12, 0.24, 0.36, 0.5, 0.65, 0.8, 1.0].map((k) => {
+        if (k === 0 || !surf) return [at[0] - n[0] * FILL.rMin * FILL.sink + fw[0] * k, at[1] - n[1] * FILL.rMin * FILL.sink, at[2] - n[2] * FILL.rMin * FILL.sink + fw[2] * k] as V3;
+        const x = at[0] + fw[0] * k, z = at[2] + fw[2] * k;
+        return [x, Math.max(surf(x, at[1] + 0.8, z), at[1] - 2.5) - r0 * FILL.sink, z] as V3;
+      });
+    }
+    if (this.prims.length >= DIG.maxPrims) return { a: cands[0], b: cands[0], c: cands[0], r: 0, grow: -1, add: 0, why: 'none' };
+    let c = cands[0], w = 0, a: V3 = c, b: V3 = c, r = 0;
+    let why: FillPlan['why'] = null;
+    // いちばん初めに、大きく育てられる（rMax の 0.8 倍まで空いている）候補。無ければ、いちばん空いている候補
+    // （カニのすぐ前に置くと、空ける間のせいで小さいまま上へ積むだけになり、1 回に足せる量がわずかだった）
+    let best: { c: V3; w: number; a: V3; b: V3; r: number; room: number } | null = null;
+    for (const cc of cands) {
+      const ww = stack ? clipW(cc, sd, Math.min(lw, fillWidth(r0))) : 0;
+      const [aa, bb] = ends(cc, sd, ww);
+      const room = maxR(aa, bb, FILL.rMax);
+      const rr = Math.min(r0, room);
+      if (this.fillClip(cc[0], cc[1], cc[2]) > -FILL.rMin * 0.5) {
+        why ??= this.clipReason(cc[0], cc[1], cc[2], false);
+        continue;
+      }
+      // （もう砂の中：盛っても増えない。その先へ送る）
+      if (env.solid && env.solid(cc[0], cc[1], cc[2]) < -r0 * 0.55) {
+        if (this.planDbg) this.planDbg.push({ c: cc, room, why: 'solid' });
+        continue;
+      }
+      if (this.planDbg) this.planDbg.push({ c: cc, room, why: rr < FILL.rMin * 0.6 ? 'near' : 'ok' });
+      if (rr < FILL.rMin * 0.6) {
+        why = why ?? 'near';
+        continue;
+      }
+      if (!best || room > best.room + 1e-3) best = { c: cc, w: ww, a: aa, b: bb, r: rr, room };
+      if (room >= FILL.rMax * 0.8) break;
+    }
+    if (!best) return { a: c, b: c, c, r: 0, grow: -1, add: 0, why: why ?? 'near' };
+    ({ c, w, a, b, r } = best);
+    why = null;
+    if (cands.indexOf(c) > 0) this.stats.fillShift++;
+    // 手持ちの砂が足りなければ小さく（小さすぎれば盛れない）
+    let add = fillVolume(r, w) * FILL.aboveK;
+    if (add > budget) {
+      r = Math.cbrt(budget / FILL.aboveK / ((4 / 3) * Math.PI));
+      [a, b] = ends(c, sd, 0);
+      add = fillVolume(r, 0) * FILL.aboveK;
+      if (r < FILL.rMin * 0.5) return { a, b, c, r: 0, grow: -1, add: 0, why: 'empty' };
+    }
+    return { a, b, c, r, grow: -1, add, why: null };
   }
 
   // ---------------- かき出し ----------------
@@ -794,11 +1013,12 @@ export class DigField {
       this.layerNo++;
       this.layerFill = f;
       if (f) this.session = { last: -1, r: 0, time: -10, recent: [] };
-      else this.fillSession = { last: -1, time: -10 };
+      else this.fillSession = { last: -1, time: -10, side: [1, 0, 0] };
     }
     const p: CarvePrim = { a: [...a], b: [...b], r, min: [0, 0, 0], max: [0, 0, 0], fill: f, layer: this.layerNo };
     this.bounds(p);
     const id = this.prims.push(p) - 1;
+    this.editSerial++;
     this.live.push(null);
     this.snap.push(null);
     this.changed.add(id);
@@ -809,11 +1029,13 @@ export class DigField {
   }
 
   /** 空洞・砂山の形を変える（伸ばす・太らせる）。変わる前と後の両方の範囲を作り直す */
-  private modify(id: number, b: V3 | null, r: number) {
+  private modify(id: number, b: V3 | null, r: number, a: V3 | null = null) {
     if (this.job) this.measureStep(Infinity);
     const p = this.prims[id];
     const oldMin: V3 = [...p.min], oldMax: V3 = [...p.max];
     this.touchEdit(id, oldMin, oldMax, false);
+    this.editSerial++;
+    if (a) p.a = [...a];
     if (b) p.b = [...b];
     p.r = Math.max(p.r, r);
     this.bounds(p);

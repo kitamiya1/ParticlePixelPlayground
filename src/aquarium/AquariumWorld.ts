@@ -433,6 +433,23 @@ export class AquariumWorld {
     }, done);
   }
 
+  /**
+   * 第 10 段階（救済）：全部の編集で変わった砂の体積（取り除いた分は負）を測り始める（DigField.auditStep で進み、終わったら done(体積)）。
+   * 掘った砂 − 盛った砂 = 手元にあるはずの砂（−体積）
+   */
+  startSandAudit(done: (v: number) => void) {
+    let cx = NaN, cz = NaN, g = 0, ny = 1;
+    const base = (x: number, y: number, z: number) => {
+      if (x !== cx || z !== cz) {
+        cx = x; cz = z;
+        g = this.groundAt(x, z);
+        ny = this.groundNormal(x, z)[1];
+      }
+      return (y - g) * ny;
+    };
+    this.dig.startAudit((x, y, z) => this.dig.cut(base(x, y, z), x, y, z, 'latest'), base, done);
+  }
+
   /** 直前の編集の量をすぐ測る（自動検証用） */
   measureEdit(): number {
     let v = 0;

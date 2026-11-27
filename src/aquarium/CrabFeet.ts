@@ -22,6 +22,10 @@
 //   先頭の脚（理想の位置が次の面から 0.5 以内）が次の面に足場を探す（probeFace。同時に運ぶのは 2 本まで）。次の面に掛かった脚の数を
 //   support.next、接地している足先の組の面の向き（bodyPose の Newell の法線）を support.fn / fnN で返す。次の面に掛かった脚は、
 //   移り終えるまで（伸びきり・足場が消えた、の急ぎでなければ）踏み替えない。
+// - 第 10 段階（ハイブリッド歩行）：見た目の足運びと、移動・支えの判定を分けた。CrabRig が 'hybrid' のときも、この脚は毎フレーム
+//   足場を探して支え（support）を返す（見た目が従来の足運び A でも、崖・壁の支えの判定は止めない）。歩いている間の踏み替えの番は
+//   A の歩行の位相に合わせ（GaitSync）、A と B を混ぜても同じ組の脚が同じ時に上がる。足場の複雑さ（rough）と、接地している足先の
+//   体の面からの高さ（localY）を返す（CrabRig が混ぜ具合と、A の足先の高さ合わせに使う）。速さに掛ける割合はなめらかに変える。
 // 参考：majidmanzarpour/threejs-procedural-spider（MIT）の、足場を探して踏み替える・となりの脚が踏み替え中は待つ・
 // 接地した足先から胴体の面を決める、という考え方（コードは使っていない。このカニの SDF の地形・壁・天井に合わせて作り直した）。
 
@@ -112,6 +116,21 @@ const SEEK = {
   below: 0.05,
 } as const;
 
+/**
+ * 第 10 段階（ハイブリッド歩行）：従来の足運び A の歩行の位相（0..1。半周期ごとに組が替わる。A の組 0 が上がり始める所が 0）と
+ * 半周期に胴体が進む距離。歩いている間、B の踏み替えの番をこれに合わせる
+ */
+export interface GaitSync {
+  readonly phase: number;
+  readonly stride: number;
+}
+
+/** 足場の複雑さ（CrabFeet.rough）の決め方：足先の高さのずれ・高さの差・面の向きの差（1 − 内積）の、0 → 1 になる範囲と、足場が消えた後に 1 のままにする秒 */
+export const ROUGH = { absLo: 0.035, absHi: 0.085, spreadLo: 0.06, spreadHi: 0.13, nLo: 0.1, nHi: 0.25, lostHold: 1.0 } as const;
+
+/** 縁の下を探す所が届かないとき、縁に沿ってずらして探し直す量（左右・斜め） */
+const SEEK_SIDE = [0.11, -0.11, 0.2, -0.2] as const;
+
 /** 左右（右 = sx 1）・前から 0..3 の脚の番号 → 0..7（右 0..3, 左 4..7） */
 const legIndex = (sx: 1 | -1, i: number) => (sx === 1 ? 0 : 4) + i;
 
@@ -170,8 +189,18 @@ export class CrabFeet {
   readonly feet: Foot[] = [];
   /** 胴体の補正（根の座標：上へのずれ・傾きの回転） */
   readonly bodyOffset = { up: 0, q: new THREE.Quaternion() };
-  /** CrabController へ返す支え：速さに掛ける割合・壁 / 天井で支えを失った */
-  support = { speed: 1, lost: false, planted: 8, onClimb: 8, maxStretch: 0, down: 0, face: 0, next: 0, fn: [0, 1, 0] as V3, fnN: 0 };
+  /** CrabController へ返す支え：速さに掛ける割合・壁 / 天井で支えを失った（swing = 踏み替え中の脚の数） */
+  support = { speed: 1, lost: false, planted: 8, onClimb: 8, maxStretch: 0, down: 0, face: 0, next: 0, fn: [0, 1, 0] as V3, fnN: 0, swing: 0 };
+  /**
+   * 第 10 段階（ハイブリッド歩行）：足場の複雑さ（0..1。CrabRig が従来の足運び A と接地の足運び B の混ぜ具合を決める）。
+   * 接地している足先の、体の面からの高さのずれ・高さの差・面の向きの差、宙で構えている脚、足場が消えた直後、から決める
+   */
+  rough = 0;
+  /** 接地している足先の、根の座標の高さ（体の面から。A の足運びの高さを足場へ合わせる。踏み替え中・足場の無い脚は NaN） */
+  readonly localY = new Float32Array(8);
+  private lostAt = -10;
+  private speedS = 1;
+  private clock = 0;
   /** 接地している足先の組の面の向き（bodyPose の Newell の法線。足先が 3 本未満なら fnN = 0） */
   private readonly fn: V3 = [0, 1, 0];
   private fnN = 0;
@@ -179,7 +208,7 @@ export class CrabFeet {
    * 数え（検証用）：idleSteps = 止まって踏ん張り直した後の踏み替え（ふつうは 0 に近いはず）・settleSteps = 止まった直後の踏ん張り直し・
    * probeFail = 足場が見つからなかった回数・snaps = 足先を面へ寄せた回数・gapMax / gapSum / gapN = 接地している足先と面の距離
    */
-  readonly stats = { probes: 0, probeMs: 0, steps: 0, emergency: 0, invalid: 0, slips: 0, frames: 0, ms: 0, maxMs: 0, idleSteps: 0, settleSteps: 0, probeFail: 0, snaps: 0, gapMax: 0, gapSum: 0, gapN: 0, seeks: 0, seekHits: 0, faceSeeks: 0, faceHits: 0 };
+  readonly stats = { probes: 0, probeMs: 0, steps: 0, emergency: 0, invalid: 0, slips: 0, frames: 0, ms: 0, maxMs: 0, idleSteps: 0, settleSteps: 0, probeFail: 0, snaps: 0, gapMax: 0, gapSum: 0, gapN: 0, seeks: 0, seekHits: 0, faceSeeks: 0, faceHits: 0, seekSide: 0 };
   /** 歩行の周期の位相（0..1 で 1 周期。半周期ごとに組が替わる）と、止まっている時間・動いているか */
   phase = 0;
   private half = -1;
@@ -217,9 +246,10 @@ export class CrabFeet {
    * 1 フレーム進める。root = 根（体の向き・位置。補正の前）、bodyY = 胴体の高さ（根の座標）、
    * vel = カニの速さ（世界）、grounded = 接地 / 張り付いている、climbN = 張り付いている面の向き（張り付いていなければ null）
    */
-  update(dt: number, root: THREE.Matrix4, bodyY: number, vel: V3, grounded: boolean, climbN: readonly number[] | null, hint: LedgeHint | null = null, faceHint: FaceSeek | null = null) {
+  update(dt: number, root: THREE.Matrix4, bodyY: number, vel: V3, grounded: boolean, climbN: readonly number[] | null, hint: LedgeHint | null = null, faceHint: FaceSeek | null = null, sync: GaitSync | null = null) {
     const t0 = performance.now();
     this.stats.frames++;
+    this.clock += dt;
     const e = root.elements;
     const up: V3 = [e[4], e[5], e[6]];
     const side: V3 = [e[0], e[1], e[2]];
@@ -234,7 +264,9 @@ export class CrabFeet {
         f.seek = f.down = f.onFace = false;
       }
       this.fnN = 0;
-      this.support = { speed: 1, lost: false, planted: 0, onClimb: 0, maxStretch: 0, down: 0, face: 0, next: 0, fn: [0, 1, 0], fnN: 0 };
+      this.support = { speed: 1, lost: false, planted: 0, onClimb: 0, maxStretch: 0, down: 0, face: 0, next: 0, fn: [0, 1, 0], fnN: 0, swing: 0 };
+      this.rough = 0;
+      this.localY.fill(NaN);
       this.relaxBody(dt);
       this.stats.ms = performance.now() - t0;
       return;
@@ -259,6 +291,9 @@ export class CrabFeet {
     // 歩幅の方を伸ばす（ダッシュで脚が細かく震えない）
     let S = Math.min(GAIT.strideMax, GAIT.strideMin + GAIT.strideK * veff);
     S = Math.min(GAIT.strideMax, Math.max(S, veff * GAIT.swingMin));
+    // ハイブリッド：歩いている間は、従来の足運び A の歩幅・位相に合わせる（A と B を混ぜても、同じ組の脚が同じ時に上がる）
+    const synced = !!sync && speed > GAIT.moveV;
+    if (synced) S = sync!.stride;
     const dur = Math.max(GAIT.swingMin, Math.min(GAIT.swingMax, veff > 1e-3 ? (S / veff) * 0.92 : GAIT.swingMax));
     // 先読み：踏み替えを始める時に探す所は、理想の位置（休みの位置）より、踏み替えの間に胴体が進む分 + 接地の間に進む分の半分だけ前
     // （= 接地の間、足先が理想の位置の前後に同じだけ振れる）。止まっている間は 0
@@ -302,7 +337,7 @@ export class CrabFeet {
     // 歩行の周期：動いている間だけ位相を進め、半周期が替わったら、その組の脚に番を出す
     if (this.moving) {
       this.stillT = 0;
-      this.phase = (this.phase + (veff * dt) / (2 * S)) % 1;
+      this.phase = synced ? sync!.phase : (this.phase + (veff * dt) / (2 * S)) % 1;
       const h = Math.floor(this.phase * 2);
       if (h !== this.half) {
         this.half = h;
@@ -351,6 +386,7 @@ export class CrabFeet {
           f.valid = false;
           f.hang = false;
           this.stats.invalid++;
+          this.lostAt = this.clock;
         } else {
           if (Math.abs(d) > GAIT.snapTol) {
             const n = this.world.contactNormal(f.pos[0], f.pos[1], f.pos[2]);
@@ -462,7 +498,21 @@ export class CrabFeet {
       // 探す所：歩いている間は先読みの分だけ前（止まっている・急ぎで止まっているときは理想の位置）
       // （縁の下を探す脚は、縁の下の探す所）
       const target: V3 = w.seek ? this.seekTarget(f, hint!) : this.moving ? [f.home[0] + leadW[0], f.home[1] + leadW[1], f.home[2] + leadW[2]] : f.home;
-      const r = this.probe(f, target, up, side, fwd, vl, climbN, w.seek ? hint : null);
+      let r = this.probe(f, target, up, side, fwd, vl, climbN, w.seek ? hint : null);
+      // 第 10 段階：縁の下の真正面に届く足場が無ければ、縁に沿って左右・斜めへずらして探す（凸角・斜めの縁・脚の横の足場）
+      if (!r.ok && w.seek) {
+        const H = hint!;
+        for (const sh of SEEK_SIDE) {
+          const T2: V3 = [target[0] - H.e[2] * sh, target[1], target[2] + H.e[0] * sh];
+          if (Math.hypot(T2[0] - f.hip[0], T2[1] - f.hip[1], T2[2] - f.hip[2]) > f.reach * 1.05) continue;
+          const r2 = this.probe(f, T2, up, side, fwd, vl, climbN, H);
+          if (r2.ok) {
+            r = r2;
+            this.stats.seekSide++;
+            break;
+          }
+        }
+      }
       probes++;
       f.want = false;
       if (w.settle) f.settled = true;
@@ -534,10 +584,48 @@ export class CrabFeet {
     // 壁・天井：掛かっている脚が 2 本未満の状態が続くと、支えを失う
     this.lostT = climbN && onClimb < 2 ? this.lostT + dt : 0;
     this.bodyPose(dt, root, up, side, fwd);
-    this.support = { speed: speedK * few, lost: this.lostT > 0.8, planted, onClimb, maxStretch, down, face, next, fn: [this.fn[0], this.fn[1], this.fn[2]], fnN: this.fnN };
+    const swingN = this.feet.filter((f) => f.swing).length;
+    // 第 10 段階：速さに掛ける割合はなめらかに変える（接地の脚の数で 1 ↔ 0.6 と毎フレーム跳び、移動の速さが急に変わっていた）。
+    // 下げるのは速く・戻すのはゆっくり（脚が届かない所へ胴体を先に進めない）
+    const sk = speedK * few;
+    this.speedS += (sk - this.speedS) * (1 - Math.exp(-dt * (sk < this.speedS ? 14 : 5)));
+    this.support = { speed: this.speedS, lost: this.lostT > 0.8, planted, onClimb, maxStretch, down, face, next, fn: [this.fn[0], this.fn[1], this.fn[2]], fnN: this.fnN, swing: swingN };
+    this.measureRough(root, up);
     const ms = performance.now() - t0;
     this.stats.ms = ms;
     this.stats.maxMs = Math.max(this.stats.maxMs * 0.995, ms);
+  }
+
+  /**
+   * 足場の複雑さ（rough）と、接地している足先の根の座標の高さ（localY）。
+   * - 体の面（根の座標の y = 0）からの足先の高さのずれ（最大）・足先どうしの高さの差・足場の面の向きと体の上の向きの差
+   * - 足場が無く宙で構えている脚（縁の下を探している・足場が見つからない）がある・足場が消えてから 1 秒の間は 1
+   */
+  private measureRough(root: THREE.Matrix4, up: V3) {
+    const e = root.elements;
+    let maxAbs = 0, lo = Infinity, hi = -Infinity, nDev = 0, hang = 0;
+    for (let k = 0; k < 8; k++) {
+      const f = this.feet[k];
+      if (f.valid && !f.swing) {
+        const h = (f.pos[0] - e[12]) * up[0] + (f.pos[1] - e[13]) * up[1] + (f.pos[2] - e[14]) * up[2];
+        this.localY[k] = h;
+        maxAbs = Math.max(maxAbs, Math.abs(h));
+        lo = Math.min(lo, h);
+        hi = Math.max(hi, h);
+        nDev = Math.max(nDev, 1 - (f.n[0] * up[0] + f.n[1] * up[1] + f.n[2] * up[2]));
+      } else {
+        this.localY[k] = NaN;
+        if (!f.swing && (f.hang || f.seek)) hang++;
+      }
+    }
+    const ss = (a: number, b: number, x: number) => {
+      const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+      return t * t * (3 - 2 * t);
+    };
+    const spread = hi > lo ? hi - lo : 0;
+    let r = Math.max(ss(ROUGH.absLo, ROUGH.absHi, maxAbs), ss(ROUGH.spreadLo, ROUGH.spreadHi, spread), ss(ROUGH.nLo, ROUGH.nHi, nDev));
+    if (hang > 0 || this.clock - this.lostAt < ROUGH.lostHold) r = 1;
+    this.rough = r;
   }
 
   /**

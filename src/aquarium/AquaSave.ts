@@ -223,7 +223,7 @@ export function validateSave(input: unknown, ctx: SaveContext): ValidateResult {
     if (!inBox(px, py, pz, ctx.worldBox)) fail('プレイヤーの位置が範囲外です');
     const heading = num(P.heading, 'player.heading', -100, 100);
     const camera: SaveCameraMode = P.camera === 'observe' || P.camera === 'diorama' ? P.camera : 'adventure';
-    // 手持ちの砂：容量を少し超える程度は容量に丸める（容量を変えた後の版でも読める）。負・数でないものは拒否
+    // 手持ちの砂：上限（sandCap。第 10 段階からは持てる量の上限が無いので、水槽の砂より十分大きい検証用の値）を少し超える程度は丸める。負・数でないものは拒否
     const sand = Math.min(num(P.sand, 'player.sand', 0, ctx.sandCap * 4), ctx.sandCap);
     const tool: SaveTool = P.tool === 'fill' ? 'fill' : 'dig';
 

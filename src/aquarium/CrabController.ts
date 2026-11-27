@@ -47,7 +47,8 @@
 // - 接地主導の移動（第 7 段階。CrabInput.lead・CrabLedge）：歩いていて前方に縁（歩いて下りられない急な下り）があれば、
 //   先頭の脚が縁より下の足場に掛かるまで縁から出ない（ledgeGate）。段差は脚に支えさせて胴体を下ろし（ledgeSupport。
 //   吸着で一気に落とさない）、高い崖は側面へ脚が掛かったら縁を回り込んで壁登りへ移る（startDescentClimb）。
-//   足場が無ければ縁で立ち止まり、押し続けたら踏み出す（ledgeUpdate）。
+//   足場が無ければ縁で立ち止まる（ledgeUpdate。第 10 段階：押し続けても踏み出さない。離れるのはジャンプ。縁の無い向きへ漂っても
+//   edgeGuard が縁の上で止める。支えていた地形が崩れたときだけ自然に落ちる）。
 // - 接地主導の壁登り・天井への移り（第 8 段階。CrabLedge の FaceHint・FACE）：
 //   - 床 → 壁：登れる急な面へ押している間、前の脚に壁の足場を探させ（wallSeek。壁へ押し込む・壁を滑り上がる速さは持たない）、
 //     壁に 2 本以上・接地 4 本以上になったら、床の向きのまま張り付いて面の移り（xfer）を始める。
@@ -61,8 +62,8 @@
 import { clamp, lerp, smoothstep } from '../core/math';
 import { TANK, type AquariumWorld } from './AquariumWorld';
 import { ROOM, type Flow, type Region } from './AquariumStand';
-import { DIG, diggable, FILL, SAND, type DigMaterial } from './AquariumDig';
-import { descentPath, FACE, faceBelow, faceCap, gapBelow, LEDGE, scanLedge, type FaceHint, type FaceKind, type Ledge } from './CrabLedge';
+import { DIG, diggable, FILL, SAND, type DigMaterial, type FillEnv, type FillMaxR } from './AquariumDig';
+import { descentPath, dropOut, FACE, faceBelow, faceCap, gapBelow, LEDGE, scanLedge, type FaceHint, type FaceKind, type Ledge } from './CrabLedge';
 
 /** 床・壁・天井（第 8 段階：接地している足先の組の面の向きから、ヒステリシスを付けて決める） */
 export type SurfClass = 'floor' | 'wall' | 'ceil';
@@ -167,7 +168,7 @@ export interface CrabInput {
    * 接地 IK の支え（第 4 段階。CrabFeet.support）：speed = 速さの上限に掛ける割合（伸びきった脚が踏み替えられない間・接地している脚が
    * 少ない間は遅く。脚が届かない所へ胴体だけが先へ行かない）、lost = 壁・天井で掛かっている脚が少ない状態が続いた（離れて落ちる）
    */
-  support?: { speed: number; lost: boolean; planted?: number; down?: number; face?: number; next?: number; fn?: readonly number[]; fnN?: number } | null;
+  support?: { speed: number; lost: boolean; planted?: number; down?: number; face?: number; next?: number; fn?: readonly number[]; fnN?: number; swing?: number } | null;
   /**
    * 接地主導の移動（第 7 段階。歩き方「接地主導」）：崖・段差の縁では、先頭の脚が下の足場（縁より下）に掛かるまで胴体を
    * 縁から出さず、掛かったら脚に支えさせて胴体を下ろす。高い崖は側面へ脚を掛けて壁登りへ移る（CrabLedge）。
@@ -182,6 +183,8 @@ const PULL_KEEP = 0.4;
 const TUMBLE_T = 0.9;
 /** 掘った・盛った砂の量を測る処理に、1 フレームで使う時間の上限（ms） */
 const MEASURE_MS = 1.5;
+/** 砂の見直し（救済。CrabController.auditSand）に 1 フレームで使う時間の上限（ms） */
+const AUDIT_MS = 1.2;
 
 const RADIUS = 0.24;
 /** 照準を上・下いっぱいにしたときの掘る向きの仰角（上は登れる坂の限界 57° より少し急、下は −57°）と、左右の最大 */
@@ -271,11 +274,11 @@ export class CrabController {
   readonly events: CrabEvent[] = [];
   /** 穴掘り：照準・かき出しの位相（1 回で π 進む。左右の鋏が交互にかく）・掘る向きの仰角・かき出した回数 */
   readonly digAim: DigAim = { active: false, p: [0, 0, 0], dir: [0, 0, 1], material: 'none', hit: false, face: false, tool: 'dig', fillOk: false, fillWhy: null, fillR: 0, n: [0, 1, 0] };
-  /** 道具（掘る / 盛る）と手持ちの砂（体積。0〜SAND.capacity） */
+  /** 道具（掘る / 盛る）と手持ちの砂（体積。上限なし。盛った量の測り違いで少しだけ負になることがある＝表示は 0） */
   tool: SandTool = 'dig';
   sandHeld = 0;
-  /** 砂の出入りの記録（自動検証・表示用）：掘って得た・容量を超えて捨てた・盛って使った量、空振り・盛れなかった回数 */
-  readonly sandStats = { gained: 0, overflow: 0, spent: 0, places: 0, placeFails: 0, lastGain: 0, lastSpend: 0, measureMs: 0, maxMeasureMs: 0 };
+  /** 砂の出入りの記録（自動検証・表示用）：掘って得た・容量を超えて捨てた（第 9 段階まで。もう増えない）・盛って使った量、空振り・盛れなかった回数、見直し（救済）の回数・戻した量・最後に見直した「手元にあるはずの量」 */
+  readonly sandStats = { gained: 0, overflow: 0, spent: 0, places: 0, placeFails: 0, lastGain: 0, lastSpend: 0, measureMs: 0, maxMeasureMs: 0, audits: 0, rescued: 0, lastAudit: 0, auditMs: 0 };
   /** 盛った砂で埋めてはいけない物（仲間など。中心と半径）。main が決める */
   fillBlockers: () => { x: number; y: number; z: number; r: number }[] = () => [];
 
@@ -331,6 +334,10 @@ export class CrabController {
   /** 張り出しの縁を回り込んでいる途中（折れ線の道・進んだ距離・全長・回り込んだ先の面の法線） */
   /** （崖を降り始める道は、速さ sp と、始めの面の向き n0 → 着いた所の面の向き n を道の進み具合に合わせて回す） */
   /** （接地主導では、道の進み具合を、道の先の面に掛かった脚の数で止める：hold / creep は xfer と同じ） */
+  /** 縁を回り込んでいる途中か（見た目のハイブリッド歩行が接地の足運びへ切り替える） */
+  get mantling(): boolean {
+    return this.mantle !== null;
+  }
   private mantle: { pts: [number, number, number][]; s: number; len: number; n: [number, number, number]; sp?: number; n0?: [number, number, number]; hold?: number; creep?: number; crept?: boolean } | null = null;
   /**
    * 接地主導の壁登り・天井への移り（第 8 段階）：次の面の手がかり（脚へ渡す。無ければ null）・面の移りの途中（無ければ null）・
@@ -361,7 +368,9 @@ export class CrabController {
    * stepOffs = 足場が無く踏み出した・falls = 降りている途中で支えを失って落ちた・maxDescV = 胴体を下ろした速さの最大
    */
   ledge: Ledge | null = null;
-  readonly ledgeStats = { edges: 0, holdT: 0, steps: 0, climbs: 0, stepOffs: 0, falls: 0, maxDescV: 0 };
+  // （第 10 段階：waits = 足場が見つからないまま押し続けて待った（以前は踏み出していた）・reclass = 段差として下ろし始めてから崖に分け直した・
+  // keeps = 支えが足りなくなったが縁の上へ戻した・guards = 縁の無い向きへ漂って足場の無い所へ出かけたのを止めた）
+  readonly ledgeStats = { edges: 0, holdT: 0, steps: 0, climbs: 0, stepOffs: 0, falls: 0, maxDescV: 0, waits: 0, reclass: 0, keeps: 0, guards: 0 };
   /** 最後に支えを失って落ちたときの様子（自動検証用） */
   ledgeFall: { kind: string; over: number; gap: number; down: number; planted: number; t: number } | null = null;
   private ledgeScanN = 0;
@@ -473,6 +482,11 @@ export class CrabController {
       const ms = performance.now() - t0;
       this.sandStats.measureMs = ms;
       this.sandStats.maxMeasureMs = Math.max(this.sandStats.maxMeasureMs, ms);
+    } else if (this.world.dig.auditing) {
+      // 砂の見直し（救済）：1 フレームに AUDIT_MS まで
+      const t0 = performance.now();
+      this.world.dig.auditStep(AUDIT_MS);
+      this.sandStats.auditMs = Math.max(this.sandStats.auditMs, performance.now() - t0);
     }
     // 穴掘り（1 フレームに 1 回。照準を探ってから、間隔ごとにかき出す）
     if (this.digging) this.updateDig(dt, inp);
@@ -537,12 +551,22 @@ export class CrabController {
     A.face = pr.t !== null;
     const material: DigMaterial = inReach ? pr.material : 'none';
     // 盛るとき：盛れるか（砂が足りる・盛ってよい面・保護する物から離れている・カニや仲間を埋めない）と、砂山の大きさの目安
-    let maxR: ((c: readonly number[], r: number) => number) | null = null;
+    let maxR: FillMaxR | null = null;
+    // 盛る砂山を横へ伸ばす向き（盛る向きに垂直な水平。押し続けると左右へ広い足場になる）・手持ちの砂で盛れる量
+    const side: [number, number, number] = [Math.cos(this.digYaw), 0, -Math.sin(this.digYaw)];
+    const budget = Math.max(0, this.sandHeld);
+    // （積む高さの目安：カニの足元から 0.3 まで＝歩いて越えられる段。それより高くは、奥・横へ広げてから積む：目の前に壁を作って進めなくならない）
+    const env: FillEnv = { topMax: this.y + 0.3, surf: (x, y, z) => w.contactSurfaceBelow(x, y, z), solid: (x, y, z) => w.sandSolid(x, y, z, 'latest') };
     if (fillMode) {
       const blockers = [{ x: this.x, y: this.y + RADIUS, z: this.z, r: RADIUS }, ...this.fillBlockers()];
-      maxR = (c, r) => {
+      // （砂山はカプセル：保護する物の中心から砂山の軸までの距離で決める）
+      maxR = (a, b, r) => {
         let m = r;
-        for (const b of blockers) m = Math.min(m, Math.hypot(c[0] - b.x, c[1] - b.y, c[2] - b.z) - b.r - FILL.clearance);
+        const vx = b[0] - a[0], vy = b[1] - a[1], vz = b[2] - a[2], L2 = vx * vx + vy * vy + vz * vz;
+        for (const q of blockers) {
+          const t = L2 > 1e-9 ? clamp(((q.x - a[0]) * vx + (q.y - a[1]) * vy + (q.z - a[2]) * vz) / L2, 0, 1) : 0;
+          m = Math.min(m, Math.hypot(a[0] + vx * t - q.x, a[1] + vy * t - q.y, a[2] + vz * t - q.z) - q.r - FILL.clearance);
+        }
         return m;
       };
       A.n = inReach ? w.contactNormal(pr.p[0], pr.p[1], pr.p[2]) : [0, 1, 0];
@@ -559,9 +583,9 @@ export class CrabController {
       let planR: number = FILL.rMin;
       if (!why) {
         // place と同じ判断（続けて盛っていれば、大きくする・上へ積む）
-        const pl = w.dig.planPlace(pr.p, A.n, this.clock, maxR);
+        const pl = w.dig.planPlace(pr.p, A.n, this.clock, maxR, side, budget, env);
         planR = pl.r;
-        if (pl.why) why = pl.why === 'near' ? 'near' : pl.why === 'glass' || pl.why === 'pipe' || pl.why === 'treasure' || pl.why === 'bottom' ? pl.why : 'other';
+        if (pl.why) why = pl.why === 'near' || pl.why === 'empty' ? pl.why : pl.why === 'glass' || pl.why === 'pipe' || pl.why === 'treasure' || pl.why === 'bottom' ? pl.why : 'other';
       }
       A.fillWhy = why;
       A.fillOk = why === null;
@@ -580,11 +604,13 @@ export class CrabController {
       // 盛る：盛れるときだけ。足した砂の量（測った体積）だけ手持ちから減らす
       if (!A.fillOk) {
         this.sandStats.placeFails++;
+        // 手持ちの砂が無い：地形から手元にあるはずの砂を見直す（以前の持てる量の上限で捨てた砂・測り違いを戻す）
+        if (A.fillWhy === 'empty') this.auditSand();
         if (A.face && A.fillWhy !== 'empty') this.events.push({ kind: 'digBlocked', x: pr.p[0], y: pr.p[1], z: pr.p[2], power: 0.3, dir, material: pr.material });
         return;
       }
       w.dig.beginEdit();
-      const res = w.dig.place(pr.p, A.n, this.clock, maxR);
+      const res = w.dig.place(pr.p, A.n, this.clock, maxR, side, budget, env);
       // 足した砂の量は、測り終えたとき（数フレーム後）に手持ちから減らす（次に盛る・掘る前には必ず測り終える＝beginEdit）
       if (res.changed) w.startMeasureEdit((v) => this.spendSand(Math.max(0, v)));
       else w.dig.endEdit();
@@ -604,7 +630,7 @@ export class CrabController {
       // 太らせた空洞の先（res.at）から少しだけ（空振りの鋏の先からは出さない）
       w.dig.beginEdit();
       const res = w.dig.stroke(o, dir, diggable(material) ? pr.t : null, this.clock, floorMin, reach);
-      // 実際に取り除いた砂の量（測った体積）だけ手持ちに足す（空振り・掘った穴の中を太らせただけ・岩なら 0。容量を超えた分は捨てる）
+      // 実際に取り除いた砂の量（測った体積）だけ手持ちに足す（空振り・掘った穴の中を太らせただけ・岩なら 0。第 10 段階から上限なし）
       // （測り終えたとき＝数フレーム後に足す）
       if (res.changed) w.startMeasureEdit((v) => this.gainSand(Math.max(0, -v)));
       else w.dig.endEdit();
@@ -618,22 +644,51 @@ export class CrabController {
     }
   }
 
-  /** 掘って取り除いた砂を手持ちへ（容量 SAND.capacity まで。超えた分は捨てる） */
+  /**
+   * 掘って取り除いた砂を手持ちへ（第 10 段階：上限なし。以前は容量 4 を超えた分を捨てていた：overflow はもう増えない）
+   */
   private gainSand(v: number) {
-    const room = Math.max(0, SAND.capacity - this.sandHeld);
-    const take = Math.min(room, v);
-    this.sandHeld += take;
-    this.sandStats.gained += take;
-    this.sandStats.overflow += v - take;
+    this.sandHeld += v;
+    this.sandStats.gained += v;
     this.sandStats.lastGain = v;
   }
 
-  /** 盛って足した砂の分を手持ちから減らす（手持ちより多ければ手持ち全部） */
+  /**
+   * 盛って足した砂の分（測った体積）を手持ちから減らす。第 10 段階：手持ちより多く盛れた（見積もりより地面の上へ多く出た）ときも
+   * 測った分だけ減らす（少しだけ負になり、次に掘った分で埋まる。表示は 0。以前は手持ちまでしか減らさず、砂が増えていた）
+   */
   private spendSand(v: number) {
-    const spend = Math.min(this.sandHeld, v);
-    this.sandHeld -= spend;
-    this.sandStats.spent += spend;
-    this.sandStats.lastSpend = spend;
+    this.sandHeld -= v;
+    this.sandStats.spent += v;
+    this.sandStats.lastSpend = v;
+  }
+
+  /** 砂の見直しを最後に始めた時刻（続けて何度も見直さない） */
+  private auditAt = -100;
+  /** 見直しで手持ちへ戻した砂（main が知らせを出す） */
+  onSandRescue: ((v: number) => void) | null = null;
+
+  /**
+   * 第 10 段階（救済）：地形（全部の編集）から、掘って手元にあるはずの砂（掘った − 盛った）を測り、手持ちがそれより少なければ
+   * 差を戻す（以前の持てる量の上限で捨てた砂・量の測り違いで、地形を直せなくならない）。多いときは減らさない。
+   * 測る処理はフレームに分けて進む（update）。force = 前の見直しからの間隔を待たない（読み込んだ直後）
+   */
+  auditSand(force = false) {
+    const w = this.world;
+    if (w.dig.auditing || (!force && this.clock - this.auditAt < 8)) return;
+    this.auditAt = this.clock;
+    if (w.dig.count === 0) return;
+    this.sandStats.audits++;
+    w.startSandAudit((v) => {
+      const expect = -v;
+      this.sandStats.lastAudit = expect;
+      const credit = expect - Math.max(0, this.sandHeld);
+      if (credit > SAND.unit) {
+        this.sandHeld = Math.max(0, this.sandHeld) + credit;
+        this.sandStats.rescued += credit;
+        this.onSandRescue?.(credit);
+      }
+    });
   }
 
   private step(dt: number, inp: CrabInput, first: boolean) {
@@ -919,6 +974,24 @@ export class CrabController {
       }
       // 接地主導：縁を越えた胴体を脚で支えて下ろす（床に触れていない間）
       if (this.ledge) py = this.ledgeSupport(dt, inp, px, py, pz, wasGrounded);
+      // （支えが足りずに縁の上へ戻すとき：体が入る隙間がある所だけ）
+      if (this.keepBack) {
+        const qx = px + this.keepBack[0], qz = pz + this.keepBack[1];
+        if (w.contactSolid(qx, py, qz) > RADIUS * 0.92) {
+          px = qx;
+          pz = qz;
+        }
+        this.keepBack = null;
+      }
+      // 第 10 段階：縁の無い向き（縁に沿う・斜め・後ろ）へ漂って、足場の無い所へ出かけた：落とさずに縁の上で止める
+      if (inp.lead && wasGrounded && !this.grounded) {
+        const g = this.edgeGuard(px, py, pz, ride);
+        if (g) {
+          px = g[0];
+          py = g[1];
+          pz = g[2];
+        }
+      }
       // 掘った穴の中でよじ登る：床とみなせない急な所に触れていて、進もうとしている向きの斜め上に体が入る隙間があれば、
       // 少し上へ押し上げる（斜め上へ掘った穴の床の継ぎ目・地表へ抜けた出口の縁は、かき出しの継ぎ目で距離関数の向きが
       // 乱れやすく、平均の傾きは登れるのに引っかかって止まるので、面の向きではなく隙間で決める）。
@@ -1114,7 +1187,8 @@ export class CrabController {
     let ve = this.vx * e[0] + this.vz * e[2];
     if (ve <= 0) return;
     if (L.lowering && L.gap > 0.05) {
-      const k = clamp(1 - L.gap / LEDGE.gapSlow, LEDGE.minK, 1);
+      // （脚が届かないほど胴体の下が空いている間は外へ進めない：胴体を脚で下ろしてから進む）
+      const k = L.gap > LEDGE.reachGap ? 0 : clamp(1 - L.gap / LEDGE.gapSlow, LEDGE.minK, 1);
       this.vx -= e[0] * ve * (1 - k);
       this.vz -= e[2] * ve * (1 - k);
       ve *= k;
@@ -1149,14 +1223,49 @@ export class CrabController {
     if (gap <= 0.06 && !L.lowering) return py;
     L.gap = gap;
     const S = inp.support;
-    const down = S?.down ?? 0, planted = S?.planted ?? 0;
+    const down = S?.down ?? 0, planted = S?.planted ?? 0, swing = S?.swing ?? 0;
+    // 第 10 段階：段差として下ろし始めたが、下が段差より深い（斜めの縁・縁の先が崖）：崖・足場なしに分け直す（崖の先へ下ろさない）
+    // （縁の外へ進んだ先が新しい縁なら、縁をいまの所で探し直す：古い縁を基準に、はみ出し・縁の上の地形を判断しない）
+    if (L.kind === 'step' && gap > LEDGE.stepMax + LEDGE.reclass) {
+      this.ledgeStats.reclass++;
+      const bx = px - L.e[0] * 0.45, bz = pz - L.e[2] * 0.45;
+      const r = scanLedge(this.world, bx, this.world.contactSurfaceBelow(bx, py + 0.3, bz), bz, L.e[0], L.e[2]);
+      if (r) {
+        const lip: [number, number, number] = [bx + L.e[0] * r.a, r.lipY, bz + L.e[2] * r.a];
+        L.lip.splice(0, 3, ...lip);
+        L.e.splice(0, 3, ...r.e);
+        L.drop = Math.max(r.drop, dropOut(this.world, lip, r.e));
+        L.over = (px - lip[0]) * r.e[0] + (pz - lip[2]) * r.e[2];
+        L.holdT = 0;
+      }
+      L.kind = L.drop <= LEDGE.stepMax ? 'step' : faceBelow(this.world, L.lip, L.e) ? 'climb' : 'none';
+      if (L.kind === 'step') L.kind = 'none';
+    }
     const downOk = L.kind === 'step' && down >= LEDGE.needDown && planted >= 3;
     // （縁の角は急なので、縁で待っている体は床に触れていないことがある：はみ出しが上限の近くまでなら高さを保って支える）
     const leanOk = planted >= 3 && L.over <= (L.kind === 'step' ? LEDGE.leanOver : LEDGE.holdOver) + 0.05;
-    // 支えが足りない：踏み替え・足場を探す間（接地が 2 本まで）は looseT まで待つ。それより長い・脚が無いなら落ちる
-    const brief = planted >= 2;
+    // 支えが足りない：踏み替え・足場を探す間（接地と踏み替え中の脚で 2 本以上）は looseT まで待つ
+    const brief = planted + swing >= 2;
     L.loose = downOk || leanOk ? 0 : L.loose + dt;
     if (!downOk && !leanOk && !(brief && L.loose < LEDGE.looseT)) {
+      // 第 10 段階：縁の上の地形が残っていて、胴体がまだ縁から大きく出ていなければ、落とさずに縁の上へ戻す
+      // （脚が一時的に足場を失っただけで落ちない。縁の上の地形が消えた＝掘った・崩れたときは落ちる）
+      // （縁の上の地形：縁の少し内側の真下 0.3 以内に足場がある。丸い流木の縁でも測れるよう、点ではなく真下へ探る）
+      const lipSolid = gapBelow(this.world, L.lip[0] - L.e[0] * 0.12, L.lip[1] + 0.05, L.lip[2] - L.e[2] * 0.12, 0.4) < 0.3;
+      if (lipSolid && L.over < LEDGE.keepOver) {
+        this.ledgeStats.keeps++;
+        L.loose = LEDGE.looseT * 0.5;
+        const ve = this.vx * L.e[0] + this.vz * L.e[2];
+        if (ve > 0) {
+          this.vx -= L.e[0] * ve;
+          this.vz -= L.e[2] * ve;
+        }
+        this.keepBack = [-L.e[0] * LEDGE.backRate * dt, -L.e[2] * LEDGE.backRate * dt];
+        L.lowering = true;
+        this.grounded = true;
+        this.vy = 0;
+        return py;
+      }
       if (gap > 0.1) {
         this.ledgeStats.falls++;
         this.ledgeFall = { kind: L.kind, over: L.over, gap, down, planted, t: L.t };
@@ -1200,7 +1309,9 @@ export class CrabController {
       if (L.over > -0.1) L.committed = true;
       // 降り切った：脚で支えずに床に立っていて、縁から十分下
       // （体の下にまだ隙間があれば続ける：吸着で残りを一気に落とさない）
-      if (!L.lowering && L.lip[1] - footY > Math.min(L.drop, LEDGE.stepMax) * 0.6 && gapBelow(w, px, footY, pz, 0.4) < 0.06) {
+      // （第 10 段階：急な斜面に立っていると球の下の点と真下の地面の間が 0.1 ほど空くので、0.06 → 0.16。降り切ったのに縁の状態が残り、
+      // その先の別の崖で古い縁を基準に判断して落ちていた）
+      if (!L.lowering && L.lip[1] - footY > Math.min(L.drop, LEDGE.stepMax) * 0.6 && gapBelow(w, px, footY, pz, 0.4) < 0.16) {
         this.ledgeStats.steps++;
         this.ledge = null;
         return;
@@ -1216,7 +1327,10 @@ export class CrabController {
         return;
       }
       const lip: [number, number, number] = [px + ux * r.a, r.lipY, pz + uz * r.a];
-      const kind = r.drop <= LEDGE.stepMax ? 'step' : faceBelow(w, lip, r.e) ? 'climb' : 'none';
+      // （下の足場までの高さは、探った向きと縁に垂直な向きの深い方：斜めに近づいても高い崖を段差と取り違えない）
+      const drop = Math.max(r.drop, dropOut(w, lip, r.e));
+      r.drop = drop;
+      const kind = drop <= LEDGE.stepMax ? 'step' : faceBelow(w, lip, r.e) ? 'climb' : 'none';
       if (L && Math.hypot(L.lip[0] - lip[0], L.lip[1] - lip[1], L.lip[2] - lip[2]) < 0.35) {
         // 同じ縁（近づくにつれて測り直す）
         L.lip.splice(0, 3, ...lip);
@@ -1256,10 +1370,55 @@ export class CrabController {
       }
       L.retry = 0.2;
     }
-    if (L.holdT > (L.kind === 'none' ? LEDGE.holdT : LEDGE.holdTMax)) {
-      L.stepOff = true;
-      this.ledgeStats.stepOffs++;
+    // 第 10 段階：足場が見つからないまま押し続けても踏み出さない（縁で立ち止まる。離れるのはジャンプ）。待った回数だけ数える
+    const waitT = L.kind === 'none' ? LEDGE.holdT : LEDGE.holdTMax;
+    if (first && L.holdT > waitT && L.holdT - dt <= waitT) this.ledgeStats.waits++;
+  }
+
+  /** 縁で支えが足りなくなったときに、縁の上へ戻す量（このステップだけ。ledgeSupport が書き、step が使う） */
+  private keepBack: [number, number] | null = null;
+
+  /**
+   * 第 10 段階：足場の無い所へ歩いて出かけたのを止める（接地主導・ハイブリッド。縁の手がかり ledge の処理の後で、まだ接地していないとき）。
+   * 前のステップの位置の下に足場があり（隙間 0.12 以下）、新しい位置の下が 0.3 より空いているなら、縁の外向き（新しい位置の少し下で
+   * 測った面の向きの水平）の成分を除いた動きだけにする。それでも足場が無ければ前の位置のまま。戻り値 = 置き直した体の中心（止めないなら null）。
+   * 止めないとき：跳んだ（上向きの速さ）・泳いでいる・管の中・張り付いている・転んでいる・水槽の外・前の位置の下にも足場が無い
+   * （支えていた地形が崩れた＝自然に落ちる）・脚で支えて下ろしている（ledgeSupport が決める）
+   */
+  private edgeGuard(px: number, py: number, pz: number, ride: boolean): [number, number, number] | null {
+    if (this.vy > 0.5 || this.swimming || ride || this.climbing || this.tumbleT > 0 || this.region !== 'tank' || this.pulling) return null;
+    if (this.ledge && this.ledge.lowering) return null;
+    const w = this.world;
+    const cy = this.y + RADIUS;
+    const gOld = gapBelow(w, this.x, cy - RADIUS, this.z, 0.5);
+    if (gOld > 0.12) return null;
+    const gNew = gapBelow(w, px, py - RADIUS, pz, 0.5);
+    if (gNew <= 0.3) return null;
+    let dx = px - this.x, dz = pz - this.z;
+    const n = w.contactNormal(px, py - RADIUS - 0.15, pz);
+    const hl = Math.hypot(n[0], n[2]);
+    const mv = Math.hypot(dx, dz);
+    let ex = mv > 1e-6 ? dx / mv : 0, ez = mv > 1e-6 ? dz / mv : 0;
+    if (hl > 0.3) {
+      ex = n[0] / hl;
+      ez = n[2] / hl;
     }
+    const out = dx * ex + dz * ez;
+    if (out > 0) {
+      dx -= ex * out;
+      dz -= ez * out;
+    }
+    const ve = this.vx * ex + this.vz * ez;
+    if (ve > 0) {
+      this.vx -= ex * ve;
+      this.vz -= ez * ve;
+    }
+    if (this.vy < 0) this.vy = 0;
+    this.ledgeStats.guards++;
+    this.grounded = true;
+    const qx = this.x + dx, qz = this.z + dz;
+    if (gapBelow(w, qx, cy - RADIUS, qz, 0.5) <= 0.12 && w.contactSolid(qx, cy, qz) > RADIUS * 0.92) return [qx, cy, qz];
+    return [this.x, cy, this.z];
   }
 
   /**
