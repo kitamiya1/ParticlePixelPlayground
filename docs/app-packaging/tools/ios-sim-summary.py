@@ -131,12 +131,13 @@ def parse_syslog(path):
     }
 
 
-names = sorted({f[:-4] for f in os.listdir(OUT) if f.endswith('.err')}, key=lambda n: (0 if n.startswith('cold') else 1 if n.startswith('ctrl') else 2, n))
+names = sorted({f[:-7] for f in os.listdir(OUT) if f.endswith('.launch')}, key=lambda n: (0 if n.startswith('cold') else 1 if n.startswith('ctrl') else 2, n))
 runs = {}
 for n in names:
-    shots = sorted(f for f in os.listdir(OUT) if f.startswith(n + '-') and f.endswith('.png') and re.match(re.escape(n) + r'-\d+s\.png$', f))
+    shots = sorted((f for f in os.listdir(OUT) if re.match(re.escape(n) + r'-(\d+s|final)\.png$', f)), key=lambda f: (f.endswith('-final.png'), f))
     sl = parse_syslog(os.path.join(OUT, f'{n}-syslog.txt')) or (parse_syslog(os.path.join(OUT, 'warm-syslog.txt')) if n.startswith('warm') else None)
-    r = {'err': parse_err(os.path.join(OUT, f'{n}.err')), 'syslog': sl, 'shots': {s: classify(os.path.join(OUT, s)) for s in shots}}
+    # ゲームの記録：アプリの diag.log（第 3 段の 2 回目から）。無ければ標準エラー（1 回目は空だった）
+    r = {'err': parse_err(os.path.join(OUT, f'{n}.diag.log')) or parse_err(os.path.join(OUT, f'{n}.err')), 'syslog': sl, 'shots': {s: classify(os.path.join(OUT, s)) for s in shots}}
     last = r['shots'][shots[-1]]['kind'] if shots else None
     e = r['err'] or {}
     r['ok'] = bool(e.get('gpuReadyAtBoot') and e.get('framesAdvancing') and last == 'game')
@@ -153,16 +154,16 @@ summary = {'launches': len(launches), 'ok': len(ok), 'okNames': ok, 'failed': [n
 json.dump(summary, open(os.path.join(OUT, 'summary.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
 
 md = [f'# iOS シミュレーターの起動の試験のまとめ', '', f'修正後の起動 {len(launches)} 回のうち成功 {len(ok)} 回（うち初回起動 {summary["firstLaunches"]} 回中 {summary["firstOk"]} 回）。GPU を止める試験の起動・対照（ctrl = 描画の準備を飛ばす）は数えない', '', f'対照：' + (', '.join(f'{n}={v}' for n, v in summary['control'].items()) or 'なし'), '']
-md.append('| 回 | 成功 | 起動完了（秒） | 描画の準備 | 最後のフレーム記録 | 画面（撮った秒：判定 / 下の帯の白） | GPU の応答なし・終了（系統のログ） |')
-md.append('| --- | --- | --- | --- | --- | --- | --- |')
+md.append('| 回 | 成功 | 起動完了（秒） | 描画の準備 | 最後のフレーム記録 | 画面（撮った秒：判定 / 下の帯の白） | 描画の喪失（ゲームの記録） | GPU の応答なし・終了（系統のログ） |')
+md.append('| --- | --- | --- | --- | --- | --- | --- | --- |')
 for n, r in runs.items():
     e = r['err'] or {}
     sl = r['syslog'] or {}
     prep = re.sub(r'^.*prepare \(boot\) ', '', e.get('prepare') or '-')[:90]
-    secs = {s: re.search(r'-(\d+)s\.png$', s).group(1).lstrip('0') for s in r['shots']}
-    shots = ' '.join(f"{secs[s]}s:{v.get('kind', '?')}/{v.get('bottomWhite', '?')}" for s, v in r['shots'].items())
+    secs = {s: (lambda m: m.group(1).lstrip('0') + 's' if m else 'final')(re.search(r'-(\d+)s\.png$', s)) for s in r['shots']}
+    shots = ' '.join(f"{secs[s]}:{v.get('kind', '?')}/{v.get('bottomWhite', '?')}" for s, v in r['shots'].items())
     lb = re.sub(r'^.*\] ', '', e.get('lastBeat') or '-')[:60]
-    md.append(f"| {n} | {r['ok']} | {e.get('bootDoneAt')} | {prep} | {lb} | {shots} | {len(sl.get('unresponsive', []))} / {len(sl.get('gpuExited', []))} |")
+    md.append(f"| {n} | {r['ok']} | {e.get('bootDoneAt')} | {prep} | {lb} | {shots} | {sum('webglcontextlost' in x for x in e.get('gpuEvents', []))} | {len(sl.get('unresponsive', []))} / {len(sl.get('gpuExited', []))} |")
 md += ['', '## GPU 処理を止めた後の画面', '']
 md += [f'- {s}: {v}' for s, v in extra.items()]
 md += ['', '## 記録の抜粋', '']

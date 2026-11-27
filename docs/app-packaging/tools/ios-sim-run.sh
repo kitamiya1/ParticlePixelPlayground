@@ -25,12 +25,23 @@ mem() { # $1 = 名前：シミュレーターの中の WebKit とアプリのプ
   } >> "$OUT/memory.txt"
 }
 
+# ゲームの記録のファイル（アプリの diag.log：src-tauri/src/lib.rs の diag_write。リリース版の標準エラーは届かなかったので）
+diagfile() {
+  local c
+  c=$(xcrun simctl get_app_container "$UDID" "$BID" data 2>/dev/null) || return 0
+  find "$c/Library" -name diag.log 2>/dev/null | head -1
+}
+
 # アプリを起動して、決めた秒に画面を撮る。$1 = 名前、$2 = 撮る秒（空白区切り）、$3 = AQUA_SELFTEST
+# 撮り終えたら、ゲームの記録に 5 秒ごとの記録が 2 回出るまで（最大 150 秒）待ち、最後の画面（-final）を撮る。
+# 記録はこの回の分だけ $name.diag.log へ移す（次の回は新しいファイルに書く）
 run() {
   local name=$1 shots=$2 st=${3:-}
-  local T0 t now
+  local T0 t now f
   local start
   start=$(date '+%Y-%m-%d %H:%M:%S')
+  f=$(diagfile)
+  [ -n "$f" ] && rm -f "$f"
   note "launch $name (selftest=${st:-none})"
   SIMCTL_CHILD_AQUA_SELFTEST="$st" xcrun simctl launch --terminate-running-process --stdout="$OUT/$name.out" --stderr="$OUT/$name.err" "$UDID" "$BID" > "$OUT/$name.launch" 2>&1
   T0=$(date +%s)
@@ -41,7 +52,22 @@ run() {
     note "  $name shot ${t}s (actual $(( $(date +%s) - T0 ))s)"
     [ "$t" -eq 30 ] && mem "$name@30s"
   done
+  for k in $(seq 1 150); do
+    f=$(diagfile)
+    [ -n "$f" ] && [ "$(grep -c '\] frame [0-9]* fps=' "$f" 2>/dev/null)" -ge 2 ] && break
+    [ $(( $(date +%s) - T0 )) -ge 150 ] && break
+    sleep 1
+  done
+  xcrun simctl io "$UDID" screenshot "$OUT/$name-final.png" > /dev/null 2>&1
+  note "  $name final shot (actual $(( $(date +%s) - T0 ))s, diag=${f:-none})"
   echo "$start" > "$OUT/$name.start"
+}
+
+# この回の記録を移す（run の後、次の起動の前に呼ぶ）
+takediag() {
+  local f
+  f=$(diagfile)
+  if [ -n "$f" ]; then mv "$f" "$OUT/$1.diag.log"; else note "  $1: no diag.log"; fi
 }
 
 syslog() { # $1 = 名前、$2 = 開始時刻
@@ -59,48 +85,60 @@ fresh() { # シミュレーターを消去して起動し、アプリを入れ�
   xcrun simctl install "$UDID" "$APP"
 }
 
+
 # 初回起動：修正後（cold1…）と、対照（ctrl1…：AQUA_SELFTEST=noprepare = 描画の準備を飛ばして変更前と同じく最初のフレームで
-# まとめてシェーダーを作る）を交互に。どちらも毎回シミュレーターを消去してから
+# まとめてシェーダーを作る）を交互に。どちらも毎回シミュレーターを消去してから。
+# 消去した直後は画面を撮るだけで数十秒かかる（第 3 段の 1 回目の CI）ので、撮る回数を絞り、時刻はゲームの記録で見る
 for i in $(seq 1 "$COLD"); do
   fresh "cold$i"
-  run "cold$i" "5 10 15 20 30 45 60"
+  run "cold$i" "10 30 60"
   syslog "cold$i" "$(cat "$OUT/cold$i.start")"
+  takediag "cold$i"
   if [ "$i" -eq 1 ]; then
     xcrun simctl terminate "$UDID" "$BID" || true
-    run "cold1-restart" "10 20 30"
+    run "cold1-restart" "10 30"
     syslog "cold1-restart" "$(cat "$OUT/cold1-restart.start")"
+    takediag "cold1-restart"
   fi
   if [ "$i" -lt "$COLD" ]; then
     fresh "ctrl$i"
-    run "ctrl$i" "5 10 15 20 30 45 60" noprepare
+    run "ctrl$i" "10 30 60" noprepare
     syslog "ctrl$i" "$(cat "$OUT/ctrl$i.start")"
+    takediag "ctrl$i"
   fi
 done
 
+# 続けて起動（アプリを終了 → 起動）
 for i in 1 2 3; do
   xcrun simctl terminate "$UDID" "$BID" || true
-  run "warm$i" "10 20 30"
+  run "warm$i" "10 20"
+  syslog "warm$i" "$(cat "$OUT/warm$i.start")"
+  takediag "warm$i"
 done
-syslog "warm" "$(cat "$OUT/warm1.start")"
 
-# GPU 処理を外から止める
+# GPU 処理を外から止める（掘ってから）
 xcrun simctl terminate "$UDID" "$BID" || true
 run "gpu" "5" gpu
-for k in $(seq 1 60); do grep -q 'selftest dug' "$OUT/gpu.err" 2>/dev/null && break; sleep 1; done
+for k in $(seq 1 90); do f=$(diagfile); [ -n "$f" ] && grep -q 'selftest dug' "$f" && break; sleep 1; done
+sleep 3
 xcrun simctl io "$UDID" screenshot "$OUT/gpu-before-kill.png" > /dev/null 2>&1
 mem "gpu-before-kill"
 GPUPIDS=$(pgrep -f 'simruntime.*com\.apple\.WebKit\.GPU' || true)
 note "kill -9 WebKit.GPU pids: ${GPUPIDS:-none}"
 [ -n "$GPUPIDS" ] && kill -9 $GPUPIDS
+prev=0
 for t in 3 10 20 40; do
-  sleep $(( t - ${prev:-0} )); prev=$t
+  sleep $(( t - prev )); prev=$t
   xcrun simctl io "$UDID" screenshot "$OUT/gpu-after-kill-$(printf '%02d' "$t")s.png" > /dev/null 2>&1
   note "  gpu after kill ${t}s"
 done
 mem "gpu-after-kill"
 syslog "gpu" "$(cat "$OUT/gpu.start")"
+takediag "gpu"
+# 終了して起動し直す：掘った穴が保存から戻るか（記録の save loaded の prims と、gpu の記録の holes を比べる）
 xcrun simctl terminate "$UDID" "$BID" || true
-run "gpu-restart" "10 20 30"
+run "gpu-restart" "10 30"
 syslog "gpu-restart" "$(cat "$OUT/gpu-restart.start")"
+takediag "gpu-restart"
 xcrun simctl terminate "$UDID" "$BID" || true
 note "done"
