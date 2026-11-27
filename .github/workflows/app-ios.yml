@@ -1,6 +1,6 @@
 # アプリ化の実証試験（iOS）：macOS ランナーで Tauri 2 の Xcode プロジェクトを作り、署名なしでビルドし、シミュレーターで起動して画面を撮る。
 # 署名（Apple Developer Program・証明書・プロビジョニング）は使わない。実機へ入れる .ipa はここでは作らない。
-# 成果物（Actions の Artifacts）：Xcode プロジェクト（gen/apple）、シミュレーター用 .app、ビルドログ、起動後の画面写真とログ。
+# 成果物（Actions の Artifacts）：Xcode プロジェクト（gen/apple）、シミュレーター用 .app、ビルドログ、起動の試験の画面写真・記録・まとめ（sim/summary.md）。
 name: App PoC (iOS, unsigned)
 
 on:
@@ -13,6 +13,7 @@ on:
       - 'package*.json'
       - 'vite.config.ts'
       - '.github/workflows/app-ios.yml'
+      - 'docs/app-packaging/tools/ios-sim-*'
   workflow_dispatch:
 
 permissions:
@@ -68,31 +69,23 @@ jobs:
           set -o pipefail
           npx tauri ios build --target aarch64 --ci 2>&1 | tee "$OUT/tauri-ios-build-device.log"
 
-      - name: Run in iOS Simulator and take screenshots
+      # 起動の試験（docs/app-packaging/tools/ios-sim-run.sh）：初回起動（シミュレーターを消去してから）× 3・終了後の再起動・
+      # 続けて起動 × 3・GPU 処理を外から止める試験。ゲームの記録（標準エラー）・画面・系統のログ・メモリを残し、
+      # ios-sim-summary.py が成功の回数・白い画面・画面の下の帯を判定する
+      - name: Run in iOS Simulator (first launches, restarts, GPU process kill)
         run: |
-          set -x
           find src-tauri/gen/apple/build "$HOME/Library/Developer/Xcode/DerivedData" -name '*.app' -maxdepth 6 2>/dev/null | tee "$OUT/apps-found.txt"
           APP=$(grep -i 'simulator' "$OUT/apps-found.txt" | head -1)
           [ -z "$APP" ] && APP=$(head -1 "$OUT/apps-found.txt")
           echo "APP=$APP" | tee "$OUT/app-path.txt"
           du -sh "$APP" | tee -a "$OUT/app-path.txt"
-          UDID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for k,v in d.items() if "iOS" in k for x in v if x["name"].startswith("iPhone")))')
-          echo "UDID=$UDID" | tee -a "$OUT/app-path.txt"
-          xcrun simctl boot "$UDID"
-          xcrun simctl bootstatus "$UDID" -b
-          xcrun simctl install "$UDID" "$APP"
-          T0=$(date +%s)
-          xcrun simctl launch "$UDID" "$BUNDLE_ID" | tee "$OUT/launch.txt"
-          sleep 8;  xcrun simctl io "$UDID" screenshot "$OUT/sim-08s.png"
-          sleep 12; xcrun simctl io "$UDID" screenshot "$OUT/sim-20s.png"
-          sleep 20; xcrun simctl io "$UDID" screenshot "$OUT/sim-40s.png"
-          # 再起動：終了してもう一度起動（保存データの復元は自動では確かめられないので、起動できることだけ）
-          xcrun simctl terminate "$UDID" "$BUNDLE_ID" || true
-          xcrun simctl launch "$UDID" "$BUNDLE_ID" | tee -a "$OUT/launch.txt"
-          sleep 15; xcrun simctl io "$UDID" screenshot "$OUT/sim-relaunch-15s.png"
-          echo "elapsed=$(( $(date +%s) - T0 ))s" | tee -a "$OUT/launch.txt"
-          xcrun simctl spawn "$UDID" log show --last 3m --style compact --predicate 'process CONTAINS[c] "aquarium" OR process == "com.apple.WebKit.WebContent" OR process == "com.apple.WebKit.GPU"' > "$OUT/sim-log.txt" 2>&1 || true
+          bash docs/app-packaging/tools/ios-sim-run.sh "$APP" "$BUNDLE_ID" "$OUT/sim" 3
           ditto -c -k --keepParent "$APP" "$OUT/AquariumExplore-iossim.app.zip"
+
+      - name: Summarize simulator runs
+        if: always()
+        run: |
+          [ -d "$OUT/sim" ] && python3 -I docs/app-packaging/tools/ios-sim-summary.py "$OUT/sim" && cat "$OUT/sim/summary.md" >> "$GITHUB_STEP_SUMMARY" || true
 
       - name: Package Xcode project
         if: always()

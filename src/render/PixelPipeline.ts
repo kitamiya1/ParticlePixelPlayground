@@ -13,9 +13,10 @@ export class PixelPipeline {
   canvasLowW = 0;
   canvasLowH = 0;
   scale = 1;
-  private readonly postScene = new THREE.Scene();
+  /** 後処理の全画面の三角形（水槽探検の描画の準備 AquariumRenderer.prepare が先にシェーダーを作るために読む） */
+  readonly postScene = new THREE.Scene();
   private readonly tri: THREE.BufferGeometry;
-  private readonly postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  readonly postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   readonly post: THREE.ShaderMaterial;
   private readonly paletteTex: THREE.DataTexture;
   private paletteId = '';
