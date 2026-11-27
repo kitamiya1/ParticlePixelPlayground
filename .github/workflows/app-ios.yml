@@ -55,32 +55,25 @@ jobs:
         working-directory: src-tauri/gen/apple
         run: xcodebuild -list 2>&1 | tee "$OUT/xcode-list.log"
 
-      - name: xcodebuild for iOS Simulator (Release, unsigned)
-        working-directory: src-tauri/gen/apple
+      # Xcode のビルドの手順（Rust を作る所）は Tauri の CLI が動いている間しか動かない（cli-options-server.json を読む）。
+      # そのため xcodebuild を直接ではなく tauri ios build で作る（第 1 回の CI で確かめた）
+      - name: tauri ios build for iOS Simulator (aarch64-sim, no signing team)
         run: |
           set -o pipefail
-          PROJ=$(ls -d *.xcodeproj | head -1)
-          SCHEME=$(xcodebuild -list -json -project "$PROJ" | python3 -c 'import json,sys; s=json.load(sys.stdin)["project"]["schemes"]; print(next(x for x in s if x.endswith("_iOS")))')
-          echo "PROJ=$PROJ SCHEME=$SCHEME" | tee "$OUT/scheme.txt"
-          xcodebuild -project "$PROJ" -scheme "$SCHEME" -configuration release \
-            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' ARCHS=arm64 \
-            -derivedDataPath "$GITHUB_WORKSPACE/dd-sim" CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$OUT/xcodebuild-sim.log"
+          npx tauri ios build --target aarch64-sim --ci --verbose 2>&1 | tee "$OUT/tauri-ios-build-sim.log"
 
-      - name: xcodebuild for iOS device (Release, unsigned, compile check only)
+      - name: tauri ios build for iOS device (aarch64) — expected to need a signing team
         continue-on-error: true
-        working-directory: src-tauri/gen/apple
         run: |
           set -o pipefail
-          PROJ=$(ls -d *.xcodeproj | head -1)
-          SCHEME=$(xcodebuild -list -json -project "$PROJ" | python3 -c 'import json,sys; s=json.load(sys.stdin)["project"]["schemes"]; print(next(x for x in s if x.endswith("_iOS")))')
-          xcodebuild -project "$PROJ" -scheme "$SCHEME" -configuration release \
-            -sdk iphoneos -destination 'generic/platform=iOS' ARCHS=arm64 \
-            -derivedDataPath "$GITHUB_WORKSPACE/dd-dev" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee "$OUT/xcodebuild-device.log"
+          npx tauri ios build --target aarch64 --ci 2>&1 | tee "$OUT/tauri-ios-build-device.log"
 
       - name: Run in iOS Simulator and take screenshots
         run: |
           set -x
-          APP=$(find "$GITHUB_WORKSPACE/dd-sim/Build/Products" -name '*.app' -maxdepth 2 | head -1)
+          find src-tauri/gen/apple/build "$HOME/Library/Developer/Xcode/DerivedData" -name '*.app' -maxdepth 6 2>/dev/null | tee "$OUT/apps-found.txt"
+          APP=$(grep -i 'simulator' "$OUT/apps-found.txt" | head -1)
+          [ -z "$APP" ] && APP=$(head -1 "$OUT/apps-found.txt")
           echo "APP=$APP" | tee "$OUT/app-path.txt"
           du -sh "$APP" | tee -a "$OUT/app-path.txt"
           UDID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for k,v in d.items() if "iOS" in k for x in v if x["name"].startswith("iPhone")))')
