@@ -6,6 +6,8 @@
 // - カメラの方式（camStyle：第 2 段階）
 // 設定の欄は右上の「🔊」（音と設定）の中。
 
+import { WORM_FEEL_LABEL, WORM_FEELS, type WormFeel } from './AquaWorm';
+
 export const UI_KEY = 'ppp-aquarium:ui';
 
 /** 冒険カメラの方式（第 2 段階）。classic = 従来、tps = 改良型三人称、close = 肩越し・一人称、free = 自由追従 */
@@ -33,9 +35,11 @@ export interface UiPrefs {
   footDiag: boolean;
   /** 操作ボタンの名前を印の下に出す（第 6 段階。既定 false：絵だけ。初回は説明を閉じるまで出す） */
   labels: boolean;
+  /** ゴカイの引っこ抜きの手応え（柔らかめ・標準・硬め。比べて選ぶ） */
+  wormFeel: WormFeel;
 }
 
-export const UI_DEFAULTS: UiPrefs = { btnScale: 0.75, btnAlpha: 0.25, guides: false, camStyle: 'tps', gait: 'hybrid', plants: 'dyn', footDiag: false, labels: false };
+export const UI_DEFAULTS: UiPrefs = { btnScale: 0.75, btnAlpha: 0.25, guides: false, camStyle: 'tps', gait: 'hybrid', plants: 'dyn', footDiag: false, labels: false, wormFeel: 'std' };
 export const BTN_SCALE_RANGE: [number, number] = [0.55, 1.1];
 export const BTN_ALPHA_RANGE: [number, number] = [0.08, 0.6];
 
@@ -63,6 +67,7 @@ export class UiPrefStore {
     if (!CAMS.includes(p.camStyle)) p.camStyle = UI_DEFAULTS.camStyle;
     if (!GAITS.includes(p.gait)) p.gait = UI_DEFAULTS.gait;
     if (p.plants !== 'dyn' && p.plants !== 'gpu') p.plants = UI_DEFAULTS.plants;
+    if (!WORM_FEELS.includes(p.wormFeel)) p.wormFeel = UI_DEFAULTS.wormFeel;
     this.prefs = p;
     // URL で決めた値は覚えない（覚えている値の方を残す）
     const keep = { ...readPrefs(), ...p };
@@ -85,6 +90,7 @@ function readPrefs(): UiPrefs {
         plants: v.plants === 'dyn' || v.plants === 'gpu' ? v.plants : UI_DEFAULTS.plants,
         footDiag: typeof v.footDiag === 'boolean' ? v.footDiag : UI_DEFAULTS.footDiag,
         labels: typeof v.labels === 'boolean' ? v.labels : UI_DEFAULTS.labels,
+        wormFeel: WORM_FEELS.includes(v.wormFeel) ? v.wormFeel : UI_DEFAULTS.wormFeel,
       };
     }
   } catch {
@@ -104,7 +110,7 @@ function writePrefs(p: UiPrefs) {
 /**
  * 設定の欄（音の欄の下）に「操作ボタン」「表示」「カメラ」「歩き方」の段を足す。touch = false では操作ボタンの段を出さない
  */
-export function mountUiPrefs(panel: HTMLElement, store: UiPrefStore, opts: { touch: boolean; cam?: boolean; gait?: boolean; plants?: boolean }) {
+export function mountUiPrefs(panel: HTMLElement, store: UiPrefStore, opts: { touch: boolean; cam?: boolean; gait?: boolean; plants?: boolean; worm?: boolean }) {
   const sec = document.createElement('div');
   sec.className = 'ui-prefs';
   sec.innerHTML = `${opts.touch ? `
@@ -118,7 +124,9 @@ export function mountUiPrefs(panel: HTMLElement, store: UiPrefStore, opts: { tou
     <div class="row seg" data-k="gait"><button type="button" data-v="hybrid">ハイブリッド</button><button type="button" data-v="lead">接地主導</button><button type="button" data-v="cycle">従来</button></div>
     <label class="row"><input type="checkbox" data-k="footdiag"> 接地の診断を表示（足先・次の足場・届く範囲・支え）</label>` : ''}${opts.plants ? `
     <div class="sec">水草のかき分け</div>
-    <div class="row seg" data-k="plants"><button type="button" data-v="dyn">しなる（近くだけ計算）</button><button type="button" data-v="gpu">GPU だけ</button></div>` : ''}
+    <div class="row seg" data-k="plants"><button type="button" data-v="dyn">しなる（近くだけ計算）</button><button type="button" data-v="gpu">GPU だけ</button></div>` : ''}${opts.worm ? `
+    <div class="sec">ゴカイの引っこ抜きの手応え</div>
+    <div class="row seg" data-k="worm">${WORM_FEELS.map((f) => `<button type="button" data-v="${f}">${WORM_FEEL_LABEL[f]}</button>`).join('')}</div>` : ''}
     <div class="sec">表示</div>
     <label class="row"><input type="checkbox" data-k="guides"> 案内を出す（挟める物の輪・物の名前・引っ張りの手応え・操作の知らせ）</label>
     <div class="row"><button type="button" data-k="reset">表示の設定を元に戻す</button></div>`;
@@ -135,6 +143,7 @@ export function mountUiPrefs(panel: HTMLElement, store: UiPrefStore, opts: { tou
   for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="cam"] button')) b.addEventListener('click', () => store.set({ camStyle: b.dataset.v as CamStyle }));
   for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="gait"] button')) b.addEventListener('click', () => store.set({ gait: b.dataset.v as GaitStyle }));
   for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="plants"] button')) b.addEventListener('click', () => store.set({ plants: b.dataset.v as PlantStyle }));
+  for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="worm"] button')) b.addEventListener('click', () => store.set({ wormFeel: b.dataset.v as WormFeel }));
   q('reset')!.addEventListener('click', () => store.set({ btnScale: UI_DEFAULTS.btnScale, btnAlpha: UI_DEFAULTS.btnAlpha, guides: UI_DEFAULTS.guides, labels: UI_DEFAULTS.labels }));
   store.onChange((p) => {
     if (scale) scale.value = String(Math.round(p.btnScale * 100));
@@ -148,5 +157,6 @@ export function mountUiPrefs(panel: HTMLElement, store: UiPrefStore, opts: { tou
     for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="cam"] button')) b.classList.toggle('on', b.dataset.v === p.camStyle);
     for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="gait"] button')) b.classList.toggle('on', b.dataset.v === p.gait);
     for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="plants"] button')) b.classList.toggle('on', b.dataset.v === p.plants);
+    for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="worm"] button')) b.classList.toggle('on', b.dataset.v === p.wormFeel);
   });
 }

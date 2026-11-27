@@ -540,6 +540,23 @@ export class AquariumWorld {
     return d;
   }
 
+  /**
+   * 岩・流木だけの距離（砂は含まない）。砂の中の生き物の巣穴（AquaWorm）が岩・流木を通らないかを調べる
+   * （solid は砂の中でいつも負なので、何の中にいるか分からない）
+   */
+  hardSolid(x: number, y: number, z: number): number {
+    let d = Infinity;
+    for (const r of this.rocks) {
+      const bd = boxDist(r.box, x, y, z);
+      d = Math.min(d, bd > 0.5 ? bd : r.sdf(x, y, z));
+    }
+    for (const w of this.woods) {
+      const bd = boxDist(w.box, x, y, z);
+      d = Math.min(d, bd > 0.5 ? bd : w.sdf(x, y, z));
+    }
+    return d;
+  }
+
   /** solid の勾配（外向きの単位法線） */
   solidNormal(x: number, y: number, z: number): [number, number, number] {
     const e = 0.03;

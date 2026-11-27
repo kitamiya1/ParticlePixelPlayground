@@ -27,6 +27,8 @@ import type { RenderSettings } from '../settings';
 import type { AquaCamera } from './AquaCamera';
 import type { AquaLife } from './AquaLife';
 import type { BuddySystem } from './AquaBuddy';
+import type { WormSystem } from './AquaWorm';
+import { WormView } from './AquaWormView';
 import type { Prop, PropKind, PropSystem } from './AquaGrab';
 import type { AquariumMeshes, LightGrid } from './AquariumBuild';
 import { AquariumDigFx } from './AquariumDigFx';
@@ -154,6 +156,12 @@ void main() {
   vec3 c = pppWorldLit(vec3(0.0), wp, n, base, 0.0, vMisc.x);
 #ifdef USE_BEAMS
   c += base * vec3(1.0, 0.94, 0.78) * pppBeamLight(vWorld) * 0.95 * max(dot(n, -uBeamD[0].xyz), 0.3);
+#endif
+#ifdef WORM
+  // ゴカイ：柔らかさと半透明（縁を体の色で明るく = 光が薄い体を透ける。全体も少しだけ自ら明るい）
+  vec3 vdw = normalize(cameraPosition - vWorld);
+  float rimw = pow(1.0 - clamp(abs(dot(n, vdw)), 0.0, 1.0), 1.5);
+  c += base * (0.1 + rimw * 0.5) * vec3(1.0, 0.78, 0.72);
 #endif
 #if defined(USE_BONES) || defined(USE_LIFT)
   // 方式 F v2 のキャラクターの持ち上げと同じ（背景の岩・砂から浮かせる。小さな生き物にも弱めに使う）
@@ -422,6 +430,8 @@ export class AquariumRenderer {
   /** 最初の仲間（スナモグリ）の体（1 個のインスタンス）と、その巣穴 */
   private readonly buddyMesh: THREE.InstancedMesh | null = null;
   private readonly buddy: BuddySystem | null = null;
+  /** ゴカイ（AquaWorm。体の頂点を毎フレーム作り直す） */
+  readonly worms: WormView | null = null;
   /** 挟める物（AquaGrab）と、種類ごとのインスタンスの束 */
   private readonly props: PropSystem | null = null;
   private readonly propMeshes: { mesh: THREE.InstancedMesh; list: Prop[] }[] = [];
@@ -456,7 +466,7 @@ export class AquariumRenderer {
     crab: TriMesh,
     plants: SplatPointSet,
     private readonly rig: CrabRig,
-    explore: { finds: Find[]; findsMesh: TriMesh; glowMesh: TriMesh; fishMesh: TriMesh; shrimpMesh: TriMesh; life: AquaLife; buddy?: { sys: BuddySystem; mesh: TriMesh; burrowMesh: TriMesh }; props?: { sys: PropSystem; meshes: Record<PropKind, TriMesh> } },
+    explore: { finds: Find[]; findsMesh: TriMesh; glowMesh: TriMesh; fishMesh: TriMesh; shrimpMesh: TriMesh; life: AquaLife; buddy?: { sys: BuddySystem; mesh: TriMesh; burrowMesh: TriMesh }; props?: { sys: PropSystem; meshes: Record<PropKind, TriMesh> }; worms?: WormSystem },
     dig: { light: LightGrid; plantAnchors: Float32Array },
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', alpha: false });
@@ -542,6 +552,15 @@ export class AquariumRenderer {
         this.stats.tris += m.triCount * list.length;
       }
     }
+    // ゴカイ：両面（触手・疣足は 1 枚の三角）、縁を明るくして半透明に見せる（WORM）
+    if (explore.worms) {
+      const mat = this.meshMaterial(false, { USE_LIFT: '', WORM: '' });
+      mat.uniforms.uCharLift = { value: 0.12 };
+      mat.side = THREE.DoubleSide;
+      this.worms = new WormView(explore.worms, mat);
+      this.meshScene.add(this.worms.mesh);
+      this.stats.tris += this.worms.stats.tris;
+    }
     for (const f of explore.finds) if (f.kind === 'spring') this.springs.push({ pos: f.pos, scale: f.scale, t: Math.random() });
     this.baseTris = this.stats.tris;
 
@@ -561,6 +580,12 @@ export class AquariumRenderer {
     if (this.buddy) {
       const [bx, , bz] = this.buddy.burrow, A = dig.plantAnchors, gone: number[] = [];
       for (let i = 0; i < A.length / 3; i++) if (Math.hypot(A[i * 3] - bx, A[i * 3 + 2] - bz) < 0.42) gone.push(i);
+      if (gone.length) this.surfel.hideWorldPoints(gone);
+    }
+    // ゴカイの巣穴の口のまわりも（顔を出した頭と触手が見えるように。狭く）
+    if (explore.worms) {
+      const A = dig.plantAnchors, gone: number[] = [];
+      for (const w of explore.worms.worms) for (let i = 0; i < A.length / 3; i++) if (Math.hypot(A[i * 3] - w.home[0], A[i * 3 + 2] - w.home[2]) < 0.3) gone.push(i);
       if (gone.length) this.surfel.hideWorldPoints(gone);
     }
 
@@ -1120,6 +1145,7 @@ export class AquariumRenderer {
     this.handleEvents(crab.drainEvents(), crab, time);
     this.updateBubbles(dt, crab);
     this.updateCreatures();
+    this.worms?.update(time);
     this.digFx.update(dt, crab);
     this.stats.tris = this.baseTris + this.digFx.stats.tris - this.digFx.stats.hiddenTris;
     this.plumbing.update(dt, time);

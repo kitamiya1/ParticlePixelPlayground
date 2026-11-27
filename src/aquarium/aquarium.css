@@ -334,6 +334,8 @@ html.aqua-pinned body.aqua { position: fixed; left: 0; top: 0; width: 100%; heig
 #pop-word b { position: absolute; left: 0; top: -28px; transform: translate(-50%, -50%); white-space: nowrap; font-size: 30px; font-weight: 900;
   color: #fff4c8; letter-spacing: 0.04em; -webkit-text-stroke: 1.5px rgba(90, 40, 10, 0.9); text-shadow: 0 2px 0 rgba(90, 40, 10, 0.8), 0 0 12px rgba(255, 200, 90, 0.8);
   animation: pop-word 0.9s cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+/* ゴカイが抜けた瞬間：文字は出さず、衝撃の輪だけ（体の飛び出し・音・砂で伝える） */
+#pop-word.ring-only b { display: none; }
 #pop-word .ring { position: absolute; left: 0; top: 0; width: 20px; height: 20px; border-radius: 50%; border: 3px solid rgba(255, 240, 190, 0.9);
   transform: translate(-50%, -50%); animation: pop-ring 0.55s ease-out both; }
 @keyframes pop-word { 0% { opacity: 0; transform: translate(-50%, -30%) scale(0.3); } 18% { opacity: 1; transform: translate(-50%, -60%) scale(1.15); }
