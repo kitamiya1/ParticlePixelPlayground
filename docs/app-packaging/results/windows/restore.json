@@ -1,0 +1,27 @@
+{
+  "phase": "restore",
+  "url": "http://tauri.localhost/aquarium.html",
+  "when": "2026-11-27T07:07:18.380Z",
+  "boot": {
+    "bootMs": 3450,
+    "buildMs": 3395,
+    "domContentLoadedMs": 116,
+    "harnessConnectToBootMs": 5806,
+    "launchToBootMs": 6026
+  },
+  "state": {
+    "x": -4.003,
+    "y": 1.982,
+    "z": 5.002,
+    "prims": 0,
+    "fills": 0,
+    "sand": 0,
+    "loaded": "empty",
+    "storeKind": "indexeddb",
+    "rev": 0,
+    "saveState": "saved",
+    "lastSavedAt": 0,
+    "marker": "m1795762359099"
+  },
+  "pageErrors": []
+}

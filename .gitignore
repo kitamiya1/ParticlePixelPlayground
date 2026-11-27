@@ -29,3 +29,7 @@ npm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# アプリ版（Tauri）のビルド成果物
+dist-app/
+src-tauri/target/

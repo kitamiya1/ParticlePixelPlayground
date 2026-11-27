@@ -416,11 +416,36 @@ class IdbBackend implements Backend {
       r.onupgradeneeded = () => {
         if (!r.result.objectStoreNames.contains(STORE)) r.result.createObjectStore(STORE);
       };
-      r.onsuccess = () => res(new IdbBackend(r.result));
-      r.onerror = () => rej(r.error);
-      r.onblocked = () => rej(new Error('IndexedDB が他のタブで使われています'));
-      // 開くのに時間がかかりすぎる環境（まれ）は諦めて次の保存先へ
-      setTimeout(() => rej(new Error('IndexedDB が応答しません')), 4000);
+      let done = false;
+      r.onsuccess = () => {
+        done = true;
+        res(new IdbBackend(r.result));
+      };
+      r.onerror = () => {
+        done = true;
+        rej(r.error);
+      };
+      r.onblocked = () => {
+        done = true;
+        rej(new Error('IndexedDB が他のタブで使われています'));
+      };
+      // 開くのに時間がかかりすぎる環境（まれ）は諦めて次の保存先へ。
+      // 待った時間は「主スレッドが空いていた時間」で数える：開くのと並行して重い生成（数秒、同期）が走るので、
+      // 壁時計の 4 秒で打ち切ると、開けていても成功の知らせが届く前に打ち切りが先に動き、localStorage へ落ちることがある
+      // （Edge の新しいプロファイル・アプリ版の初回起動で再現。生成に 4.5〜5 秒かかった）。1 回の刻みで数えるのは最大 0.5 秒
+      let waited = 0;
+      let last = performance.now();
+      const tick = () => {
+        if (done) return;
+        const now = performance.now();
+        waited += Math.min(now - last, 500);
+        last = now;
+        if (waited >= 4000) {
+          done = true;
+          rej(new Error('IndexedDB が応答しません'));
+        } else setTimeout(tick, 250);
+      };
+      setTimeout(tick, 250);
     });
   }
 

@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "水槽探検のアプリ版：セーブデータのファイル書き出し・読み込み（保存先・読み込み元は利用者がダイアログで選んだファイルだけ）",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:allow-save",
+    "dialog:allow-open",
+    "fs:allow-write-text-file",
+    "fs:allow-read-text-file"
+  ]
+}

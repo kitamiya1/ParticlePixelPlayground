@@ -1,0 +1,52 @@
+﻿
+11-27 07:10:55.487  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:55.638  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:55.787  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:55.938  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:56.086  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:56.236  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:56.387  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:56.537  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:56.688  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:56.836  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:56.987  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:57.138  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:57.287  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:57.439  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:57.593  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:57.741  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:57.897  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:58.042  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:58.193  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:58.340  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:58.389   597  2040 D ActivityManager: sync unfroze 3606 com.google.android.webview:sandboxed_process0:org.c
+hromium.content.app.SandboxedProcessService0:0 for 19
+11-27 07:10:58.395   597  2040 D ActivityManager: sync unfroze 4274 com.google.android.webview:webview_service for 19
+11-27 07:10:58.492  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+11-27 07:10:58.536  4485  4495 I aquariumexplore: Explicit concurrent mark compact GC freed 224KB AllocSpace bytes, 0(0
+B) LOS objects, 49% free, 3510KB/7020KB, paused 1.058ms,780us total 19.603ms
+11-27 07:10:58.635  4531  4555 I chromium: [INFO:document_style_environment_variables.cc(104)] E2E_Used SafeAreaInsetBo
+ttom
+
+

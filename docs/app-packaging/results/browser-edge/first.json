@@ -1,0 +1,178 @@
+{
+  "phase": "first",
+  "url": "http://localhost:4174/aquarium.html",
+  "when": "2026-11-27T07:04:54.359Z",
+  "boot": {
+    "bootMs": 4744,
+    "buildMs": 4665,
+    "domContentLoadedMs": 493,
+    "harnessConnectToBootMs": 7959,
+    "launchToBootMs": 9089
+  },
+  "env": {
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36 Edg/158.0.0.0",
+    "webgl2": true,
+    "glRenderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER (0x00001F06) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "glVendor": "Google Inc. (NVIDIA)",
+    "maxTex": 16384,
+    "threeWebGL2": true,
+    "dpr": 1,
+    "inner": [
+      1272,
+      788
+    ],
+    "touchPoints": 0,
+    "origin": "http://localhost:4174",
+    "isApp": false,
+    "storeKind": "localStorage",
+    "idb": true,
+    "storagePersist": true,
+    "gamepadApi": true,
+    "vibrate": true,
+    "audioCtx": true
+  },
+  "render": {
+    "canvas": [
+      1272,
+      788
+    ],
+    "colors": 585,
+    "meanLum": 126.2,
+    "stdLum": 43,
+    "tris": 568070,
+    "ok": true
+  },
+  "realInput": {
+    "kind": "keyboard+mouse",
+    "moved": 1.769,
+    "digPrimsAdded": 3,
+    "ok": true
+  },
+  "audio": {
+    "ctxState": "running",
+    "err": null,
+    "plays": 3,
+    "advanced": 0.4,
+    "sampleRate": 48000,
+    "muted": false,
+    "volume": 0.7,
+    "ok": true
+  },
+  "dig": {
+    "held": 12.49,
+    "gained": 12.49,
+    "overflow": 0,
+    "hole": -12.492,
+    "ok": true,
+    "_ms": 3634
+  },
+  "fill": {
+    "fillsAdded": 34,
+    "sandUsed": 4.636,
+    "r": "{\"done\":false,\"secs\":45,\"presses\":1,\"strokes\":54,\"fails\":216,\"restored\":0.262,\"spent\":4.636,\"left\":7.854,\"emptyStop\":false,\"inSolid\":0,\"fills\":34,\"why\":{\"far\":12,\"near\":2149}}",
+    "ok": true,
+    "_ms": 16953
+  },
+  "wall": {
+    "startY": 6.914,
+    "maxY": 6.984,
+    "climbSamples": 16,
+    "samples": 29,
+    "grabs": 1,
+    "mats": [
+      "soil",
+      "rock"
+    ],
+    "end": [
+      8.578,
+      6.61,
+      -2.178
+    ],
+    "state": "walk",
+    "ok": false,
+    "_ms": 1122
+  },
+  "ceiling": {
+    "name": "洞窟のトンネル（水中・岩）",
+    "summary": "{\"name\":\"洞窟のトンネル（水中・岩）\",\"reachT\":1.68,\"at\":[-11.94,2.68,-1.47],\"material\":\"rock\",\"region\":\"tank\",\"under\":true,\"hold\":{\"drift\":0.07,\"climbing\":true,\"ny\":-0.98},\"moves\":{\"前\":{\"d\":1.05,\"climbing\":true,\"ny\":[-1,-0.98]},\"後\":{\"d\":1.04,\"climbing\":true,\"ny\":[-1,-0.98]},\"左\":{\"d\":0.9,\"climbing\":true,\"ny\":[-0.98,0.18]},\"右\":{\"d\":0.89,\"climbing\":false,\"ny\":[0.38,0.56]}},\"jump\":{\"fromCeiling\":true,\"state\":\"idle\",\"climbing\":false,\"frameMode\":false,\"ny\":1,\"dy\":-0.91},\"after\":{\"state\":\"idle\",\"grounded\":true,\"frameMode\":false,\"ny\":1,\"dy\":-0.91},\"stats\":{\"grabs\":2,\"exits\":1,\"jumps\":1,\"lost\":0,\"drops\":0,\"blocked\"",
+    "ok": true,
+    "_ms": 1961
+  },
+  "cliff": {
+    "y0": 9.83,
+    "y1": 6.97,
+    "ledge": {
+      "edges": 1,
+      "holdT": 0.12,
+      "steps": 0,
+      "climbs": 1,
+      "stepOffs": 0,
+      "falls": 0,
+      "maxDescV": 0,
+      "waits": 0,
+      "reclass": 0,
+      "keeps": 0,
+      "guards": 0
+    },
+    "ok": true,
+    "_ms": 976
+  },
+  "plants": {
+    "mode": "dyn",
+    "place": "forest",
+    "blocked": 0.18,
+    "touchedMax": 23,
+    "active": 71,
+    "msAvg": 0.043,
+    "msMax": 0.2,
+    "ok": true,
+    "_ms": 420
+  },
+  "plantGrab": {
+    "summary": "{\"kind\":\"テープ状の葉\",\"high\":false,\"grabbed\":\"テープ状の葉\",\"tensionMax\":6.88,\"uprooted\":0,\"cut\":0,\"slips\":0,\"pieceHeld\":null,\"carried\":null,\"drift\":null,\"removed\":false}",
+    "ok": true,
+    "_ms": 289
+  },
+  "creature": {
+    "summary": "{\"kind\":\"shrimp\",\"tries\":2,\"caught\":2,\"escapes\":0,\"released\":2,\"kicks\":5,\"embedFrames\":0,\"stillCaught\":0}",
+    "caught": 2,
+    "ok": true,
+    "_ms": 475
+  },
+  "perf": {
+    "frames": 299,
+    "avgMs": 14.63,
+    "fps": 68.4,
+    "p95Ms": 15.3,
+    "maxMs": 15.7,
+    "jsHeapMB": 46.9,
+    "jsHeapLimitMB": 4192,
+    "tris": 590507,
+    "_ms": 4378
+  },
+  "network": {
+    "count": 3,
+    "origins": [
+      "http://localhost:4174"
+    ]
+  },
+  "saveFirst": {
+    "flushed": true,
+    "persisted": false
+  },
+  "state": {
+    "x": -2.002,
+    "y": 4.127,
+    "z": 2.998,
+    "prims": 61,
+    "fills": 35,
+    "sand": 7.3837,
+    "loaded": "empty",
+    "storeKind": "localStorage",
+    "rev": 10,
+    "saveState": "saved",
+    "lastSavedAt": 1795763131955,
+    "marker": "m1795763131954"
+  },
+  "pageErrors": []
+}
