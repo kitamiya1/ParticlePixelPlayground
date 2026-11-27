@@ -1,0 +1,72 @@
+== cold1@30s 10:26:09
+7863 rss=1584KB etime=09:22 sim 3
+10885 rss=14176KB etime=05:38 Aquarium Explore
+10891 rss=75456KB etime=05:37 com.apple.WebKit.WebContent
+10894 rss=36896KB etime=05:37 com.apple.WebKit.GPU
+10895 rss=464KB etime=05:37 com.apple.WebKit.Networking
+== cold1-restart@30s 10:27:04
+7863 rss=1872KB etime=10:17 sim 3
+17024 rss=130528KB etime=00:32 Aquarium Explore
+17031 rss=234208KB etime=00:31 com.apple.WebKit.WebContent
+17033 rss=101696KB etime=00:31 com.apple.WebKit.GPU
+17037 rss=71744KB etime=00:30 com.apple.WebKit.Networking
+== ctrl1@30s 10:37:05
+7863 rss=1728KB etime=20:19 sim 3
+33776 rss=21648KB etime=02:17 Aquarium Explore
+33796 rss=113680KB etime=02:14 com.apple.WebKit.WebContent
+33824 rss=18368KB etime=02:13 com.apple.WebKit.GPU
+33882 rss=2192KB etime=02:11 com.apple.WebKit.Networking
+== cold2@30s 10:41:26
+7863 rss=1712KB etime=24:39 sim 3
+39094 rss=139392KB etime=00:38 Aquarium Explore
+39099 rss=297152KB etime=00:37 com.apple.WebKit.WebContent
+39102 rss=108720KB etime=00:36 com.apple.WebKit.GPU
+39104 rss=80464KB etime=00:36 com.apple.WebKit.Networking
+== ctrl2@30s 10:47:51
+7863 rss=1728KB etime=31:05 sim 3
+44425 rss=21424KB etime=02:51 Aquarium Explore
+44428 rss=116720KB etime=02:49 com.apple.WebKit.WebContent
+44430 rss=17392KB etime=02:49 com.apple.WebKit.GPU
+44433 rss=1696KB etime=02:49 com.apple.WebKit.Networking
+== cold3@30s 10:52:12
+7863 rss=1808KB etime=35:25 sim 3
+50483 rss=133984KB etime=00:37 Aquarium Explore
+50493 rss=288256KB etime=00:36 com.apple.WebKit.WebContent
+50494 rss=109024KB etime=00:36 com.apple.WebKit.GPU
+50495 rss=80000KB etime=00:35 com.apple.WebKit.Networking
+== warm1@30s 10:54:52
+7863 rss=1648KB etime=38:05 sim 3
+52740 rss=14256KB etime=02:04 Aquarium Explore
+52748 rss=133280KB etime=02:04 com.apple.WebKit.WebContent
+52749 rss=37024KB etime=02:04 com.apple.WebKit.GPU
+52752 rss=240KB etime=02:03 com.apple.WebKit.Networking
+== warm2@30s 10:55:29
+7863 rss=1840KB etime=38:43 sim 3
+54699 rss=146272KB etime=00:34 Aquarium Explore
+54743 rss=434944KB etime=00:33 com.apple.WebKit.WebContent
+54745 rss=118112KB etime=00:33 com.apple.WebKit.GPU
+54746 rss=84160KB etime=00:33 com.apple.WebKit.Networking
+== warm3@30s 10:56:32
+7863 rss=1600KB etime=39:45 sim 3
+55830 rss=37536KB etime=00:59 Aquarium Explore
+55845 rss=116064KB etime=00:58 com.apple.WebKit.WebContent
+55860 rss=55440KB etime=00:57 com.apple.WebKit.GPU
+55865 rss=26624KB etime=00:57 com.apple.WebKit.Networking
+== gpu-before-kill 10:59:04
+7863 rss=1920KB etime=42:18 sim 3
+58453 rss=146752KB etime=01:25 Aquarium Explore
+58495 rss=421664KB etime=01:23 com.apple.WebKit.WebContent
+58503 rss=119200KB etime=01:23 com.apple.WebKit.GPU
+58520 rss=89680KB etime=01:22 com.apple.WebKit.Networking
+== gpu-after-kill 11:00:22
+7863 rss=192KB etime=43:43 sim 3
+58453 rss=16576KB etime=02:50 Aquarium Explore
+58495 rss=41552KB etime=02:48 com.apple.WebKit.WebContent
+58520 rss=5136KB etime=02:47 com.apple.WebKit.Networking
+61769 rss=38304KB etime=01:25 com.apple.WebKit.GPU
+== gpu-restart@30s 11:04:05
+7863 rss=1712KB etime=47:18 sim 3
+65399 rss=18768KB etime=01:42 Aquarium Explore
+65408 rss=102896KB etime=01:41 com.apple.WebKit.WebContent
+65410 rss=42768KB etime=01:40 com.apple.WebKit.GPU
+65411 rss=7600KB etime=01:40 com.apple.WebKit.Networking

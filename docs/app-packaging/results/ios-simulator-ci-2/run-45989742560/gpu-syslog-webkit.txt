@@ -1,0 +1,188 @@
+﻿2026-11-27 11:59:35.578 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x100e09718 - PageConfiguration::delaysWebProcessLaunchUntilFirstLoad() -> false because of associated processPool value
+2026-11-27 11:59:35.578 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x10102ec08 - WebProcessPool::createWebPage: Not delaying WebProcess launch
+2026-11-27 11:59:35.578 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110000e00 - [PID=0] WebProcessProxy::constructor:
+2026-11-27 11:59:35.611 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110001500 - [PID=0, throttler=0x110000e90] ProcessThrottler::Activity::Activity: Starting foreground activity / 'Process initialization'
+2026-11-27 11:59:35.625 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110000e00 - [PID=0] WebProcessProxy::addExistingWebPage: webPage=0x102053418, pageProxyID=9, webPageID=10
+2026-11-27 11:59:35.629 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSwapping] 0x110000900 - [PID=0] WebProcessCache::updateCapacity: Cache is disabled by client
+2026-11-27 11:59:35.631 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110001560 - [PID=0, throttler=0x1100023b0] ProcessThrottler::Activity::Activity: Starting foreground activity / 'Process initialization'
+2026-11-27 11:59:35.637 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x102053418 - [pageProxyID=9, webPageID=10, PID=0] WebPageProxy::WebPageProxy::shouldForceForegroundPriorityForClientNavigation() returns 1 based on PageClient::canTakeForegroundAssertions()
+2026-11-27 11:59:35.637 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100015f0 - [PID=0, throttler=0x110000e90] ProcessThrottler::Activity::Activity: Starting foreground activity / 'Client navigation'
+2026-11-27 11:59:35.637 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110007260 - NetworkProcessProxy::NetworkProcessProxy
+2026-11-27 11:59:35.645 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110007480 - [PID=0, throttler=0x1100072f0] ProcessThrottler::Activity::Activity: Starting foreground activity / 'Process initialization'
+2026-11-27 11:59:35.646 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110004e30 - NavigationState is taking a process network assertion because a page load started
+2026-11-27 11:59:35.647 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100074e0 - [PID=0, throttler=0x110000e90] ProcessThrottler::Activity::Activity: Starting background activity / 'Page Load'
+2026-11-27 11:59:35.648 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ViewState] 0x102838400 - WKApplicationStateTrackingView: View with page [0x102053418, pageProxyID=9] was added to a window, _lastObservedStateWasBackground=0, isNowBackground=0
+2026-11-27 11:59:35.687 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ViewState] 0x102053418 - [pageProxyID=9, webPageID=10, PID=0] WebPageProxy::updateActivityState: view visibility state changed 0 -> 1
+2026-11-27 11:59:35.705 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ViewState] 0x102053418 - [pageProxyID=9, webPageID=10, PID=0] WebPageProxy::viewIsBecomingVisible:
+2026-11-27 11:59:35.705 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x102053418 - [pageProxyID=9, webPageID=10, PID=0] WebPageProxy::updateThrottleState: UIProcess is taking a foreground assertion because the view is visible
+2026-11-27 11:59:35.705 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100079f0 - [PID=0, throttler=0x110000e90] ProcessThrottler::Activity::Activity: Starting foreground activity / 'View is visible'
+2026-11-27 11:59:35.706 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ViewState] 0x10205e800 (pageProxyID=9) -[WKWebView _endLiveResize]
+2026-11-27 11:59:35.739 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ViewState] 0x110000c00 - ApplicationStateTracker::ApplicationStateTracker(): m_isInBackground=1
+2026-11-27 11:59:35.741 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ViewState] 0x110000c00 - ApplicationStateTracker: UISceneWillEnterForeground
+2026-11-27 11:59:35.741 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ViewState] 0x102053418 - [pageProxyID=9, webPageID=10, PID=0] WebPageProxy::applicationWillEnterForeground: isSuspendedUnderLock? 0
+2026-11-27 11:59:35.743 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ViewState] 0x102053418 - [pageProxyID=9, webPageID=10, PID=0] WebPageProxy::viewIsBecomingVisible:
+2026-11-27 11:59:35.929 Df Aquarium Explore[56790:27aee] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Foreground
+2026-11-27 11:59:36.076 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110000e00 - [PID=56800] WebProcessProxy::didFinishLaunching:
+2026-11-27 11:59:36.076 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110000e90 - [PID=56800] ProcessThrottler::didConnectToProcess
+2026-11-27 11:59:36.076 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110000e90 - [PID=56800] ProcessThrottler::setThrottleState: Updating process assertion type to 3 (foregroundActivities=3, backgroundActivities=6)
+2026-11-27 11:59:36.076 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Foreground
+2026-11-27 11:59:36.076 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x60000171dd80 - WKProcessAssertionBackgroundTaskManager: beginBackgroundTaskWithName
+2026-11-27 11:59:36.076 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] WKProcessAssertionBackgroundTaskManager: Took a FinishTaskInterruptable assertion for own process
+2026-11-27 11:59:36.076 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110000e00 - [PID=56800] WebProcessProxy::didChangeThrottleState: type=2
+2026-11-27 11:59:36.077 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110000e00 - [PID=56800] WebProcessProxy::didChangeThrottleState(Foreground) Taking foreground assertion for network process
+2026-11-27 11:59:36.077 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x11000bfb0 - [PID=0, throttler=0x1100072f0] ProcessThrottler::Activity::Activity: Starting foreground activity / 'Networking for foreground view(s)'
+2026-11-27 11:59:36.077 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x11000c0b0 - [PID=0, throttler=0x1100023b0] ProcessThrottler::Activity::Activity: Starting foreground activity / 'GPU for foreground view(s)'
+2026-11-27 11:59:36.077 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110007260 - NetworkProcessProxy::sendXPCEndpointToProcess(0x110000e00) state = 1 has connection = 1 XPC endpoint message = 0x0
+2026-11-27 11:59:36.077 Df Aquarium Explore[56790:27aee] [com.apple.WebKit:ProcessSuspension] 0x110007f00 - ProcessAssertion::acquireSync Trying to take RBS assertion 'WebProcess Foreground Assertion' for process with PID=56800
+2026-11-27 11:59:36.080 Df Aquarium Explore[56790:27aee] [com.apple.WebKit:ProcessSuspension] 0x110007f00 - ProcessAssertion() Successfully granted capability
+2026-11-27 11:59:36.093 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:Process] getNetworkProcessConnection: Request connection for core identifier 8
+2026-11-27 11:59:36.093 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110001500 - [PID=56800, throttler=0x110000e90] ProcessThrottler::Activity::invalidate: Ending foreground activity / 'Process initialization'
+2026-11-27 11:59:36.093 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110007260 - NetworkProcessProxy::getNetworkProcessConnection: Taking a background assertion because web process pid 56800 (core identifier 8) is requesting a connection
+2026-11-27 11:59:36.125 Df Aquarium Explore[56790:27af4] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Foreground
+2026-11-27 11:59:36.336 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110002320 - GPUProcessProxy::didFinishLaunching:
+2026-11-27 11:59:36.336 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110002320 - GPUProcessProxy::connectionWillOpen:
+2026-11-27 11:59:36.336 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100023b0 - [PID=56801] ProcessThrottler::didConnectToProcess
+2026-11-27 11:59:36.336 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100023b0 - [PID=56801] ProcessThrottler::setThrottleState: Updating process assertion type to 3 (foregroundActivities=2, backgroundActivities=1)
+2026-11-27 11:59:36.336 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Foreground
+2026-11-27 11:59:36.336 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110007260 - NetworkProcessProxy::sendXPCEndpointToProcess(0x110002320) state = 1 has connection = 1 XPC endpoint message = 0x0
+2026-11-27 11:59:36.336 Df Aquarium Explore[56790:27af4] [com.apple.WebKit:ProcessSuspension] 0x11000c230 - ProcessAssertion::acquireSync Trying to take RBS assertion 'GPUProcess Foreground Assertion' for process with PID=56801
+2026-11-27 11:59:36.343 Df Aquarium Explore[56790:27af4] [com.apple.WebKit:ProcessSuspension] 0x11000c230 - ProcessAssertion() Successfully granted capability
+2026-11-27 11:59:36.385 Df com.apple.WebKit.GPU[56801:27b0a] [com.apple.WebKit:Process] 0x1f318aa08 - GPUProcess::initializeGPUProcess:
+2026-11-27 11:59:36.395 Df Aquarium Explore[56790:27aed] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Foreground
+2026-11-27 11:59:36.403 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110001560 - [PID=56801, throttler=0x1100023b0] ProcessThrottler::Activity::invalidate: Ending foreground activity / 'Process initialization'
+2026-11-27 11:59:36.584 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110007260 - NetworkProcessProxy::didFinishLaunching
+2026-11-27 11:59:36.584 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100072f0 - [PID=56802] ProcessThrottler::didConnectToProcess
+2026-11-27 11:59:36.584 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100072f0 - [PID=56802] ProcessThrottler::setThrottleState: Updating process assertion type to 3 (foregroundActivities=2, backgroundActivities=2)
+2026-11-27 11:59:36.584 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Foreground
+2026-11-27 11:59:36.584 Df Aquarium Explore[56790:27af4] [com.apple.WebKit:ProcessSuspension] 0x11000c2f0 - ProcessAssertion::acquireSync Trying to take RBS assertion 'NetworkProcess Foreground Assertion' for process with PID=56802
+2026-11-27 11:59:36.586 Df Aquarium Explore[56790:27af4] [com.apple.WebKit:ProcessSuspension] 0x11000c2f0 - ProcessAssertion() Successfully granted capability
+2026-11-27 11:59:36.587 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110007260 - NetworkProcessProxy::sendXPCEndpointToProcess(0x110000e00) state = 1 has connection = 1 XPC endpoint message = 0x600003d24870
+2026-11-27 11:59:36.587 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110007260 - NetworkProcessProxy::sendXPCEndpointToProcess(0x110002320) state = 1 has connection = 1 XPC endpoint message = 0x600003d24870
+2026-11-27 11:59:36.631 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110007480 - [PID=56802, throttler=0x1100072f0] ProcessThrottler::Activity::invalidate: Ending foreground activity / 'Process initialization'
+2026-11-27 11:59:36.632 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:Process] WebProcess::platformInitializeWebProcess
+2026-11-27 11:59:36.650 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:Process] 0x111000100 - [sessionID=1] WebProcess::initializeWebProcess: Presenting processPID=56790
+2026-11-27 11:59:36.683 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:ProcessSuspension] 0x106017e08 - [webPageID=10] WebPage::unfreezeLayerTree: Removing a reason to freeze layer tree (reason=128, new=0, old=0)
+2026-11-27 11:59:36.706 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:ProcessSuspension] 0x106017e08 - [webPageID=10] WebPage::unfreezeLayerTree: Removing a reason to freeze layer tree (reason=1, new=0, old=0)
+2026-11-27 11:59:36.727 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:Process] 0x106017e08 - [webPageID=10] WebPage::registerURLSchemeHandler: Registered handler 2 for the 'tauri' scheme
+2026-11-27 11:59:36.727 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:Process] 0x106017e08 - [webPageID=10] WebPage::registerURLSchemeHandler: Registered handler 1 for the 'ipc' scheme
+2026-11-27 11:59:36.747 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:ProcessSuspension] 0x106017e08 - [webPageID=10] WebPage::unfreezeLayerTree: Removing a reason to freeze layer tree (reason=2, new=0, old=0)
+2026-11-27 11:59:36.748 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:Process] GPUProcessConnection::create - 0x10f1c7d40
+2026-11-27 11:59:36.794 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110002320 - GPUProcessProxy is taking a background assertion because a web process is requesting a connection
+2026-11-27 11:59:36.795 Df com.apple.WebKit.GPU[56801:27b0a] [com.apple.WebKit:Process] 0x1f318aa08 - GPUProcess::createGPUConnectionToWebProcess: processIdentifier=8
+2026-11-27 11:59:36.795 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSwapping] 0x102053418 - [pageProxyID=9, webPageID=10, PID=56800] WebPageProxy::decidePolicyForNavigationAction: keep using process 56800 for navigation, reason=Process has not yet committed any provisional loads
+2026-11-27 11:59:36.795 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110000e00 - [PID=56800] WebProcessProxy::canTerminateAuxiliaryProcess: returns false (pageCount=1, provisionalPageCount=0, suspendedPageCount=0, m_isInProcessCache=0, m_shutdownPreventingScopeCounter=0)
+2026-11-27 11:59:36.798 Df com.apple.WebKit.GPU[56801:27b0a] [com.apple.WebKit:Process] GPUConnectionToWebProcess::createVisibilityPropagationContextForPage: pageProxyID=9, webPageID=10, contextID=4074981994
+2026-11-27 11:59:36.798 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110002320 - GPUProcessProxy::didCreateContextForVisibilityPropagation: webPageProxyID: 9, pagePID: 10, contextID: 4074981994
+2026-11-27 11:59:36.798 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] Created visibility propagation interaction <_UIVisibilityPropagationInteraction: 0x600002603d20> for process with PID=56801
+2026-11-27 11:59:36.800 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:ProcessSuspension] 0x106017e08 - [webPageID=10] WebPage::freezeLayerTree: Adding a reason to freeze layer tree (reason=1, new=1, old=0)
+2026-11-27 11:59:36.804 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:Process] 0x10f1c7d40 - GPUProcessConnection::didInitialize
+2026-11-27 11:59:36.810 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:ProcessSuspension] 0x106017e08 - [webPageID=10] WebPage::unfreezeLayerTree: Removing a reason to freeze layer tree (reason=128, new=1, old=1)
+2026-11-27 11:59:36.810 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:ProcessSuspension] 0x106017e08 - [webPageID=10] WebPage::unfreezeLayerTree: Removing a reason to freeze layer tree (reason=128, new=1, old=1)
+2026-11-27 11:59:36.811 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:ProcessSuspension] 0x106017e08 - [webPageID=10] WebPage::unfreezeLayerTree: Removing a reason to freeze layer tree (reason=32, new=1, old=1)
+2026-11-27 11:59:36.821 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:ProcessSuspension] 0x106017e08 - [webPageID=10] WebPage::freezeLayerTree: Adding a reason to freeze layer tree (reason=128, new=129, old=1)
+2026-11-27 11:59:36.838 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:ProcessSuspension] 0x106017e08 - [webPageID=10] WebPage::unfreezeLayerTree: Removing a reason to freeze layer tree (reason=128, new=1, old=129)
+2026-11-27 11:59:36.848 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:ProcessSuspension] 0x106017e08 - [webPageID=10] WebPage::unfreezeLayerTree: Removing a reason to freeze layer tree (reason=1, new=0, old=1)
+2026-11-27 11:59:36.880 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ViewState] 0x10205e800 (pageProxyID=9) -[WKWebView _updateVisibleContentRects:] - scroll view state is non-stable, bailing (shouldDeferGeometryUpdates 0, dynamicViewportUpdateMode 0, needsResetViewStateAfterCommitLoadForMainFrame 1, sizeChangedSinceLastVisibleContentRectUpdate 0, [_scrollView isZoomBouncing] 0, currentlyAdjustingScrollViewInsetsForKeyboard 0)
+2026-11-27 11:59:36.883 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110004e30 - NavigationState will release its process network assertion soon because the page load completed
+2026-11-27 11:59:36.884 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100015f0 - [PID=56800, throttler=0x110000e90] ProcessThrottler::Activity::invalidate: Ending foreground activity / 'Client navigation'
+2026-11-27 11:59:36.998 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ViewState] 0x10205e800 (pageProxyID=9) -[WKWebView _didCommitLayerTree:] - received a commit (2) while deferring visible content rect updates (dynamicViewportUpdateMode 0, needsResetViewStateAfterCommitLoadForMainFrame 1 (wants commit 2), sizeChangedSinceLastVisibleContentRectUpdate 0, [_scrollView isZoomBouncing] 0, currentlyAdjustingScrollViewInsetsForKeyboard 0)
+2026-11-27 11:59:37.000 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ViewState] 0x10205e800 (pageProxyID=9) -[WKWebView _updateVisibleContentRects:] - performing first visible content rect update after deferring updates
+2026-11-27 11:59:39.885 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110004e30 NavigationState is releasing background process assertion because a page load completed
+2026-11-27 11:59:39.885 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100074e0 - [PID=56800, throttler=0x110000e90] ProcessThrottler::Activity::invalidate: Ending background activity / 'Page Load'
+2026-11-27 11:59:45.761 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ViewState] 0x10205e800 (pageProxyID=9) -[WKWebView _didCommitLayerTree:] - finally received commit 8.76s after visible content rect update request; transactionID 3
+2026-11-27 12:00:06.001 E  Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110002320 - GPUProcessProxy::didClose:
+2026-11-27 12:00:06.002 E  Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110002320 - GPUProcessProxy::gpuProcessExited: reason=Crash
+2026-11-27 12:00:06.002 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x10102ec08 - WebProcessPool::gpuProcessDidExit: PID=56801, reason=Crash
+2026-11-27 12:00:06.002 E  Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110000e00 - [PID=56800] WebProcessProxy::gpuProcessExited: reason=Crash
+2026-11-27 12:00:06.003 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x11000c0b0 - [PID=56801, throttler=0x1100023b0] ProcessThrottler::Activity::invalidate: Ending foreground activity / 'GPU for foreground view(s)'
+2026-11-27 12:00:06.008 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100023b0 - [PID=56801] ProcessThrottler::sendPrepareToSuspendIPC: Sending PrepareToSuspend(1, isSuspensionImminent=0) IPC, remainingRunTime=0.000000s
+2026-11-27 12:00:06.008 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110002320 - GPUProcessProxy::sendPrepareToSuspend:
+2026-11-27 12:00:06.008 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100023b0 - [PID=56801] ProcessThrottler::setThrottleState: Updating process assertion type to 1 (foregroundActivities=0, backgroundActivities=0)
+2026-11-27 12:00:06.009 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Background
+2026-11-27 12:00:06.009 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Background
+2026-11-27 12:00:06.009 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100023b0 - [PID=56801] ProcessThrottler::didDisconnectFromProcess:
+2026-11-27 12:00:06.009 Df Aquarium Explore[56790:27c5c] [com.apple.WebKit:ProcessSuspension] 0x1100170e0 - ProcessAssertion::acquireSync Trying to take RBS assertion 'GPUProcess Background Assertion' for process with PID=56801
+2026-11-27 12:00:06.020 Df Aquarium Explore[56790:27c5c] [com.apple.WebKit:ProcessSuspension] 0x1100170e0 - ProcessAssertion() Failed to grant capability Background
+2026-11-27 12:00:06.020 E  Aquarium Explore[56790:27c5c] [com.apple.WebKit:ProcessSuspension] 0x1100170e0 - ProcessAssertion::acquireSync Failed to acquire RBS assertion 'GPUProcess Background Assertion' for process with PID=56801, error: (null)
+2026-11-27 12:00:06.020 Df Aquarium Explore[56790:27c5c] [com.apple.WebKit:ProcessSuspension] 0x1100171a0 - ProcessAssertion::acquireSync Trying to take RBS assertion 'XPCConnectionTerminationWatchdog' for process with PID=56801
+2026-11-27 12:00:06.023 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100023b0 - [PID=0] ProcessThrottler::invalidateAllActivities: BEGIN (foregroundActivityCount: 0, backgroundActivityCount: 0)
+2026-11-27 12:00:06.023 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100023b0 - [PID=0] ProcessThrottler::invalidateAllActivities: END
+2026-11-27 12:00:06.023 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100170e0 - ProcessAssertion::processAssertionWasInvalidated() PID=56801
+2026-11-27 12:00:06.023 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x11000c230 - ~ProcessAssertion: Releasing process assertion 'GPUProcess Foreground Assertion' for process with PID=56801
+2026-11-27 12:00:06.024 Df Aquarium Explore[56790:27c5c] [com.apple.WebKit:ProcessSuspension] 0x1100171a0 - ProcessAssertion() Failed to grant capability Background
+2026-11-27 12:00:06.024 E  Aquarium Explore[56790:27c5c] [com.apple.WebKit:ProcessSuspension] 0x1100171a0 - ProcessAssertion::acquireSync Failed to acquire RBS assertion 'XPCConnectionTerminationWatchdog' for process with PID=56801, error: (null)
+2026-11-27 12:00:06.025 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100170e0 - ~ProcessAssertion: Releasing process assertion 'GPUProcess Background Assertion' for process with PID=56801
+2026-11-27 12:00:06.025 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100171a0 - ProcessAssertion::processAssertionWasInvalidated() PID=56801
+2026-11-27 12:00:06.025 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x0 - ProcessAssertion: RBS Foreground assertion for process with PID=0 was invalidated
+2026-11-27 12:00:10.996 E  com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:Process] 0x10f1c7d40 - GPUProcessConnection::didClose
+2026-11-27 12:00:10.999 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:Process] GPUProcessConnection::create - 0x10fe44380
+2026-11-27 12:00:11.007 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110001500 - [PID=0, throttler=0x1100023b0] ProcessThrottler::Activity::Activity: Starting foreground activity / 'Process initialization'
+2026-11-27 12:00:11.007 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110001560 - [PID=0, throttler=0x1100023b0] ProcessThrottler::Activity::Activity: Starting foreground activity / 'GPU for foreground view(s)'
+2026-11-27 12:00:11.008 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110002320 - GPUProcessProxy is taking a background assertion because a web process is requesting a connection
+2026-11-27 12:00:11.246 Df Aquarium Explore[56790:27af0] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Foreground
+2026-11-27 12:00:11.419 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110002320 - GPUProcessProxy::didFinishLaunching:
+2026-11-27 12:00:11.419 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110002320 - GPUProcessProxy::connectionWillOpen:
+2026-11-27 12:00:11.419 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100023b0 - [PID=58024] ProcessThrottler::didConnectToProcess
+2026-11-27 12:00:11.419 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100023b0 - [PID=58024] ProcessThrottler::setThrottleState: Updating process assertion type to 3 (foregroundActivities=2, backgroundActivities=2)
+2026-11-27 12:00:11.419 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Foreground
+2026-11-27 12:00:11.419 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110007260 - NetworkProcessProxy::sendXPCEndpointToProcess(0x110002320) state = 1 has connection = 1 XPC endpoint message = 0x600003d24870
+2026-11-27 12:00:11.419 Df Aquarium Explore[56790:27c98] [com.apple.WebKit:ProcessSuspension] 0x11000c230 - ProcessAssertion::acquireSync Trying to take RBS assertion 'GPUProcess Foreground Assertion' for process with PID=58024
+2026-11-27 12:00:11.421 Df Aquarium Explore[56790:27c98] [com.apple.WebKit:ProcessSuspension] 0x11000c230 - ProcessAssertion() Successfully granted capability
+2026-11-27 12:00:11.439 Df com.apple.WebKit.GPU[58024:2869f] [com.apple.WebKit:Process] 0x1f318aa08 - GPUProcess::initializeGPUProcess:
+2026-11-27 12:00:11.455 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110001500 - [PID=58024, throttler=0x1100023b0] ProcessThrottler::Activity::invalidate: Ending foreground activity / 'Process initialization'
+2026-11-27 12:00:11.498 Df com.apple.WebKit.GPU[58024:2869f] [com.apple.WebKit:Process] 0x1f318aa08 - GPUProcess::createGPUConnectionToWebProcess: processIdentifier=8
+2026-11-27 12:00:11.501 Df com.apple.WebKit.GPU[58024:2869f] [com.apple.WebKit:Process] GPUConnectionToWebProcess::createVisibilityPropagationContextForPage: pageProxyID=9, webPageID=10, contextID=3201841109
+2026-11-27 12:00:11.501 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110002320 - GPUProcessProxy::didCreateContextForVisibilityPropagation: webPageProxyID: 9, pagePID: 10, contextID: 3201841109
+2026-11-27 12:00:11.502 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] Created visibility propagation interaction <_UIVisibilityPropagationInteraction: 0x600002608ae0> for process with PID=58024
+2026-11-27 12:00:11.504 E  Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110000e00 - [PID=56800] WebProcessProxy::gpuProcessConnectionDidBecomeUnresponsive
+2026-11-27 12:00:11.504 E  Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110002320 - GPUProcessProxy::childConnectionDidBecomeUnresponsive:
+2026-11-27 12:00:11.504 E  Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110002320 - GPUProcessProxy::didBecomeUnresponsive: GPUProcess with PID 58024 became unresponsive, terminating it
+2026-11-27 12:00:11.504 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] AuxiliaryProcessProxy::terminate: PID=58024
+2026-11-27 12:00:11.504 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Background
+2026-11-27 12:00:11.504 Df Aquarium Explore[56790:27c5c] [com.apple.WebKit:ProcessSuspension] 0x1100170e0 - ProcessAssertion::acquireSync Trying to take RBS assertion 'XPCConnectionTerminationWatchdog' for process with PID=58024
+2026-11-27 12:00:11.505 E  Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110002320 - GPUProcessProxy::gpuProcessExited: reason=Unresponsive
+2026-11-27 12:00:11.505 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x10102ec08 - WebProcessPool::gpuProcessDidExit: PID=0, reason=Unresponsive
+2026-11-27 12:00:11.505 E  Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110000e00 - [PID=56800] WebProcessProxy::gpuProcessExited: reason=Unresponsive
+2026-11-27 12:00:11.505 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110001560 - [PID=0, throttler=0x1100023b0] ProcessThrottler::Activity::invalidate: Ending foreground activity / 'GPU for foreground view(s)'
+2026-11-27 12:00:11.505 E  Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] ProcessAssertion::remainingRunTimeInSeconds failed to get identifier for process with PID=0
+2026-11-27 12:00:11.505 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100023b0 - [PID=0] ProcessThrottler::sendPrepareToSuspendIPC: Sending PrepareToSuspend(2, isSuspensionImminent=0) IPC, remainingRunTime=0.000000s
+2026-11-27 12:00:11.505 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110002320 - GPUProcessProxy::sendPrepareToSuspend:
+2026-11-27 12:00:11.505 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100023b0 - [PID=0] ProcessThrottler::setThrottleState: Updating process assertion type to 1 (foregroundActivities=0, backgroundActivities=0)
+2026-11-27 12:00:11.505 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Background
+2026-11-27 12:00:11.505 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100023b0 - [PID=0] ProcessThrottler::didDisconnectFromProcess:
+2026-11-27 12:00:11.506 Df Aquarium Explore[56790:27c5c] [com.apple.WebKit:ProcessSuspension] 0x1100170e0 - ProcessAssertion() Failed to grant capability Background
+2026-11-27 12:00:11.506 E  Aquarium Explore[56790:27c5c] [com.apple.WebKit:ProcessSuspension] 0x1100170e0 - ProcessAssertion::acquireSync Failed to acquire RBS assertion 'XPCConnectionTerminationWatchdog' for process with PID=58024, error: (null)
+2026-11-27 12:00:11.506 Df Aquarium Explore[56790:27c5c] [com.apple.WebKit:ProcessSuspension] 0x110017260 - ProcessAssertion::acquireSync Trying to take RBS assertion 'GPUProcess Background Assertion' for process with PID=0
+2026-11-27 12:00:11.508 Df Aquarium Explore[56790:27c5c] [com.apple.WebKit:ProcessSuspension] 0x110017260 - ProcessAssertion() Failed to grant capability Background
+2026-11-27 12:00:11.508 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100023b0 - [PID=0] ProcessThrottler::invalidateAllActivities: BEGIN (foregroundActivityCount: 0, backgroundActivityCount: 0)
+2026-11-27 12:00:11.508 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100023b0 - [PID=0] ProcessThrottler::invalidateAllActivities: END
+2026-11-27 12:00:11.509 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100170e0 - ProcessAssertion::processAssertionWasInvalidated() PID=58024
+2026-11-27 12:00:11.509 E  Aquarium Explore[56790:27c5c] [com.apple.WebKit:ProcessSuspension] 0x110017260 - ProcessAssertion::acquireSync Failed to acquire RBS assertion 'GPUProcess Background Assertion' for process with PID=0, error: (null)
+2026-11-27 12:00:11.509 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110017260 - ProcessAssertion::processAssertionWasInvalidated() PID=0
+2026-11-27 12:00:11.509 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x11000c230 - ~ProcessAssertion: Releasing process assertion 'GPUProcess Foreground Assertion' for process with PID=58024
+2026-11-27 12:00:11.509 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110017260 - ~ProcessAssertion: Releasing process assertion 'GPUProcess Background Assertion' for process with PID=0
+2026-11-27 12:00:11.509 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x0 - ProcessAssertion: RBS Foreground assertion for process with PID=0 was invalidated
+2026-11-27 12:00:11.529 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:Process] 0x10fe44380 - GPUProcessConnection::didInitialize
+2026-11-27 12:00:11.533 E  com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:Process] 0x10fe44380 - GPUProcessConnection::didClose
+2026-11-27 12:00:11.535 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:Process] GPUProcessConnection::create - 0x16c5148c0
+2026-11-27 12:00:11.537 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110001500 - [PID=0, throttler=0x1100023b0] ProcessThrottler::Activity::Activity: Starting foreground activity / 'Process initialization'
+2026-11-27 12:00:11.537 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110001560 - [PID=0, throttler=0x1100023b0] ProcessThrottler::Activity::Activity: Starting foreground activity / 'GPU for foreground view(s)'
+2026-11-27 12:00:11.538 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110002320 - GPUProcessProxy is taking a background assertion because a web process is requesting a connection
+2026-11-27 12:00:11.683 Df Aquarium Explore[56790:27af0] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Foreground
+2026-11-27 12:00:11.830 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110002320 - GPUProcessProxy::didFinishLaunching:
+2026-11-27 12:00:11.830 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110002320 - GPUProcessProxy::connectionWillOpen:
+2026-11-27 12:00:11.830 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100023b0 - [PID=58045] ProcessThrottler::didConnectToProcess
+2026-11-27 12:00:11.830 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100023b0 - [PID=58045] ProcessThrottler::setThrottleState: Updating process assertion type to 3 (foregroundActivities=2, backgroundActivities=2)
+2026-11-27 12:00:11.830 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Foreground
+2026-11-27 12:00:11.830 Df Aquarium Explore[56790:27c5c] [com.apple.WebKit:ProcessSuspension] 0x11000c230 - ProcessAssertion::acquireSync Trying to take RBS assertion 'GPUProcess Foreground Assertion' for process with PID=58045
+2026-11-27 12:00:11.830 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110007260 - NetworkProcessProxy::sendXPCEndpointToProcess(0x110002320) state = 1 has connection = 1 XPC endpoint message = 0x600003d24870
+2026-11-27 12:00:11.831 Df Aquarium Explore[56790:27c5c] [com.apple.WebKit:ProcessSuspension] 0x11000c230 - ProcessAssertion() Successfully granted capability
+2026-11-27 12:00:11.837 Df com.apple.WebKit.GPU[58045:286d4] [com.apple.WebKit:Process] 0x1f318aa08 - GPUProcess::initializeGPUProcess:
+2026-11-27 12:00:11.846 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x110001500 - [PID=58045, throttler=0x1100023b0] ProcessThrottler::Activity::invalidate: Ending foreground activity / 'Process initialization'
+2026-11-27 12:00:11.882 Df com.apple.WebKit.GPU[58045:286d4] [com.apple.WebKit:Process] 0x1f318aa08 - GPUProcess::createGPUConnectionToWebProcess: processIdentifier=8
+2026-11-27 12:00:11.887 Df com.apple.WebKit.GPU[58045:286d4] [com.apple.WebKit:Process] GPUConnectionToWebProcess::createVisibilityPropagationContextForPage: pageProxyID=9, webPageID=10, contextID=2727611342
+2026-11-27 12:00:11.888 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110002320 - GPUProcessProxy::didCreateContextForVisibilityPropagation: webPageProxyID: 9, pagePID: 10, contextID: 2727611342
+2026-11-27 12:00:11.888 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] Created visibility propagation interaction <_UIVisibilityPropagationInteraction: 0x600002612100> for process with PID=58045
+2026-11-27 12:00:11.910 Df com.apple.WebKit.WebContent[56800:27b01] [com.apple.WebKit:Process] 0x16c5148c0 - GPUProcessConnection::didInitialize
+2026-11-27 12:00:36.023 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100171a0 - ~ProcessAssertion: Releasing process assertion 'XPCConnectionTerminationWatchdog' for process with PID=56801
+2026-11-27 12:00:41.512 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ProcessSuspension] 0x1100170e0 - ~ProcessAssertion: Releasing process assertion 'XPCConnectionTerminationWatchdog' for process with PID=58024
