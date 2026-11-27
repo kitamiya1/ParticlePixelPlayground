@@ -151,8 +151,8 @@ async function boot() {
   // 最初の仲間：砂の広場の端の巣穴に隠れているスナモグリ（巣穴のまわりは掘らない：掘ると穴ごと崩れるので）
   const buddy = new BuddySystem(world, BURROW_XZ);
   world.dig.protectPoint(buddy.burrow[0], buddy.burrow[1], buddy.burrow[2], 0.75);
-  // ゴカイ：水の中の砂に巣穴を探して 3 匹（スタート地点の近くに 1 匹。スナモグリの巣穴・発見物・挟める物からは離す）。
-  // 巣穴のまわりは掘れる（掘ると体が出てくる）。手応えの設定は表示の設定（uiPrefs）が決まってから入れる
+  // ゴカイ：岩・流木が砂に接する根元の石の隙間に 3 匹（スタート地点の近くに 1 匹。スナモグリの巣穴・発見物・挟める物からは離す）。
+  // まわりの砂は掘れるが、隙間の巣は壊れない。手応えの設定は表示の設定（uiPrefs）が決まってから入れる
   const worms = new WormSystem(world, {
     count: 3,
     near: world.spawn,
@@ -877,9 +877,11 @@ async function boot() {
     for (const { worm: w, e } of worms.drainEvents()) {
       if (e.kind === 'pop') {
         view.puff(e.x, e.y, e.z, e.power > 0.5);
-        view.tugFx('crumble', e.x, e.y, e.z, 10 + Math.round(e.power * 10), null);
+        // 石の隙間：砂は少しだけ（根元の砂がこぼれる）。石にこすれた「カチッ」を重ねる
+        view.tugFx('crumble', e.x, e.y, e.z, 4 + Math.round(e.power * 4), null);
         view.tugFx('bubble', e.x, e.y, e.z, 6 + Math.round(e.power * 8));
         audio.slurp(e.power);
+        audio.click(true);
         // 張っていた力に応じて：ふつうは後ろへよろめく、目いっぱい張っていたら転ぶ
         if (e.power > 0.93) crab.tumble(e.dir[0], e.dir[1], (e.power - 0.93) * 8);
         else crab.stagger(e.dir[0], e.dir[1], e.power);
@@ -920,9 +922,6 @@ async function boot() {
         view.tugFx('crumble', e.x, e.y, e.z, 2, null);
         view.tugFx('bubble', e.x, e.y, e.z, 2);
         if (Math.hypot(crab.x - e.x, crab.z - e.z) < 3) audio.bubble(undefined, 0.06);
-      } else if (e.kind === 'exposed') {
-        view.tugFx('crumble', e.x, e.y, e.z, 5, null);
-        saver.markDirty();
       } else if (e.kind === 'dig') view.puff(e.x, e.y, e.z, false);
       else if (e.kind === 'buried') {
         view.tugFx('crumble', e.x, e.y, e.z, 4, null);
