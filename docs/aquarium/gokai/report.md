@@ -197,5 +197,5 @@ dig（頭から潜る）→ hidden。遠くで止まっている外の体は計�
 | `docs/aquarium/roadmap.md` の 2 章の見出し | 「main = `2759275` + この PR」のまま（いまの main は `65a21a6`） |
 | `docs/aquarium/roadmap.md` の 2 章「操作ボタンと案内の表示」の行 | 主なファイルが `TouchControls.ts・AquaUiPrefs.ts・quarium.css`（` が抜け、aquarium.css の a が欠けている） |
 | `docs/aquarium/burrow-pull/report.md` の 1 章 | スマホの挟むは「「挟む」ボタンを押している間」とあるが、いまのコード（`main.ts`）は「たたくと閉じ、もう一度で開く」スイッチ |
-| `src/aquarium/AquaUiPrefs.ts` | 歩き方 `GaitStyle` に `ik`（接地 IK）があるが、設定の欄のボタンはハイブリッド・接地主導・従来の 3 つで、`ik` は選べない |
+| `src/aquarium/AquaUiPrefs.ts` の先頭の説明 | 歩き方の説明に `ik`（接地 IK）があるが、設定の欄のボタンはハイブリッド・接地主導・従来の 3 つ（第 10 段階で意図して隠した。説明の方が古い） |
 | `docs/aquarium/save-format.md` の `traits` | 「将来の繁殖・レア」とだけあった（今回、ゴカイの個体差に使ったことを書き足した） |
