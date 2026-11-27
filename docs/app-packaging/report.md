@@ -397,7 +397,15 @@ Tauri で重大な互換性の問題は出なかったので、乗り換えの�
 
 ### 12.5 CI の結果
 
-（このブランチへ push した後の実行。下に追記する）
+PR #21 の上での実行（`pull_request`）：
+
+| ワークフロー | 実行 | 結果 |
+| --- | --- | --- |
+| `app-build.yml` / windows | [46005208983](https://github.com/kitamiya1/ParticlePixelPlayground/actions/runs/46005208983) | ✅ 6.1 分。NSIS 3.1 MB・MSI 3.8 MB（SHA-256 を Artifacts に） |
+| `app-build.yml` / android | 同上 | ✅ 7.7 分。universal release APK（未署名・4 ABI）19.8 MB。権限は Android の内部のもの（`DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`）だけで `INTERNET` 無し。1 回目は `android-actions/setup-android` が `tools` の取得で失敗したため、ランナーに入っている SDK を使うよう直した |
+| `app-ios.yml` | [46005209238](https://github.com/kitamiya1/ParticlePixelPlayground/actions/runs/46005209238) | ✅ シミュレーター用のビルド（`--features selftest`）・修正後の起動 8 / 8（初回起動 3 / 3、起動完了 7.2〜16.5 秒）・対照 2 / 2・GPU 処理を止めた後に穴 5・砂 2.82 が残り再起動で復元・下の帯の白 0%。自動検証を指定しない起動の記録は `selftest=None` |
+
+注：`pull_request` の `paths` は PR 全体の差分で判定されるので、PR へ push するたびに 3 つとも動く（iOS は約 1 時間。古い実行は `concurrency` で止まる）。
 
 ## 13. Mac を持たずに、GitHub Actions で自分の iPhone に入れる方法（調査）
 
