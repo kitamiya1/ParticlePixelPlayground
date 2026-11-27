@@ -1,0 +1,178 @@
+{
+  "phase": "first",
+  "url": "http://tauri.localhost/aquarium.html",
+  "when": "2026-11-27T07:14:06.568Z",
+  "boot": {
+    "bootMs": 5084,
+    "buildMs": 4821,
+    "domContentLoadedMs": 154,
+    "harnessConnectToBootMs": 9321,
+    "launchToBootMs": 10362
+  },
+  "env": {
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36 Edg/158.0.0.0",
+    "webgl2": true,
+    "glRenderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER (0x00001F06) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "glVendor": "Google Inc. (NVIDIA)",
+    "maxTex": 16384,
+    "threeWebGL2": true,
+    "dpr": 1,
+    "inner": [
+      1280,
+      800
+    ],
+    "touchPoints": 0,
+    "origin": "http://tauri.localhost",
+    "isApp": true,
+    "storeKind": "indexeddb",
+    "idb": true,
+    "storagePersist": true,
+    "gamepadApi": true,
+    "vibrate": true,
+    "audioCtx": true
+  },
+  "render": {
+    "canvas": [
+      1280,
+      800
+    ],
+    "colors": 395,
+    "meanLum": 126.2,
+    "stdLum": 42.6,
+    "tris": 568070,
+    "ok": true
+  },
+  "realInput": {
+    "kind": "keyboard+mouse",
+    "moved": 1.711,
+    "digPrimsAdded": 3,
+    "ok": true
+  },
+  "audio": {
+    "ctxState": "running",
+    "err": null,
+    "plays": 3,
+    "advanced": 0.421,
+    "sampleRate": 48000,
+    "muted": false,
+    "volume": 0.7,
+    "ok": true
+  },
+  "dig": {
+    "held": 12.495,
+    "gained": 12.495,
+    "overflow": 0,
+    "hole": -12.497,
+    "ok": true,
+    "_ms": 3693
+  },
+  "fill": {
+    "fillsAdded": 41,
+    "sandUsed": 4.619,
+    "r": "{\"done\":false,\"secs\":45,\"presses\":1,\"strokes\":61,\"fails\":209,\"restored\":0.264,\"spent\":4.619,\"left\":7.876,\"emptyStop\":false,\"inSolid\":0.002,\"fills\":41,\"why\":{\"far\":10,\"near\":2099}}",
+    "ok": true,
+    "_ms": 19328
+  },
+  "wall": {
+    "startY": 6.911,
+    "maxY": 7.705,
+    "climbSamples": 23,
+    "samples": 29,
+    "grabs": 2,
+    "mats": [
+      "soil",
+      "rock"
+    ],
+    "end": [
+      12.101,
+      7.322,
+      -1.803
+    ],
+    "state": "climb",
+    "ok": true,
+    "_ms": 1370
+  },
+  "ceiling": {
+    "name": "洞窟のトンネル（水中・岩）",
+    "summary": "{\"name\":\"洞窟のトンネル（水中・岩）\",\"reachT\":1.6,\"at\":[-11.93,2.68,-1.46],\"material\":\"rock\",\"region\":\"tank\",\"under\":true,\"hold\":{\"drift\":0.06,\"climbing\":true,\"ny\":-0.99},\"moves\":{\"前\":{\"d\":1.05,\"climbing\":true,\"ny\":[-1,-0.99]},\"後\":{\"d\":1.04,\"climbing\":true,\"ny\":[-1,-0.99]},\"左\":{\"d\":0.89,\"climbing\":true,\"ny\":[-0.99,0.13]},\"右\":{\"d\":0.78,\"climbing\":false,\"ny\":[0.28,0.56]}},\"jump\":{\"fromCeiling\":true,\"state\":\"idle\",\"climbing\":false,\"frameMode\":false,\"ny\":1,\"dy\":-0.9},\"after\":{\"state\":\"idle\",\"grounded\":true,\"frameMode\":false,\"ny\":1,\"dy\":-0.9},\"stats\":{\"grabs\":2,\"exits\":1,\"jumps\":1,\"lost\":0,\"drops\":0,\"blocked\":0",
+    "ok": true,
+    "_ms": 2241
+  },
+  "cliff": {
+    "y0": 9.83,
+    "y1": 6.87,
+    "ledge": {
+      "edges": 1,
+      "holdT": 0.02,
+      "steps": 0,
+      "climbs": 1,
+      "stepOffs": 0,
+      "falls": 0,
+      "maxDescV": 0,
+      "waits": 0,
+      "reclass": 0,
+      "keeps": 0,
+      "guards": 0
+    },
+    "ok": true,
+    "_ms": 1199
+  },
+  "plants": {
+    "mode": "dyn",
+    "place": "forest",
+    "blocked": 0.18,
+    "touchedMax": 23,
+    "active": 71,
+    "msAvg": 0.065,
+    "msMax": 0.2,
+    "ok": true,
+    "_ms": 547
+  },
+  "plantGrab": {
+    "summary": "{\"kind\":\"テープ状の葉\",\"high\":false,\"grabbed\":\"テープ状の葉\",\"tensionMax\":6.87,\"uprooted\":0,\"cut\":0,\"slips\":0,\"pieceHeld\":null,\"carried\":null,\"drift\":null,\"removed\":false}",
+    "ok": true,
+    "_ms": 378
+  },
+  "creature": {
+    "summary": "{\"kind\":\"shrimp\",\"tries\":2,\"caught\":2,\"escapes\":0,\"released\":2,\"kicks\":5,\"embedFrames\":0,\"stillCaught\":0}",
+    "caught": 2,
+    "ok": true,
+    "_ms": 639
+  },
+  "perf": {
+    "frames": 299,
+    "avgMs": 13.33,
+    "fps": 75,
+    "p95Ms": 13.4,
+    "maxMs": 13.5,
+    "jsHeapMB": 66.2,
+    "jsHeapLimitMB": 4192,
+    "tris": 590674,
+    "_ms": 3998
+  },
+  "network": {
+    "count": 3,
+    "origins": [
+      "http://tauri.localhost"
+    ]
+  },
+  "saveFirst": {
+    "flushed": true,
+    "persisted": false
+  },
+  "state": {
+    "x": -2.017,
+    "y": 4.122,
+    "z": 2.966,
+    "prims": 67,
+    "fills": 41,
+    "sand": 7.8762,
+    "loaded": "empty",
+    "storeKind": "indexeddb",
+    "rev": 6,
+    "saveState": "saved",
+    "lastSavedAt": 1795763688442,
+    "marker": "m1795763688441"
+  },
+  "pageErrors": []
+}

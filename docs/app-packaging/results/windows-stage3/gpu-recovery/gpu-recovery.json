@@ -1,0 +1,75 @@
+{
+ "port": 9222,
+ "boot": [
+  "[aqua 10:18:56.866Z +3.46s] renderer created 3333ms gl=ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER (0x00001F06) Direct3D11 vs_5_0 ps_5_0, D3D11) parallelCompile=true tris=568070",
+  "[aqua 10:18:57.154Z +3.75s] save loaded store=indexeddb status=ok prims=66 sand=7.10 flush=226ms at 3621ms",
+  "[aqua 10:18:57.159Z +3.76s] gpu: prepare (boot) start",
+  "[aqua 10:18:57.493Z +4.09s] gpu: prepare (boot) done programs=26 ms=333 slowest=mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,CUTAWAY,OCCLUDER_CUT]:21 mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,OCCLUDER_CUT]:15 mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,USE_BONES]:7 mesh:Mesh[PPP_WATER,USE_LIFT,FISH]:6 surfel:Mesh[PPP_WATER,OCCLUDER_CUT,PLANT_BEND]:6",
+  "[aqua 10:18:57.493Z +4.09s] boot done 3961ms gpu=ready",
+  "[aqua 10:18:57.500Z +4.10s] layout inner=1280x800 canvas=1280x800@0 safe(t,r,b,l)=0,0,0,0 lowestControl=-:0 limit=800",
+  "[aqua 10:18:57.570Z +4.17s] frame 1 took 70ms programs=26",
+  "[aqua 10:18:57.594Z +4.19s] frame 2 took 21ms programs=26",
+  "[aqua 10:18:57.603Z +4.20s] frame 3 took 7ms programs=26"
+ ],
+ "bootMs": 3960.5,
+ "inPlace": {
+  "before": {
+   "holes": 74,
+   "sand": 7.951,
+   "prims": 592,
+   "x": -2.03,
+   "z": 2.96,
+   "gpu": "ready",
+   "store": "indexeddb",
+   "programs": 26
+  },
+  "during": {
+   "gpu": "lost",
+   "overlay": "show",
+   "msg": "描画が中断されました。立て直しています…（進捗は保存しています）"
+  },
+  "after": {
+   "holes": 74,
+   "sand": 7.951,
+   "prims": 592,
+   "x": -2.03,
+   "z": 2.96,
+   "gpu": "ready",
+   "store": "indexeddb",
+   "programs": 26
+  },
+  "same": true
+ },
+ "reload": {
+  "before": {
+   "holes": 75,
+   "sand": 7.926,
+   "prims": 600,
+   "x": -2.03,
+   "z": 2.96,
+   "gpu": "ready",
+   "store": "indexeddb",
+   "programs": 26
+  },
+  "after": {
+   "holes": 75,
+   "sand": 7.926,
+   "prims": 600,
+   "x": -2.03,
+   "z": 2.96,
+   "gpu": "ready",
+   "store": "indexeddb",
+   "programs": 26
+  },
+  "reloadedForGpu": true,
+  "toast": "描画を立て直すため読み込み直しました（進捗は保存してあります）",
+  "log": [
+   "[aqua 10:19:23.130Z +3.32s] gpu: this page was reloaded 3.3s ago to recover rendering",
+   "[aqua 10:19:23.358Z +3.55s] save loaded store=indexeddb status=ok prims=75 sand=7.93 flush=203ms at 3436ms",
+   "[aqua 10:19:23.360Z +3.55s] gpu: prepare (boot) start",
+   "[aqua 10:19:23.606Z +3.80s] gpu: prepare (boot) done programs=26 ms=245 slowest=mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,OCCLUDER_CUT]:8 surfel:Mesh[PPP_WATER,OCCLUDER_CUT,PLANT_BEND]:6 mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,CUTAWAY,OCCLUDER_CUT]:5 mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,USE_BONES]:5 mesh:Mesh[PPP_WATER,USE_LIFT,FISH]:4"
+  ],
+  "secondsUntilReady": 14.088,
+  "same": true
+ }
+}

@@ -9,10 +9,12 @@
 // - 書けなかったとき：知らせ（同じ失敗が続く間は 1 回）を出し、間を空けて（最大 30 秒）書き直す。ボタンの印が赤くなる。
 // - 競合（ほかのタブが新しい進捗を保存した・初期状態に戻した）：このタブからは書かない。画面の上に知らせを出したままにし、
 //   「このタブの進捗を書き出す」「最新の進捗を読み込む」を選べるようにする。
-// - 書き出し：JSON ファイルをダウンロード。読み込み：検証を通ったら保存先へ書いてからページを読み込み直す。
+// - 書き出し：JSON ファイルをダウンロード（アプリ版は保存ダイアログ。AquaPlatform）。読み込み：検証を通ったら保存先へ書いてから
+//   ページを読み込み直す（アプリ版は開くダイアログ）。
 // - 初期状態に戻す：確認を 2 段（ボタン → 「本当に戻す」）。いまのデータは 1 つ前（backup）として残る。
 
 import { decodeSaveFile, encodeSaveFile, validateSave, type SaveConflict, type SaveContext, type SaveData, type SaveStore } from './AquaSave';
+import { IS_APP, openTextFile, saveTextFile } from './AquaPlatform';
 
 const DIRTY_WAIT = 2.0;
 const IMPORTANT_WAIT = 0.3;
@@ -174,15 +176,17 @@ const STATE_LABEL: Record<SaveState, string> = {
   saved: '保存済み', pending: '未保存の変化あり', saving: '保存中…', error: '保存できていません', conflict: '別のタブと競合（このタブは保存しません）', off: '保存しません',
 };
 
-function downloadText(text: string, name: string) {
-  const blob = new Blob([text], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.download = name;
-  a.href = URL.createObjectURL(blob);
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+/** 読み込むファイルの上限（バイト） */
+const IMPORT_MAX = 8 * 1024 * 1024;
+
+/** ファイルへ書き出す（ブラウザはダウンロード、アプリ版は保存ダイアログ。AquaPlatform）。書けたら true */
+async function downloadText(text: string, name: string, toast: (msg: string) => void): Promise<boolean> {
+  try {
+    return (await saveTextFile(text, name)) === 'saved';
+  } catch (e) {
+    toast(`書き出せませんでした（${e instanceof Error ? e.message : String(e)}）`);
+    return false;
+  }
 }
 
 function fileName(t: number, tag = ''): string {
@@ -218,6 +222,8 @@ export class SaveMenu {
         <button type="button" data-k="export">書き出す（ファイル）</button>
         <button type="button" data-k="import">読み込む（ファイル）</button>
         <button type="button" data-k="orphan" hidden>使わなかった進捗を書き出す</button>
+        <button type="button" data-k="altexport" hidden>残したもう一方の進捗を書き出す</button>
+        <button type="button" data-k="altswap" hidden>もう一方の進捗に切り替える</button>
         <button type="button" data-k="persist" hidden>消されにくくする</button>
         <button type="button" data-k="reset" class="danger">初期状態に戻す…</button>
       </div>
@@ -257,11 +263,32 @@ export class SaveMenu {
       s.suspended = true;
       location.reload();
     });
-    q('orphan').addEventListener('click', () => {
+    q('orphan').addEventListener('click', async () => {
       const t = s.store.orphanText();
-      if (t) downloadText(t, fileName(Date.now(), '-使わなかった進捗'));
+      // 書き出せなかった（やめた）ときは残す
+      if (t && !(await downloadText(t, fileName(Date.now(), '-使わなかった進捗'), d.toast))) return;
       s.store.dropOrphan();
       this.refresh();
+    });
+    // 引き継ぎで残したもう一方の進捗（AquaSave の adoptFallback）：書き出したら消す（ファイルから読み込めば戻せる）。
+    // 切り替えは、いまの進捗をもう一方として残してから置き換える（どちらも消えない）
+    q('altexport').addEventListener('click', async () => {
+      const t = await s.store.altText();
+      if (t && !(await downloadText(t, fileName(s.store.info.alt?.savedAt ?? Date.now(), '-もう一方の進捗'), d.toast))) return;
+      await s.store.dropAlt();
+      this.refresh();
+    });
+    q('altswap').addEventListener('click', async () => {
+      if (s.store.conflict) return d.toast('別のタブと競合しているため、切り替えません');
+      // いまの進捗を保存してから入れ替える（入れ替えた後は、いまの進捗が「もう一方」になる）。保存できなければ入れ替えない
+      if (!(await s.flush())) return d.toast(`いまの進捗を保存できなかったため、切り替えません（${s.store.stats.lastError || '競合'}）`);
+      s.suspended = true;
+      if (!(await s.store.swapAlt())) {
+        s.suspended = !!s.store.conflict;
+        d.toast(`切り替えられませんでした（${s.store.stats.lastError || '残した進捗を読めません'}）`);
+        return;
+      }
+      location.reload();
     });
     const persist = q('persist');
     persist.addEventListener('click', async () => {
@@ -270,7 +297,14 @@ export class SaveMenu {
       this.refresh();
     });
     const file = q<HTMLInputElement>('file');
-    q('import').addEventListener('click', () => file.click());
+    q('import').addEventListener('click', () => {
+      if (!IS_APP) return file.click();
+      // アプリ版：OS の「開く」ダイアログで選んで読む（AquaPlatform）
+      openTextFile(IMPORT_MAX).then(
+        (f) => f && this.importText(f.text),
+        (e) => d.toast(`読み込めません：${e instanceof Error ? e.message : String(e)}`),
+      );
+    });
     file.addEventListener('change', () => {
       const f = file.files?.[0];
       file.value = '';
@@ -320,7 +354,8 @@ export class SaveMenu {
   refresh() {
     const s = this.d.saver;
     const st = s.store.stats;
-    const where = s.store.kind === 'indexeddb' ? 'ブラウザ（IndexedDB）' : s.store.kind === 'localStorage' ? 'ブラウザ（localStorage）' : '保存しません（このタブを閉じると消えます）';
+    const host = IS_APP ? 'アプリ内' : 'ブラウザ';
+    const where = s.store.kind === 'indexeddb' ? `${host}（IndexedDB）` : s.store.kind === 'localStorage' ? `${host}（localStorage）` : '保存しません（このタブを閉じると消えます）';
     const when = s.lastSavedAt ? new Date(s.lastSavedAt).toLocaleTimeString() : 'まだ保存していません';
     const size = st.lastBytes ? `・約 ${Math.ceil(st.lastBytes / 1024)} KB` : '';
     const q = (k: string) => this.panel.querySelector<HTMLElement>(`[data-k="${k}"]`)!;
@@ -331,6 +366,9 @@ export class SaveMenu {
     q('note').textContent = this.d.bootNote ?? '';
     q('now').toggleAttribute('disabled', !!s.store.conflict || s.store.kind === 'memory');
     q('orphan').hidden = !s.store.info.orphan;
+    const alt = s.store.info.alt;
+    q('altexport').hidden = q('altswap').hidden = !alt;
+    if (alt) q('altswap').textContent = `もう一方の進捗（${new Date(alt.savedAt).toLocaleString()} の保存）に切り替える`;
     // 消されにくくする：対応していて、まだ頼んでいないときだけ
     const persist = q('persist');
     const sm = navigator.storage as StorageManager | undefined;
@@ -346,16 +384,19 @@ export class SaveMenu {
     // 書き出す前に今の状態を集めて保存（ファイルと保存先を同じ内容にする。競合中は保存せずファイルだけ）
     if (!this.d.saver.store.conflict) void this.d.saver.flush();
     const data = this.d.saver.gather();
-    downloadText(encodeSaveFile(data), fileName(data.savedAt, tag));
-    this.d.toast('書き出しました');
+    void downloadText(encodeSaveFile(data), fileName(data.savedAt, tag), this.d.toast).then((ok) => ok && this.d.toast('書き出しました'));
   }
 
   private async importFile(f: File) {
-    if (f.size > 8 * 1024 * 1024) {
+    if (f.size > IMPORT_MAX) {
       this.d.toast('ファイルが大きすぎます');
       return;
     }
-    const r = validateSave(decodeSaveFile(await f.text()), this.d.ctx);
+    await this.importText(await f.text());
+  }
+
+  private async importText(text: string) {
+    const r = validateSave(decodeSaveFile(text), this.d.ctx);
     if (!r.ok) {
       // 読めないファイルでは今の保存データに触れない
       this.d.toast(`読み込めません：${r.error}`);

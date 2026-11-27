@@ -1,0 +1,7 @@
+﻿Starting: Intent { cmp=io.github.kitamiya1.aquariumexplore/.MainActivity }
+Status: ok
+LaunchState: COLD
+Activity: io.github.kitamiya1.aquariumexplore/.MainActivity
+TotalTime: 588
+WaitTime: 602
+Complete

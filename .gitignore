@@ -29,3 +29,16 @@ npm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# アプリ版（Tauri）のビルド成果物
+dist-app/
+src-tauri/target/
+app-builds-poc/
+
+# macOS の付随ファイル（CI の macOS から取り込んだ物に混ざる）・署名の鍵・Kotlin の作業フォルダー
+._*
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+.kotlin/

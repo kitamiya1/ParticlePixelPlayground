@@ -38,6 +38,8 @@ import { mountUiPrefs, UiPrefStore } from './AquaUiPrefs';
 import { PlantField, type Pusher } from './AquaPlants';
 import { FootDiag } from './AquaFootDiag';
 import { LifeGrab, PlantGrab, WeedPieces, type Detach, type TwistResult } from './AquaCatch';
+import { diag, diagLog, IS_APP, selftestMode } from './AquaPlatform';
+import { GpuGuard } from './AquaGpuGuard';
 
 /** いまの水槽の id（保存データの tanks の鍵。将来の隣の水槽は別の id） */
 const HOME_TANK = 'home';
@@ -111,6 +113,11 @@ function gameSettings(): RenderSettings {
 
 async function boot() {
   const t0 = performance.now();
+  // 起動の記録（AquaPlatform.diag）：段階ごとの時刻。iOS の CI はアプリの標準エラーで受け取る
+  diag(`boot start app=${IS_APP} dpr=${window.devicePixelRatio} view=${window.innerWidth}x${window.innerHeight} ua=${navigator.userAgent}`);
+  // 自動検証の指定（アプリ版は環境変数 AQUA_SELFTEST）。noprepare = 描画の準備を飛ばす（変更前と同じく最初のフレームでまとめて
+  // シェーダーを作る：iOS の CI で原因を比べる対照）
+  const selftestP = selftestMode();
   // 保存先は重い生成と並行して開く（IndexedDB を開くのは非同期）
   // ?nosave：保存せず、保存データも読まない（自動検証が同じブラウザの中で前のページの穴を持ち込まないように）
   const noSave = new URLSearchParams(location.search).has('nosave');
@@ -132,6 +139,7 @@ async function boot() {
 
   const built = buildAquariumMeshes(world);
   const plants = buildAquariumSurfels(world, built.light);
+  diag(`build meshes+plants done ${(performance.now() - t0).toFixed(0)}ms`);
   const crabMesh = buildCrabMesh();
   // 探索：名前の付いた場所と発見物、小さな生き物
   const { spots, finds } = buildSpots(world);
@@ -160,6 +168,17 @@ async function boot() {
     buddy: { sys: buddy, mesh: buildBuddyMesh(), burrowMesh: buildBurrowMesh(world, built.light, BURROW_XZ[0], BURROW_XZ[1]) },
     props: { sys: props, meshes: buildPropMeshes() },
   }, { light: built.light, plantAnchors: plants.anchors });
+  {
+    const gl = view.renderer.getContext();
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    const glName = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    diag(`renderer created ${(performance.now() - t0).toFixed(0)}ms gl=${glName} parallelCompile=${!!gl.getExtension('KHR_parallel_shader_compile')} tris=${view.stats.tris}`);
+  }
+  // 描画の喪失と復旧（AquaGpuGuard）。シェーダーは最初のフレームより前に 1 つずつ作る（view.prepare）
+  let skipPrepare = false;
+  const gpu = new GpuGuard(canvas, view.renderer.getContext(), () =>
+    skipPrepare ? ((skipPrepare = false), Promise.resolve({ programs: 0, ms: 0, slowest: [], lost: false })) : view.prepare(settings, (d, n) => (loading.textContent = `描画を準備しています… ${d} / ${n}`)),
+  );
   // 水草をかき分ける（第 3 段階）：植物ごとのしなり（近くの植物だけばねで動かす。設定で GPU だけの方式と比べられる）
   const plantField = new PlantField(plants.plants);
   view.surfel.enablePlantBend(plants.plants.plantId, plantField.uniforms);
@@ -503,6 +522,7 @@ async function boot() {
     camera.placeBehind(crab);
     if (P.camera !== 'adventure') camera.setView(P.camera, crab);
   }
+  diag(`save loaded store=${store.kind} status=${loaded.status} prims=${restoreInfo.prims} sand=${crab.sandHeld.toFixed(2)} flush=${restoreInfo.flushMs.toFixed(0)}ms at ${(performance.now() - t0).toFixed(0)}ms`);
   showTool();
   // 第 10 段階（救済）：手持ちの砂を、地形から「掘って手元にあるはずの量」と見比べ、少なければ戻す（以前の版の持てる量の上限 4 で
   // 捨てた砂があっても、掘った穴を埋め直せる）。フレームに分けて測る。手持ちが 0 で盛ろうとしたときにも見直す
@@ -511,12 +531,21 @@ async function boot() {
   const bootNote =
     loaded.status === 'recovered' ? `保存データが壊れていたため、1 つ前のデータから再開しました（${loaded.error}）。壊れたデータは別に残しています。`
     : loaded.status === 'corrupt' ? `保存データを読み込めなかったため、初期状態で始めました（${loaded.error}）。読めなかったデータは別に残しています。`
+    : store.info.fallback?.result === 'imported' ? '前回は保存先（IndexedDB）を開けなかったため、予備の保存先（localStorage）に保存していました。その進捗を引き継いで再開しました。'
+    : store.info.fallback?.result === 'kept' ? `前回は保存先（IndexedDB）を開けず、予備の保存先（localStorage）に保存していました。両方に別の進捗があったため、保存した時刻が新しい方（${store.info.fallback.chosen === 'localStorage' ? '前回の起動' : 'IndexedDB'}の進捗）で再開し、もう一方は消さずに残しました。下のボタンで書き出す・切り替えることができます。`
+    : store.info.alt ? '以前の引き継ぎで残したもう一方の進捗があります。下のボタンで書き出す・切り替えることができます。'
+    : store.kind === 'localStorage' ? '保存先（IndexedDB）を開けなかったため、予備の保存先（localStorage）に保存しています。IndexedDB に以前の進捗があっても消えてはいません。次に IndexedDB を開けた起動で自動で引き継ぎます（両方に進捗があれば両方残します）。'
     : store.info.fromJournal ? '前回は閉じる・読み込み直す直前の保存が終わらなかったため、その直前の控えから再開しました（進捗は失われていません）。'
     : store.info.orphan ? '前回閉じる直前の進捗（控え）は、別のタブの保存の方が新しかったため使いませんでした。「使わなかった進捗を書き出す」でファイルに残せます。'
     : noSave ? '自動検証のため保存しません（?nosave）。'
     : null;
   // 知らせは利用者が気にすべきときだけ（控えから戻したのは、再読み込み・タブを閉じたときのふつうの流れなので出さない）
-  const bootToast = loaded.status === 'recovered' ? '保存データを 1 つ前から復元しました' : loaded.status === 'corrupt' ? '保存データを読めず、初期状態で始めました' : store.info.orphan ? '使わなかった進捗があります（セーブのメニュー）' : null;
+  const bootToast = loaded.status === 'recovered' ? '保存データを 1 つ前から復元しました' : loaded.status === 'corrupt' ? '保存データを読めず、初期状態で始めました'
+    : store.info.fallback?.result === 'kept' ? '別の保存先にも進捗がありました。両方残しています（セーブのメニュー）'
+    : store.info.fallback?.result === 'imported' ? '予備の保存先の進捗を引き継ぎました'
+    // 予備の保存先へ落ちた起動で、そこが空のとき（以前の進捗が見えないので知らせる。いつも localStorage の環境では最初の 1 回だけ）
+    : store.kind === 'localStorage' && loaded.status === 'empty' ? '保存先を開けず、予備の保存先を使っています（セーブのメニュー）'
+    : store.info.orphan ? '使わなかった進捗があります（セーブのメニュー）' : null;
   if (bootToast && !noSave) setTimeout(() => toast(bootToast), 600);
   // 掘った・盛った砂の量を測っている途中なら測り終えてから集める（保存する地形と手持ちの砂が食い違わない）
   const gather = (): SaveData => (world.dig.measureStep(Infinity), {
@@ -1100,17 +1129,86 @@ async function boot() {
   // 前のフレームからの時間。requestAnimationFrame の時刻は「フレームの始まり」なので、重い初期化の直後や
   // 裏から戻った直後には直前の performance.now() より過去になることがある（負の時間差）。負の時間で進めると
   // カメラの追従（1 − exp(−dt × k)）が発散して視点が戻らなくなるので、負は 0、大きすぎる値は 0.25 秒で止める
+  // 描画を失っている・準備中の間は、描画もゲームの更新も止める（戻ったときに時間が飛ばないよう、時刻だけ進める）
+  let rendered = 0, beatT = 0;
+  const selftest: { mode: string | null } = { mode: null };
+  const beat = () =>
+    diag(`frame ${rendered} fps=${debug.fps.toFixed(0)} gpu=${gpu.state} holes=${world.dig.count} sand=${crab.sandHeld.toFixed(2)} buddy=${buddy.found ? buddy.mode : 'hidden'} pos=${crab.x.toFixed(2)},${crab.z.toFixed(2)} save=${saver.state} writes=${store.stats.writes}`);
   const loop = (now: number) => {
     requestAnimationFrame(loop);
+    if (!gpu.canRender) {
+      last = Math.max(last, now);
+      return;
+    }
     const dtRaw = Math.min(Math.max((now - last) / 1000, 0), 0.25);
     last = Math.max(last, now);
+    const tf = rendered < 3 ? performance.now() : 0;
     tick(dtRaw);
+    rendered++;
+    if (tf) diag(`frame ${rendered} took ${(performance.now() - tf).toFixed(0)}ms programs=${view.renderer.info.programs?.length ?? 0}`);
+    // 最初の 60 秒（自動検証の間は 4 分）は 5 秒ごとに記録する
+    beatT += dtRaw;
+    if (beatT >= 5 && performance.now() - t0 < (selftest.mode ? 240_000 : 60_000)) {
+      beatT = 0;
+      beat();
+    }
   };
+  loading.textContent = '描画を準備しています…';
+  selftest.mode = await selftestP;
+  if (selftest.mode) diag(`selftest ${selftest.mode}`);
+  skipPrepare = selftest.mode === 'noprepare';
+  await gpu.start();
+  gpu.attach(
+    {
+      // 控え（同期）を書いてから保存先へ。保存しない設定（?nosave）なら書かずに成功扱い。競合中は書かない（false = 自動の読み込み直しをしない）
+      flush: async () => {
+        if (noSave) return true;
+        if (saver.suspended || store.conflict) return false;
+        store.writeJournal(store.stamp(gather()));
+        return saver.flush();
+      },
+    },
+    toast,
+  );
   loading.remove();
   /** 起動から最初のフレームまで（生成 + 保存データの読み込み・復元） */
   const bootMs = performance.now() - t0;
+  diag(`boot done ${bootMs.toFixed(0)}ms gpu=${gpu.state}`);
+  // 画面の大きさ・安全領域・操作ボタンの位置（iOS の画面の下の帯・ホームインジケーターとボタンの重なりを記録で確かめる）
+  requestAnimationFrame(() => {
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;visibility:hidden;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
+    document.body.appendChild(probe);
+    const cs = getComputedStyle(probe);
+    const safe = [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft].map((v) => parseFloat(v) || 0);
+    probe.remove();
+    const cr = canvas.getBoundingClientRect();
+    let low = 0, lowName = '-';
+    for (const el of document.querySelectorAll<HTMLElement>('#touch-ui .stick, #touch-ui button')) {
+      const r = el.getBoundingClientRect();
+      if (r.height > 0 && r.bottom > low) [low, lowName] = [r.bottom, el.className.split(' ')[0] || el.tagName];
+    }
+    diag(`layout inner=${window.innerWidth}x${window.innerHeight} canvas=${cr.width.toFixed(0)}x${cr.height.toFixed(0)}@${cr.top.toFixed(0)} safe(t,r,b,l)=${safe.join(',')} lowestControl=${lowName}:${low.toFixed(0)} limit=${(window.innerHeight - safe[2]).toFixed(0)}`);
+  });
   requestAnimationFrame(loop);
-  (window as unknown as Record<string, unknown>).__aqua = Object.assign(debug, { world, crab, rig, camera, view, settings, input, spots, finds, tracker, life, resetDiscovery, goto, places, sump: SUMP, save: { store, saver, menu: saveMenu, ctx: saveCtx, gather, restore: restoreInfo, loaded }, help, viewport, buddy, toggleBuddy, grab, grabL, plantField, pushers, plantSet: plants.set, weeds, plantGrabR, plantGrabL, lifeGrabR, lifeGrabL, props, decor, touchUi, setView, cycleView, toggleClose, picker, viewToast, moveLatch: () => moveLatch, uiPrefs, audio, audioMenu, pad, buildMs, bootMs, buildPhases: built.ms, plantMs: plants.ms, plantCounts: plants.counts, plantTimes: plants.times });
+  // 自動検証（アプリ版：環境変数 AQUA_SELFTEST、ブラウザ版：?selftest=）。gpu = 起動の 4 秒後にその場で 2.5 秒掘って保存し、
+  // 状態を記録する（CI が外から GPU 処理を止め、復旧の後も穴・手持ちの砂が残るかを記録で確かめる）
+  if (selftest.mode === 'gpu') {
+    setTimeout(() => {
+      debug.dig = true;
+      debug.digAim = { x: 0, y: -0.55 };
+      setTimeout(() => {
+        debug.dig = false;
+        debug.digAim = null;
+        saver.markImportant();
+        setTimeout(() => {
+          diag('selftest dug');
+          beat();
+        }, 1500);
+      }, 2500);
+    }, 4000);
+  }
+  (window as unknown as Record<string, unknown>).__aqua = Object.assign(debug, { world, crab, rig, camera, view, settings, input, spots, finds, tracker, life, resetDiscovery, goto, places, sump: SUMP, save: { store, saver, menu: saveMenu, ctx: saveCtx, gather, restore: restoreInfo, loaded }, help, viewport, buddy, toggleBuddy, grab, grabL, plantField, pushers, plantSet: plants.set, weeds, plantGrabR, plantGrabL, lifeGrabR, lifeGrabL, props, decor, touchUi, setView, cycleView, toggleClose, picker, viewToast, moveLatch: () => moveLatch, uiPrefs, audio, audioMenu, pad, buildMs, bootMs, gpu, diagLog, buildPhases: built.ms, plantMs: plants.ms, plantCounts: plants.counts, plantTimes: plants.times });
 }
 
 // 読み込み表示を先に描画させてから重い生成処理に入る

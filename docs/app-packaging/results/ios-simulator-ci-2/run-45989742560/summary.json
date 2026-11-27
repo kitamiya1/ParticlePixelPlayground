@@ -1,0 +1,892 @@
+{
+ "launches": 8,
+ "ok": 8,
+ "okNames": [
+  "cold1",
+  "cold1-restart",
+  "cold2",
+  "cold3",
+  "gpu-restart",
+  "warm1",
+  "warm2",
+  "warm3"
+ ],
+ "failed": [],
+ "firstLaunches": 3,
+ "firstOk": 3,
+ "control": {
+  "ctrl1": true,
+  "ctrl2": true
+ },
+ "runs": {
+  "cold1": {
+   "err": {
+    "lines": 20,
+    "native": [
+     "[native] start 1795779152185 selftest=Some(\"\")",
+     "[native] ios: scrollView.contentInsetAdjustmentBehavior = never"
+    ],
+    "bootDoneAt": 20.38,
+    "bootLine": "[aqua 11:33:02.123Z +20.38s] boot done 19431ms gpu=ready",
+    "gpuReadyAtBoot": true,
+    "build": "[aqua 11:32:50.254Z +8.51s] build meshes+plants done 7562ms",
+    "renderer": "[aqua 11:32:51.303Z +9.56s] renderer created 8607ms gl=Apple GPU parallelCompile=true tris=568070",
+    "saveLoaded": "[aqua 11:32:51.668Z +9.92s] save loaded store=indexeddb status=empty prims=0 sand=0.00 flush=0ms at 8976ms",
+    "prepare": "[aqua 11:33:02.122Z +20.38s] gpu: prepare (boot) done programs=26 ms=10385 slowest=mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,OCCLUDER_CUT]:5111 mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,CUTAWAY,OCCLUDER_CUT]:1010 mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,USE_BONES]:480 surfel:Mesh[PPP_WATER,OCCLUDER_CUT,PLANT_BEND]:444 mesh:Mesh[PPP_WATER,USE_LIFT,FISH]:315",
+    "frame1": "[aqua 11:33:02.313Z +20.57s] frame 1 took 173ms programs=26",
+    "beats": [
+     102,
+     222,
+     347,
+     497,
+     646,
+     776,
+     915
+    ],
+    "framesAdvancing": true,
+    "gpuEvents": [],
+    "layout": "[aqua 11:33:02.138Z +20.39s] layout inner=402x874 canvas=402x874@0 safe(t,r,b,l)=62,0,34,0 lowestControl=tb:833 limit=840",
+    "selftest": [
+     "[native] start 1795779152185 selftest=Some(\"\")"
+    ],
+    "lastBeat": "[aqua 11:33:38.592Z +56.85s] frame 915 fps=27 gpu=ready holes=0 sand=0.00 buddy=hidden pos=-4.00,5.00 save=saved writes=1"
+   },
+   "syslog": {
+    "unresponsive": [
+     "2026-11-27 11:32:36.419 E  Aquarium Explore[23424:10497] [com.apple.WebKit:Process] 0x10203ea18 - [pageProxyID=9, webPageID=10, PID=23436] WebPageProxy::processDidBecomeUnresponsive:"
+    ],
+    "gpuExited": [],
+    "launchTook": [
+     "2026-11-27 11:32:33.399 F  Aquarium Explore[23424:10497] [com.apple.WebKit:Process] WebContent process (0x111000e00) took 1.569601 seconds to launch",
+     "2026-11-27 11:32:35.060 F  Aquarium Explore[23424:10497] [com.apple.WebKit:Process] GPU process (0x111002320) took 3.026230 seconds to launch",
+     "2026-11-27 11:32:36.512 F  Aquarium Explore[23424:10497] [com.apple.WebKit:Process] Networking process (0x111007360) took 4.439752 seconds to launch"
+    ],
+    "commitLate": [
+     "2026-11-27 11:32:38.829 Df Aquarium Explore[23424:10497] [com.apple.WebKit:ViewState] 0x102835e00 (pageProxyID=9) -[WKWebView _didCommitLayerTree:] - finally received commit 6.78s after visible content rect update request; transac"
+    ],
+    "contextLost": [],
+    "jetsam": []
+   },
+   "shots": {
+    "cold1-010s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.069,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "cold1-030s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.071,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "cold1-060s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.068,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "cold1-final.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.066,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    }
+   },
+   "ok": true
+  },
+  "cold1-restart": {
+   "err": {
+    "lines": 19,
+    "native": [
+     "[native] start 1795779232440 selftest=Some(\"\")",
+     "[native] ios: scrollView.contentInsetAdjustmentBehavior = never"
+    ],
+    "bootDoneAt": 10.1,
+    "bootLine": "[aqua 11:34:04.096Z +10.10s] boot done 9558ms gpu=ready",
+    "gpuReadyAtBoot": true,
+    "build": "[aqua 11:34:02.118Z +8.12s] build meshes+plants done 7580ms",
+    "renderer": "[aqua 11:34:03.152Z +9.16s] renderer created 8614ms gl=Apple GPU parallelCompile=true tris=568070",
+    "saveLoaded": "[aqua 11:34:03.348Z +9.35s] save loaded store=indexeddb status=ok prims=0 sand=0.00 flush=0ms at 8810ms",
+    "prepare": "[aqua 11:34:04.096Z +10.10s] gpu: prepare (boot) done programs=26 ms=679 slowest=mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,OCCLUDER_CUT]:86 surfel:Mesh[PPP_WATER,OCCLUDER_CUT,PLANT_BEND]:65 mesh:Mesh[PPP_WATER,USE_LIFT,BUDDY]:48 mesh:Mesh[PPP_WATER,USE_LIFT]:47 mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,CUTAWAY,OCCLUDER_CUT]:41",
+    "frame1": "[aqua 11:34:04.260Z +10.26s] frame 1 took 157ms programs=26",
+    "beats": [
+     121,
+     260,
+     395,
+     513,
+     646,
+     795
+    ],
+    "framesAdvancing": true,
+    "gpuEvents": [],
+    "layout": "[aqua 11:34:04.101Z +10.11s] layout inner=402x874 canvas=402x874@0 safe(t,r,b,l)=62,0,34,0 lowestControl=tb:833 limit=840",
+    "selftest": [
+     "[native] start 1795779232440 selftest=Some(\"\")"
+    ],
+    "lastBeat": "[aqua 11:34:35.027Z +41.03s] frame 795 fps=32 gpu=ready holes=0 sand=0.00 buddy=hidden pos=-4.00,5.00 save=saved writes=0"
+   },
+   "syslog": {
+    "unresponsive": [],
+    "gpuExited": [],
+    "launchTook": [
+     "2026-11-27 11:33:53.344 F  Aquarium Explore[25456:11a07] [com.apple.WebKit:Process] GPU process (0x114002320) took 1.037599 seconds to launch",
+     "2026-11-27 11:33:53.576 F  Aquarium Explore[25456:11a07] [com.apple.WebKit:Process] Networking process (0x114007260) took 1.248647 seconds to launch"
+    ],
+    "commitLate": [
+     "2026-11-27 11:34:03.503 Df Aquarium Explore[25456:11a07] [com.apple.WebKit:ViewState] 0x105049000 (pageProxyID=9) -[WKWebView _didCommitLayerTree:] - finally received commit 8.85s after visible content rect update request; transac"
+    ],
+    "contextLost": [],
+    "jetsam": []
+   },
+   "shots": {
+    "cold1-restart-010s.png": {
+     "kind": "loading",
+     "white": 0.0,
+     "dark": 0.852,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "cold1-restart-030s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.067,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "cold1-restart-final.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.071,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    }
+   },
+   "ok": true
+  },
+  "cold2": {
+   "err": {
+    "lines": 21,
+    "native": [
+     "[native] start 1795779771705 selftest=Some(\"\")",
+     "[native] ios: scrollView.contentInsetAdjustmentBehavior = never"
+    ],
+    "bootDoneAt": 15.03,
+    "bootLine": "[aqua 11:43:09.589Z +15.03s] boot done 14356ms gpu=ready",
+    "gpuReadyAtBoot": true,
+    "build": "[aqua 11:43:02.251Z +7.69s] build meshes+plants done 7018ms",
+    "renderer": "[aqua 11:43:03.555Z +9.00s] renderer created 8321ms gl=Apple GPU parallelCompile=true tris=568070",
+    "saveLoaded": "[aqua 11:43:03.894Z +9.34s] save loaded store=indexeddb status=empty prims=0 sand=0.00 flush=0ms at 8661ms",
+    "prepare": "[aqua 11:43:09.587Z +15.03s] gpu: prepare (boot) done programs=26 ms=5611 slowest=mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,OCCLUDER_CUT]:2040 surfel:Mesh[PPP_WATER,OCCLUDER_CUT,PLANT_BEND]:336 mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,USE_BONES]:330 mesh:Mesh[PPP_WATER,USE_LIFT,FISH]:240 fx:Points[PPP_WATER]:209",
+    "frame1": "[aqua 11:43:09.824Z +15.27s] frame 1 took 198ms programs=26",
+    "beats": [
+     115,
+     248,
+     388,
+     538,
+     678,
+     817,
+     948,
+     1083
+    ],
+    "framesAdvancing": true,
+    "gpuEvents": [],
+    "layout": "[aqua 11:43:09.625Z +15.07s] layout inner=402x874 canvas=402x874@0 safe(t,r,b,l)=62,0,34,0 lowestControl=tb:833 limit=840",
+    "selftest": [
+     "[native] start 1795779771705 selftest=Some(\"\")"
+    ],
+    "lastBeat": "[aqua 11:43:51.382Z +56.83s] frame 1083 fps=27 gpu=ready holes=0 sand=0.00 buddy=hidden pos=-4.00,5.00 save=saved writes=1"
+   },
+   "syslog": {
+    "unresponsive": [],
+    "gpuExited": [],
+    "launchTook": [
+     "2026-11-27 11:42:52.772 F  Aquarium Explore[35237:18d32] [com.apple.WebKit:Process] GPU process (0x115002320) took 1.218056 seconds to launch",
+     "2026-11-27 11:42:52.948 F  Aquarium Explore[35237:18d32] [com.apple.WebKit:Process] Networking process (0x115007360) took 1.353873 seconds to launch"
+    ],
+    "commitLate": [],
+    "contextLost": [],
+    "jetsam": []
+   },
+   "shots": {
+    "cold2-010s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.069,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "cold2-030s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.07,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "cold2-060s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.07,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "cold2-final.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.069,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    }
+   },
+   "ok": true
+  },
+  "cold3": {
+   "err": {
+    "lines": 21,
+    "native": [
+     "[native] start 1795780482584 selftest=Some(\"\")",
+     "[native] ios: scrollView.contentInsetAdjustmentBehavior = never"
+    ],
+    "bootDoneAt": 17.08,
+    "bootLine": "[aqua 11:55:03.011Z +17.08s] boot done 16303ms gpu=ready",
+    "gpuReadyAtBoot": true,
+    "build": "[aqua 11:54:55.422Z +9.49s] build meshes+plants done 8714ms",
+    "renderer": "[aqua 11:54:56.433Z +10.50s] renderer created 9724ms gl=Apple GPU parallelCompile=true tris=568070",
+    "saveLoaded": "[aqua 11:54:56.880Z +10.95s] save loaded store=indexeddb status=empty prims=0 sand=0.00 flush=0ms at 10172ms",
+    "prepare": "[aqua 11:55:03.009Z +17.08s] gpu: prepare (boot) done programs=26 ms=6059 slowest=mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,OCCLUDER_CUT]:2403 surfel:Mesh[PPP_WATER,OCCLUDER_CUT,PLANT_BEND]:467 mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,CUTAWAY,OCCLUDER_CUT]:315 post:Mesh:241 mesh:Mesh[PPP_WATER,USE_LIFT]:238",
+    "frame1": "[aqua 11:55:03.189Z +17.26s] frame 1 took 163ms programs=26",
+    "beats": [
+     115,
+     249,
+     381,
+     513,
+     649,
+     792,
+     920,
+     1045
+    ],
+    "framesAdvancing": true,
+    "gpuEvents": [],
+    "layout": "[aqua 11:55:03.025Z +17.09s] layout inner=402x874 canvas=402x874@0 safe(t,r,b,l)=62,0,34,0 lowestControl=tb:833 limit=840",
+    "selftest": [
+     "[native] start 1795780482584 selftest=Some(\"\")"
+    ],
+    "lastBeat": "[aqua 11:55:44.291Z +58.36s] frame 1045 fps=27 gpu=ready holes=0 sand=0.00 buddy=hidden pos=-4.00,5.00 save=saved writes=1"
+   },
+   "syslog": {
+    "unresponsive": [],
+    "gpuExited": [],
+    "launchTook": [
+     "2026-11-27 11:54:43.550 F  Aquarium Explore[47448:2200e] [com.apple.WebKit:Process] Networking process (0x112007260) took 1.121273 seconds to launch"
+    ],
+    "commitLate": [
+     "2026-11-27 11:54:57.506 Df Aquarium Explore[47448:2200e] [com.apple.WebKit:ViewState] 0x104046800 (pageProxyID=9) -[WKWebView _didCommitLayerTree:] - finally received commit 10.57s after visible content rect update request; transa"
+    ],
+    "contextLost": [],
+    "jetsam": []
+   },
+   "shots": {
+    "cold3-010s.png": {
+     "kind": "loading",
+     "white": 0.0,
+     "dark": 0.919,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "cold3-030s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.069,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "cold3-060s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.068,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "cold3-final.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.069,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    }
+   },
+   "ok": true
+  },
+  "ctrl1": {
+   "err": {
+    "lines": 26,
+    "native": [
+     "[native] start 1795779493454 selftest=Some(\"noprepare\")",
+     "[native] ios: scrollView.contentInsetAdjustmentBehavior = never"
+    ],
+    "bootDoneAt": 10.65,
+    "bootLine": "[aqua 11:38:27.243Z +10.65s] boot done 9727ms gpu=ready",
+    "gpuReadyAtBoot": true,
+    "build": "[aqua 11:38:25.515Z +8.93s] build meshes+plants done 7999ms",
+    "renderer": "[aqua 11:38:26.486Z +9.90s] renderer created 8969ms gl=Apple GPU parallelCompile=true tris=568070",
+    "saveLoaded": "[aqua 11:38:27.165Z +10.58s] save loaded store=indexeddb status=empty prims=0 sand=0.00 flush=0ms at 9649ms",
+    "prepare": "[aqua 11:38:27.242Z +10.65s] gpu: prepare (boot) done programs=0 ms=0 slowest=",
+    "frame1": "[aqua 11:38:34.259Z +17.67s] frame 1 took 6450ms programs=25",
+    "beats": [
+     120,
+     260,
+     406,
+     550,
+     692,
+     835,
+     977,
+     1109,
+     1234,
+     1370,
+     1503,
+     1644
+    ],
+    "framesAdvancing": true,
+    "gpuEvents": [],
+    "layout": "[aqua 11:38:27.806Z +11.22s] layout inner=402x874 canvas=402x874@0 safe(t,r,b,l)=62,0,34,0 lowestControl=tb:833 limit=840",
+    "selftest": [
+     "[native] start 1795779493454 selftest=Some(\"noprepare\")",
+     "[aqua 11:38:27.242Z +10.65s] selftest noprepare"
+    ],
+    "lastBeat": "[aqua 11:39:34.341Z +77.75s] frame 1644 fps=31 gpu=ready holes=0 sand=0.00 buddy=hidden pos=-4.00,5.00 save=saved writes=1"
+   },
+   "syslog": {
+    "unresponsive": [],
+    "gpuExited": [],
+    "launchTook": [
+     "2026-11-27 11:38:14.442 F  Aquarium Explore[29914:14e14] [com.apple.WebKit:Process] GPU process (0x110002320) took 1.186595 seconds to launch",
+     "2026-11-27 11:38:14.646 F  Aquarium Explore[29914:14e14] [com.apple.WebKit:Process] Networking process (0x110007360) took 1.342801 seconds to launch"
+    ],
+    "commitLate": [],
+    "contextLost": [],
+    "jetsam": []
+   },
+   "shots": {
+    "ctrl1-010s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.068,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "ctrl1-030s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.068,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "ctrl1-060s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.07,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "ctrl1-final.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.068,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    }
+   },
+   "ok": true
+  },
+  "ctrl2": {
+   "err": {
+    "lines": 45,
+    "native": [
+     "[native] start 1795780070443 selftest=Some(\"noprepare\")",
+     "[native] ios: scrollView.contentInsetAdjustmentBehavior = never"
+    ],
+    "bootDoneAt": 13.01,
+    "bootLine": "[aqua 11:48:06.150Z +13.01s] boot done 12006ms gpu=ready",
+    "gpuReadyAtBoot": true,
+    "build": "[aqua 11:48:01.187Z +8.04s] build meshes+plants done 7042ms",
+    "renderer": "[aqua 11:48:05.595Z +12.45s] renderer created 11448ms gl=Apple GPU parallelCompile=true tris=568070",
+    "saveLoaded": "[aqua 11:48:06.061Z +12.92s] save loaded store=indexeddb status=empty prims=0 sand=0.00 flush=0ms at 11917ms",
+    "prepare": "[aqua 11:48:06.150Z +13.01s] gpu: prepare (boot) done programs=0 ms=0 slowest=",
+    "frame1": "[aqua 11:48:12.745Z +19.60s] frame 1 took 6149ms programs=25",
+    "beats": [
+     101,
+     230,
+     345,
+     461,
+     603,
+     741,
+     882,
+     997,
+     1129,
+     1248,
+     1366,
+     1489,
+     1613,
+     1734,
+     1856,
+     1980,
+     2117,
+     2252,
+     2373,
+     2500,
+     2650,
+     2788,
+     2925,
+     3057,
+     3182,
+     3317,
+     3467,
+     3598,
+     3722,
+     3848,
+     3982
+    ],
+    "framesAdvancing": true,
+    "gpuEvents": [],
+    "layout": "[aqua 11:48:06.595Z +13.45s] layout inner=402x874 canvas=402x874@0 safe(t,r,b,l)=62,0,34,0 lowestControl=tb:833 limit=840",
+    "selftest": [
+     "[native] start 1795780070443 selftest=Some(\"noprepare\")",
+     "[aqua 11:48:06.150Z +13.01s] selftest noprepare"
+    ],
+    "lastBeat": "[aqua 11:50:49.536Z +176.39s] frame 3982 fps=26 gpu=ready holes=0 sand=0.00 buddy=hidden pos=-4.00,5.00 save=saved writes=1"
+   },
+   "syslog": {
+    "unresponsive": [],
+    "gpuExited": [],
+    "launchTook": [
+     "2026-11-27 11:47:51.513 F  Aquarium Explore[39833:1c8dd] [com.apple.WebKit:Process] Networking process (0x111007360) took 1.160354 seconds to launch"
+    ],
+    "commitLate": [],
+    "contextLost": [],
+    "jetsam": []
+   },
+   "shots": {
+    "ctrl2-010s.png": {
+     "kind": "loading",
+     "white": 0.0,
+     "dark": 0.997,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "ctrl2-030s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.07,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "ctrl2-060s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.069,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "ctrl2-final.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.071,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    }
+   },
+   "ok": true
+  },
+  "gpu": {
+   "err": {
+    "lines": 34,
+    "native": [
+     "[native] start 1795780775706 selftest=Some(\"gpu\")",
+     "[native] ios: scrollView.contentInsetAdjustmentBehavior = never"
+    ],
+    "bootDoneAt": 9.65,
+    "bootLine": "[aqua 11:59:46.454Z +9.65s] boot done 9460ms gpu=ready",
+    "gpuReadyAtBoot": true,
+    "build": "[aqua 11:59:44.488Z +7.69s] build meshes+plants done 7493ms",
+    "renderer": "[aqua 11:59:45.465Z +8.67s] renderer created 8471ms gl=Apple GPU parallelCompile=true tris=568070",
+    "saveLoaded": "[aqua 11:59:45.635Z +8.84s] save loaded store=indexeddb status=ok prims=0 sand=0.00 flush=0ms at 8641ms",
+    "prepare": "[aqua 11:59:46.454Z +9.65s] gpu: prepare (boot) done programs=26 ms=768 slowest=mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,CUTAWAY,OCCLUDER_CUT]:213 mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,OCCLUDER_CUT]:68 mesh:Mesh[PPP_WATER,USE_LIFT,FISH]:47 surfel:Mesh[PPP_WATER,OCCLUDER_CUT,PLANT_BEND]:46 mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,USE_BONES]:36",
+    "frame1": "[aqua 11:59:46.607Z +9.81s] frame 1 took 140ms programs=26",
+    "beats": [
+     87,
+     129,
+     211,
+     342,
+     443,
+     573,
+     699,
+     815,
+     916,
+     1019,
+     1132,
+     1253,
+     1370,
+     1481
+    ],
+    "framesAdvancing": true,
+    "gpuEvents": [
+     "[aqua 12:00:11.510Z +34.71s] gpu: webglcontextlost #1 (state was ready, 1 in 120s)",
+     "[aqua 12:00:11.953Z +35.15s] gpu: webglcontextrestored #1 (state was lost)",
+     "[aqua 12:00:12.150Z +35.35s] gpu: save flush (lost) ok"
+    ],
+    "layout": "[aqua 11:59:46.467Z +9.67s] layout inner=402x874 canvas=402x874@0 safe(t,r,b,l)=62,0,34,0 lowestControl=tb:833 limit=840",
+    "selftest": [
+     "[native] start 1795780775706 selftest=Some(\"gpu\")",
+     "[aqua 11:59:45.682Z +8.88s] selftest gpu",
+     "[aqua 11:59:54.476Z +17.68s] selftest dug"
+    ],
+    "lastBeat": "[aqua 12:01:01.258Z +84.46s] frame 1481 fps=24 gpu=ready holes=6 sand=2.89 buddy=hidden pos=-4.00,5.00 save=saved writes=2"
+   },
+   "syslog": {
+    "unresponsive": [
+     "2026-11-27 12:00:11.504 E  Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110000e00 - [PID=56800] WebProcessProxy::gpuProcessConnectionDidBecomeUnresponsive",
+     "2026-11-27 12:00:11.504 E  Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110002320 - GPUProcessProxy::childConnectionDidBecomeUnresponsive:",
+     "2026-11-27 12:00:11.504 E  Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110002320 - GPUProcessProxy::didBecomeUnresponsive: GPUProcess with PID 58024 became unresponsive, terminating it"
+    ],
+    "gpuExited": [
+     "2026-11-27 12:00:06.002 E  Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110002320 - GPUProcessProxy::gpuProcessExited: reason=Crash",
+     "2026-11-27 12:00:06.002 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x10102ec08 - WebProcessPool::gpuProcessDidExit: PID=56801, reason=Crash",
+     "2026-11-27 12:00:06.002 E  Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110000e00 - [PID=56800] WebProcessProxy::gpuProcessExited: reason=Crash",
+     "2026-11-27 12:00:11.505 E  Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110002320 - GPUProcessProxy::gpuProcessExited: reason=Unresponsive",
+     "2026-11-27 12:00:11.505 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x10102ec08 - WebProcessPool::gpuProcessDidExit: PID=0, reason=Unresponsive",
+     "2026-11-27 12:00:11.505 E  Aquarium Explore[56790:27aea] [com.apple.WebKit:Process] 0x110000e00 - [PID=56800] WebProcessProxy::gpuProcessExited: reason=Unresponsive"
+    ],
+    "launchTook": [],
+    "commitLate": [
+     "2026-11-27 11:59:45.761 Df Aquarium Explore[56790:27aea] [com.apple.WebKit:ViewState] 0x10205e800 (pageProxyID=9) -[WKWebView _didCommitLayerTree:] - finally received commit 8.76s after visible content rect update request; transac"
+    ],
+    "contextLost": [],
+    "jetsam": []
+   },
+   "shots": {
+    "gpu-005s.png": {
+     "kind": "loading",
+     "white": 0.0,
+     "dark": 0.99,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "gpu-final.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.046,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    }
+   },
+   "ok": null
+  },
+  "gpu-restart": {
+   "err": {
+    "lines": 19,
+    "native": [
+     "[native] start 1795780872340 selftest=Some(\"\")",
+     "[native] ios: scrollView.contentInsetAdjustmentBehavior = never"
+    ],
+    "bootDoneAt": 11.81,
+    "bootLine": "[aqua 12:01:25.409Z +11.81s] boot done 11528ms gpu=ready",
+    "gpuReadyAtBoot": true,
+    "build": "[aqua 12:01:22.983Z +9.38s] build meshes+plants done 9102ms",
+    "renderer": "[aqua 12:01:24.260Z +10.66s] renderer created 10378ms gl=Apple GPU parallelCompile=true tris=568070",
+    "saveLoaded": "[aqua 12:01:24.593Z +10.99s] save loaded store=indexeddb status=ok prims=6 sand=2.89 flush=165ms at 10712ms",
+    "prepare": "[aqua 12:01:25.407Z +11.81s] gpu: prepare (boot) done programs=26 ms=781 slowest=mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,CUTAWAY,OCCLUDER_CUT]:103 mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,OCCLUDER_CUT]:75 surfel:Mesh[PPP_WATER,OCCLUDER_CUT,PLANT_BEND]:57 mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,USE_BONES]:56 mesh:Mesh[PPP_WATER,USE_LIFT,FISH]:47",
+    "frame1": "[aqua 12:01:25.687Z +12.09s] frame 1 took 266ms programs=27",
+    "beats": [
+     96,
+     206,
+     306,
+     437,
+     551,
+     661
+    ],
+    "framesAdvancing": true,
+    "gpuEvents": [],
+    "layout": "[aqua 12:01:25.420Z +11.82s] layout inner=402x874 canvas=402x874@0 safe(t,r,b,l)=62,0,34,0 lowestControl=tb:833 limit=840",
+    "selftest": [
+     "[native] start 1795780872340 selftest=Some(\"\")"
+    ],
+    "lastBeat": "[aqua 12:01:56.747Z +43.15s] frame 661 fps=23 gpu=ready holes=6 sand=2.89 buddy=hidden pos=-3.99,5.00 save=saved writes=0"
+   },
+   "syslog": {
+    "unresponsive": [],
+    "gpuExited": [],
+    "launchTook": [
+     "2026-11-27 12:01:13.415 F  Aquarium Explore[60590:29e5f] [com.apple.WebKit:Process] Networking process (0x113007260) took 1.172097 seconds to launch"
+    ],
+    "commitLate": [],
+    "contextLost": [],
+    "jetsam": []
+   },
+   "shots": {
+    "gpu-restart-010s.png": {
+     "kind": "game",
+     "white": 0.001,
+     "dark": 0.136,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "gpu-restart-030s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.126,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "gpu-restart-final.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.126,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    }
+   },
+   "ok": true
+  },
+  "warm1": {
+   "err": {
+    "lines": 22,
+    "native": [
+     "[native] start 1795780589886 selftest=Some(\"\")",
+     "[native] ios: scrollView.contentInsetAdjustmentBehavior = never"
+    ],
+    "bootDoneAt": 10.12,
+    "bootLine": "[aqua 11:56:41.214Z +10.12s] boot done 9907ms gpu=ready",
+    "gpuReadyAtBoot": true,
+    "build": "[aqua 11:56:38.897Z +7.80s] build meshes+plants done 7590ms",
+    "renderer": "[aqua 11:56:40.237Z +9.14s] renderer created 8930ms gl=Apple GPU parallelCompile=true tris=568070",
+    "saveLoaded": "[aqua 11:56:40.407Z +9.31s] save loaded store=indexeddb status=ok prims=0 sand=0.00 flush=0ms at 9100ms",
+    "prepare": "[aqua 11:56:41.212Z +10.12s] gpu: prepare (boot) done programs=26 ms=754 slowest=mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,OCCLUDER_CUT]:75 mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,USE_BONES]:72 surfel:Mesh[PPP_WATER,OCCLUDER_CUT,PLANT_BEND]:53 mesh:Mesh[PPP_WATER,USE_LIFT]:43 mesh:Mesh[PPP_WATER,USE_LIFT,FISH]:36",
+    "frame1": "[aqua 11:56:41.385Z +10.29s] frame 1 took 157ms programs=26",
+    "beats": [
+     97,
+     225,
+     352,
+     486,
+     613,
+     744,
+     876,
+     996,
+     1126
+    ],
+    "framesAdvancing": true,
+    "gpuEvents": [],
+    "layout": "[aqua 11:56:41.226Z +10.13s] layout inner=402x874 canvas=402x874@0 safe(t,r,b,l)=62,0,34,0 lowestControl=tb:833 limit=840",
+    "selftest": [
+     "[native] start 1795780589886 selftest=Some(\"\")"
+    ],
+    "lastBeat": "[aqua 11:57:27.527Z +56.43s] frame 1126 fps=25 gpu=ready holes=0 sand=0.00 buddy=hidden pos=-4.00,5.00 save=saved writes=0"
+   },
+   "syslog": {
+    "unresponsive": [],
+    "gpuExited": [],
+    "launchTook": [
+     "2026-11-27 11:56:30.918 F  Aquarium Explore[50968:24151] [com.apple.WebKit:Process] Networking process (0x111007260) took 1.109058 seconds to launch"
+    ],
+    "commitLate": [
+     "2026-11-27 11:56:40.585 Df Aquarium Explore[50968:24151] [com.apple.WebKit:ViewState] 0x10183ca00 (pageProxyID=9) -[WKWebView _didCommitLayerTree:] - finally received commit 9.24s after visible content rect update request; transac"
+    ],
+    "contextLost": [],
+    "jetsam": []
+   },
+   "shots": {
+    "warm1-010s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.069,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "warm1-020s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.071,
+     "bottomWhite": 0.001,
+     "size": "110x240"
+    },
+    "warm1-final.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.067,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    }
+   },
+   "ok": true
+  },
+  "warm2": {
+   "err": {
+    "lines": 17,
+    "native": [
+     "[native] start 1795780681086 selftest=Some(\"\")",
+     "[native] ios: scrollView.contentInsetAdjustmentBehavior = never"
+    ],
+    "bootDoneAt": 9.5,
+    "bootLine": "[aqua 11:58:11.752Z +9.50s] boot done 8811ms gpu=ready",
+    "gpuReadyAtBoot": true,
+    "build": "[aqua 11:58:10.108Z +7.86s] build meshes+plants done 7167ms",
+    "renderer": "[aqua 11:58:10.936Z +8.68s] renderer created 7994ms gl=Apple GPU parallelCompile=true tris=568070",
+    "saveLoaded": "[aqua 11:58:11.101Z +8.85s] save loaded store=indexeddb status=ok prims=0 sand=0.00 flush=0ms at 8160ms",
+    "prepare": "[aqua 11:58:11.751Z +9.50s] gpu: prepare (boot) done programs=26 ms=601 slowest=mesh:Mesh[PPP_WATER,USE_LIFT,BUDDY]:61 mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,OCCLUDER_CUT]:53 mesh:Mesh[PPP_WATER,USE_LIFT]:48 mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,CUTAWAY,OCCLUDER_CUT]:40 surfel:Mesh[PPP_WATER,OCCLUDER_CUT,PLANT_BEND]:40",
+    "frame1": "[aqua 11:58:11.888Z +9.63s] frame 1 took 120ms programs=26",
+    "beats": [
+     114,
+     248,
+     366,
+     482
+    ],
+    "framesAdvancing": true,
+    "gpuEvents": [],
+    "layout": "[aqua 11:58:11.767Z +9.51s] layout inner=402x874 canvas=402x874@0 safe(t,r,b,l)=62,0,34,0 lowestControl=tb:833 limit=840",
+    "selftest": [
+     "[native] start 1795780681086 selftest=Some(\"\")"
+    ],
+    "lastBeat": "[aqua 11:58:32.619Z +30.37s] frame 482 fps=16 gpu=ready holes=0 sand=0.00 buddy=hidden pos=-4.00,5.00 save=saved writes=0"
+   },
+   "syslog": {
+    "unresponsive": [],
+    "gpuExited": [],
+    "launchTook": [],
+    "commitLate": [],
+    "contextLost": [],
+    "jetsam": []
+   },
+   "shots": {
+    "warm2-010s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.071,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "warm2-020s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.069,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "warm2-final.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.069,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    }
+   },
+   "ok": true
+  },
+  "warm3": {
+   "err": {
+    "lines": 20,
+    "native": [
+     "[native] start 1795780718900 selftest=Some(\"\")",
+     "[native] ios: scrollView.contentInsetAdjustmentBehavior = never"
+    ],
+    "bootDoneAt": 9.48,
+    "bootLine": "[aqua 11:58:49.492Z +9.48s] boot done 9246ms gpu=ready",
+    "gpuReadyAtBoot": true,
+    "build": "[aqua 11:58:48.044Z +8.03s] build meshes+plants done 7798ms",
+    "renderer": "[aqua 11:58:48.828Z +8.82s] renderer created 8582ms gl=Apple GPU parallelCompile=true tris=568070",
+    "saveLoaded": "[aqua 11:58:48.931Z +8.92s] save loaded store=indexeddb status=ok prims=0 sand=0.00 flush=0ms at 8685ms",
+    "prepare": "[aqua 11:58:49.491Z +9.48s] gpu: prepare (boot) done programs=26 ms=532 slowest=surfel:Mesh[PPP_WATER,OCCLUDER_CUT,PLANT_BEND]:59 mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,OCCLUDER_CUT]:40 mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,CUTAWAY,OCCLUDER_CUT]:30 mesh:Mesh[PPP_WATER,USE_LIFT,BUDDY]:27 mesh:Mesh[PPP_WATER,USE_BEAMS,BLOB_UP,USE_BONES]:25",
+    "frame1": "[aqua 11:58:49.603Z +9.59s] frame 1 took 97ms programs=26",
+    "beats": [
+     100,
+     241,
+     377,
+     516,
+     672,
+     795,
+     918
+    ],
+    "framesAdvancing": true,
+    "gpuEvents": [],
+    "layout": "[aqua 11:58:49.506Z +9.49s] layout inner=402x874 canvas=402x874@0 safe(t,r,b,l)=62,0,34,0 lowestControl=tb:833 limit=840",
+    "selftest": [
+     "[native] start 1795780718900 selftest=Some(\"\")"
+    ],
+    "lastBeat": "[aqua 11:59:25.630Z +45.62s] frame 918 fps=25 gpu=ready holes=0 sand=0.00 buddy=hidden pos=-4.00,5.00 save=saved writes=0"
+   },
+   "syslog": {
+    "unresponsive": [],
+    "gpuExited": [],
+    "launchTook": [],
+    "commitLate": [
+     "2026-11-27 11:58:49.018 Df Aquarium Explore[54670:26647] [com.apple.WebKit:ViewState] 0x10501c800 (pageProxyID=9) -[WKWebView _didCommitLayerTree:] - finally received commit 8.83s after visible content rect update request; transac"
+    ],
+    "contextLost": [],
+    "jetsam": []
+   },
+   "shots": {
+    "warm3-010s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.071,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "warm3-020s.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.07,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    },
+    "warm3-final.png": {
+     "kind": "game",
+     "white": 0.0,
+     "dark": 0.067,
+     "bottomWhite": 0.0,
+     "size": "110x240"
+    }
+   },
+   "ok": true
+  }
+ },
+ "gpuKillShots": {
+  "gpu-after-kill-03s.png": {
+   "kind": "game",
+   "white": 0.001,
+   "dark": 0.047,
+   "bottomWhite": 0.0,
+   "size": "110x240"
+  },
+  "gpu-after-kill-10s.png": {
+   "kind": "game",
+   "white": 0.0,
+   "dark": 0.049,
+   "bottomWhite": 0.0,
+   "size": "110x240"
+  },
+  "gpu-after-kill-20s.png": {
+   "kind": "game",
+   "white": 0.0,
+   "dark": 0.047,
+   "bottomWhite": 0.0,
+   "size": "110x240"
+  },
+  "gpu-after-kill-40s.png": {
+   "kind": "game",
+   "white": 0.0,
+   "dark": 0.049,
+   "bottomWhite": 0.0,
+   "size": "110x240"
+  },
+  "gpu-before-kill.png": {
+   "kind": "game",
+   "white": 0.0,
+   "dark": 0.049,
+   "bottomWhite": 0.0,
+   "size": "110x240"
+  }
+ }
+}

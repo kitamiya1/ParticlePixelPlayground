@@ -1,0 +1,3 @@
+APP=/Users/runner/Library/Developer/Xcode/DerivedData/app-abhvdnvhaxfjgsaqgfblibvkxati/Build/Products/release-iphonesimulator/Aquarium Explore.app
+7.7M	/Users/runner/Library/Developer/Xcode/DerivedData/app-abhvdnvhaxfjgsaqgfblibvkxati/Build/Products/release-iphonesimulator/Aquarium Explore.app
+UDID=0C95D7BB-B55C-4EE0-ACB9-8616BB736183

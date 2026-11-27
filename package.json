@@ -6,13 +6,22 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:app": "tsc --noEmit && vite build --mode app",
+    "tauri": "tauri",
+    "app:win": "tauri build",
+    "app:android": "tauri android build --apk",
+    "app:ios": "tauri ios build"
   },
   "dependencies": {
     "@sparkjsdev/spark": "2.4.0",
+    "@tauri-apps/api": "^2.12.5",
+    "@tauri-apps/plugin-dialog": "^2.8.4",
+    "@tauri-apps/plugin-fs": "^2.7.1",
     "three": "^0.187.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.12.6",
     "@types/three": "^0.187.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.8"

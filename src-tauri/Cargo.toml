@@ -1,0 +1,43 @@
+[package]
+name = "app"
+version = "0.1.0"
+description = "A Tauri App"
+authors = ["you"]
+license = ""
+repository = ""
+edition = "2024"
+rust-version = "1.90"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.6", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.12.7", features = [] }
+tauri-plugin-log = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+
+# iOS：WKWebView のスクロールビューの余白の設定（src/lib.rs の ios_fill_safe_area）。wry と同じ版
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = "0.6"
+
+[features]
+# 自動検証（環境変数 AQUA_SELFTEST）をリリース版でも受け付ける。CI の試験用ビルドだけで使う（`tauri ios build --features selftest`）。
+# 配布するビルドには付けない（付けなければ、リリース版は環境変数を読まない）
+selftest = []
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

@@ -906,6 +906,70 @@ export class AquariumRenderer {
     this.renderer.setSize(w, h, false);
   }
 
+  /**
+   * 描画の準備：最初のフレームより前に、使うシェーダーを 1 つずつ作って（リンクの完了まで待って）から次へ進む。
+   * 1 つ作るたびにページへ制御を返す（読み込みの表示を進め、ページが止まったままにならないように）。
+   * 最初のフレームでまとめて作ると、iOS の WebView では作り終わるまでページの主スレッドが GPU 処理の返事を待ち続け、
+   * 遅い環境では WebKit が GPU 処理を「応答なし」として止める（iOS シミュレーターの CI の初回起動で起きた。報告 5.3）。
+   * 描画の喪失から戻った後（three.js が GL の資源を作り直した後）にも同じことをする。
+   * 返り値：作ったシェーダーの数・かかった時間・いちばん遅かったもの。途中で描画を失ったら lost = true で止める
+   */
+  async prepare(s: RenderSettings, onStep?: (done: number, total: number) => void): Promise<{ programs: number; ms: number; slowest: { label: string; ms: number }[]; lost: boolean }> {
+    const r = this.renderer;
+    const gl = r.getContext();
+    const canvas = r.domElement;
+    const p = this.pipeline;
+    // 低解像度のターゲットは render と同じ大きさで用意する（最初のフレームで作り直さない）
+    p.ensureSize(Math.max(1, canvas.width), Math.max(1, canvas.height), Math.max(1, Math.round(s.pixelScale * (window.devicePixelRatio || 1))));
+    // 低解像度のターゲットへ描く物はターゲットを付けたまま作る（画面へ描く物と出力の色空間が違い、別のシェーダーになるので）
+    const jobs: { obj: THREE.Object3D; scene: THREE.Object3D; cam: THREE.Camera; target: THREE.WebGLRenderTarget | null; label: string }[] = [];
+    const seen = new Set<THREE.Material>();
+    const add = (scene: THREE.Object3D, cam: THREE.Camera, target: THREE.WebGLRenderTarget | null, tag: string) => {
+      scene.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+        if (!m) return;
+        const list = Array.isArray(m) ? m : [m];
+        if (list.every((x) => seen.has(x))) return;
+        for (const x of list) seen.add(x);
+        const sm = list[0] as THREE.ShaderMaterial;
+        const defs = sm.defines ? Object.keys(sm.defines).join(',') : '';
+        jobs.push({ obj: o, scene, cam, target, label: `${tag}:${o.type}${o.name ? `(${o.name})` : ''}${defs ? `[${defs}]` : ''}` });
+      });
+    };
+    add(this.meshScene, this.camera, p.rt, 'mesh');
+    add(this.surfel.scene, this.camera, p.rt, 'surfel');
+    add(this.fxScene, this.camera, p.rt, 'fx');
+    add(this.alphaScene, this.camera, p.rt, 'alpha');
+    add(p.postScene, p.postCam, null, 'post');
+    const t0 = performance.now();
+    const times: { label: string; ms: number }[] = [];
+    const before = r.info.programs?.length ?? 0;
+    let lost = false;
+    for (let i = 0; i < jobs.length; i++) {
+      if (gl.isContextLost()) {
+        lost = true;
+        break;
+      }
+      const j = jobs[i];
+      const t = performance.now();
+      r.setRenderTarget(j.target);
+      // compile は物（と子）のマテリアルのシェーダーを作り、光などは scene から読む。作った後、three.js が最初の描画で
+      // 行うユニフォーム・属性の場所の取得をここで済ませる（ここでリンクの完了を待つ = 1 つ分だけ待つ）
+      const mats = r.compile(j.obj, j.cam, j.scene as THREE.Scene);
+      for (const m of mats) {
+        const prog = (r.properties.get(m) as { currentProgram?: { getUniforms(): unknown; getAttributes(): unknown } } | undefined)?.currentProgram;
+        prog?.getUniforms();
+        prog?.getAttributes();
+      }
+      times.push({ label: j.label, ms: performance.now() - t });
+      onStep?.(i + 1, jobs.length);
+      await new Promise((res) => setTimeout(res, 0));
+    }
+    r.setRenderTarget(null);
+    times.sort((a, b) => b.ms - a.ms);
+    return { programs: (r.info.programs?.length ?? 0) - before, ms: performance.now() - t0, slowest: times.slice(0, 5), lost: lost || gl.isContextLost() };
+  }
+
   // ---------------- 泡・しぶき ----------------
 
   private spawn(kind: 0 | 1, x: number, y: number, z: number, n: number, spread: number, r0: number, vUp: number) {

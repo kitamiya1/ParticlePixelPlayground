@@ -485,3 +485,13 @@ body.aqua #touch-ui.labels .tool::after { top: auto; bottom: calc(100% - var(--p
   #view-picker button .ds { display: none; }
   #view-picker button { grid-template-columns: 28px 1fr; min-height: 38px; }
 }
+
+/* 描画（WebGL）の喪失と復旧の知らせ（AquaGpuGuard）。ゲームの上に重ね、ボタンは安全領域の内側 */
+#gpu-overlay { position: fixed; inset: 0; z-index: 20; display: none; place-items: center; background: rgba(10, 14, 22, 0.55);
+  padding: calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left)); }
+#gpu-overlay.show { display: grid; }
+#gpu-overlay .box { max-width: min(420px, 86vw); background: rgba(10, 22, 28, 0.92); color: #f2fff9; border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px; padding: 14px 16px; font-size: 14px; line-height: 1.6; text-align: center; }
+#gpu-overlay .btns { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
+#gpu-overlay .btns button { min-height: 44px; padding: 6px 14px; border-radius: 6px; font-size: 14px; background: #2e5e5a; color: #f2fff9; border: 1px solid rgba(255, 255, 255, 0.2); }
+#gpu-overlay .btns button.b2 { background: #4a3a36; }

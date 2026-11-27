@@ -1,0 +1,114 @@
+# アプリ化の実証試験（iOS）：macOS ランナーで Tauri 2 の Xcode プロジェクトを作り、署名なしでビルドし、シミュレーターで起動して画面を撮る。
+# 署名（Apple Developer Program・証明書・プロビジョニング）は使わない。実機へ入れる .ipa はここでは作らない。
+# 成果物（Actions の Artifacts）：Xcode プロジェクト（gen/apple）、シミュレーター用 .app、ビルドログ、起動の試験の画面写真・記録・まとめ（sim/summary.md）。
+# 試験用のビルドは機能 selftest 付き（環境変数 AQUA_SELFTEST で自動検証を動かす。配布するビルドには付けない：src-tauri/Cargo.toml）。
+name: App (iOS, unsigned, simulator test)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'src-tauri/**'
+      - 'aquarium.html'
+      - 'package*.json'
+      - 'vite.config.ts'
+      - '.github/workflows/app-ios.yml'
+      - 'docs/app-packaging/tools/ios-sim-*'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'src-tauri/**'
+      - 'aquarium.html'
+      - 'package*.json'
+      - 'vite.config.ts'
+      - '.github/workflows/app-ios.yml'
+      - 'docs/app-packaging/tools/ios-sim-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 100
+    env:
+      BUNDLE_ID: io.github.kitamiya1.aquariumexplore
+      OUT: ${{ github.workspace }}/ios-out
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Environment
+        run: |
+          mkdir -p "$OUT"
+          { sw_vers; xcodebuild -version; rustc -V; node -v; xcrun simctl list devices available | head -40; } | tee "$OUT/env.txt"
+
+      - run: npm ci
+
+      - name: tauri ios init (generate Xcode project)
+        run: npx tauri ios init --ci 2>&1 | tee "$OUT/ios-init.log"
+
+      - name: Build web assets (dist-app)
+        run: npm run build:app 2>&1 | tee "$OUT/web-build.log"
+
+      - name: List Xcode schemes
+        working-directory: src-tauri/gen/apple
+        run: xcodebuild -list 2>&1 | tee "$OUT/xcode-list.log"
+
+      # Xcode のビルドの手順（Rust を作る所）は Tauri の CLI が動いている間しか動かない（cli-options-server.json を読む）。
+      # そのため xcodebuild を直接ではなく tauri ios build で作る（第 1 回の CI で確かめた）
+      - name: tauri ios build for iOS Simulator (aarch64-sim, no signing team)
+        run: |
+          set -o pipefail
+          npx tauri ios build --target aarch64-sim --features selftest --ci --verbose 2>&1 | tee "$OUT/tauri-ios-build-sim.log"
+
+      - name: tauri ios build for iOS device (aarch64) — expected to need a signing team
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          npx tauri ios build --target aarch64 --ci 2>&1 | tee "$OUT/tauri-ios-build-device.log"
+
+      # 起動の試験（docs/app-packaging/tools/ios-sim-run.sh）：初回起動（シミュレーターを消去してから）× 3・終了後の再起動・
+      # 続けて起動 × 3・GPU 処理を外から止める試験。ゲームの記録（標準エラー）・画面・系統のログ・メモリを残し、
+      # ios-sim-summary.py が成功の回数・白い画面・画面の下の帯を判定する
+      - name: Run in iOS Simulator (first launches, restarts, GPU process kill)
+        run: |
+          find src-tauri/gen/apple/build "$HOME/Library/Developer/Xcode/DerivedData" -name '*.app' -maxdepth 6 2>/dev/null | tee "$OUT/apps-found.txt"
+          APP=$(grep -i 'simulator' "$OUT/apps-found.txt" | head -1)
+          [ -z "$APP" ] && APP=$(head -1 "$OUT/apps-found.txt")
+          echo "APP=$APP" | tee "$OUT/app-path.txt"
+          du -sh "$APP" | tee -a "$OUT/app-path.txt"
+          bash docs/app-packaging/tools/ios-sim-run.sh "$APP" "$BUNDLE_ID" "$OUT/sim" 3
+          ditto -c -k --keepParent "$APP" "$OUT/AquariumExplore-iossim.app.zip"
+
+      - name: Summarize simulator runs
+        if: always()
+        run: |
+          [ -d "$OUT/sim" ] && python3 -I docs/app-packaging/tools/ios-sim-summary.py "$OUT/sim" && cat "$OUT/sim/summary.md" >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Package Xcode project
+        if: always()
+        run: |
+          [ -d src-tauri/gen/apple ] && tar -czf "$OUT/gen-apple.tgz" --exclude 'build' --exclude 'Externals' -C src-tauri/gen apple || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-poc-${{ github.run_number }}
+          path: ios-out
+          retention-days: 30
