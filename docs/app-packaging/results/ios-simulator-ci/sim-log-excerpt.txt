@@ -1,0 +1,400 @@
+﻿2026-11-27 07:27:06.115 Df Aquarium Explore[17616:e6a5] [com.apple.xpc:connection] [0x600003d080f0] activating connection: mach=true listener=false peer=false name=com.apple.cfprefsd.daemon
+2026-11-27 07:27:06.117 Df Aquarium Explore[17616:e6a8] (libMobileGestalt.dylib) No persisted cache on this platform.
+2026-11-27 07:27:06.120 Df Aquarium Explore[17616:e69d] [com.apple.runningboard:connection] Initializing connection
+2026-11-27 07:27:06.120 Df Aquarium Explore[17616:e69d] [com.apple.runningboard:process] Removing all cached process handles
+2026-11-27 07:27:06.120 Df Aquarium Explore[17616:e69d] [com.apple.xpc:connection] [0x101822780] activating connection: mach=false listener=false peer=false name=(anonymous)
+2026-11-27 07:27:06.134 Df Aquarium Explore[17616:e6a5] [com.apple.UIKit:BackgroundTask] Creating new assertion because there is no existing background assertion.
+2026-11-27 07:27:06.135 Df Aquarium Explore[17616:e6a5] [com.apple.UIKit:BackgroundTask] Creating new background assertion
+2026-11-27 07:27:06.138 Df Aquarium Explore[17616:e6a5] [com.apple.UIKit:BackgroundTask] Created new background assertion <BKSProcessAssertion: 0x600002102c60>
+2026-11-27 07:27:06.139 Df Aquarium Explore[17616:e6a5] [com.apple.runningboard:connection] Creating connection to com.apple.runningboard
+2026-11-27 07:27:06.139 Df Aquarium Explore[17616:e6a5] [com.apple.xpc:connection] [0x600003d040f0] activating connection: mach=true listener=false peer=false name=com.apple.runningboard
+2026-11-27 07:27:06.139 Df Aquarium Explore[17616:e6aa] [com.apple.runningboard:connection] Sending handshake request attempt #1 to server
+2026-11-27 07:27:06.145 Df Aquarium Explore[17616:e6aa] [com.apple.runningboard:connection] Handshake succeeded
+2026-11-27 07:27:06.145 Df Aquarium Explore[17616:e6aa] [com.apple.runningboard:connection] Identity resolved as app<io.github.kitamiya1.aquariumexplore((null))>
+2026-11-27 07:27:06.149 Df Aquarium Explore[17616:e6a5] [com.apple.UIKit:BackgroundTask] Incrementing reference count for background assertion <BKSProcessAssertion: 0x600002102c60>
+2026-11-27 07:27:06.150 Df Aquarium Explore[17616:e6a5] [com.apple.UIKit:BackgroundTask] Created background task <_UIBackgroundTaskInfo: 0x600001706680>: taskID = 1, taskName = Launch Background Task for Coalescing, creationTime = 532 (elapsed = 0).
+2026-11-27 07:27:06.151 Df Aquarium Explore[17616:e6a5] [com.apple.FrontBoard:SceneExtension] Realizing settings extension _UIApplicationSceneKeyboardSettings on FBSSceneSettings
+2026-11-27 07:27:06.168 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:Application] Deactivation reason added: 10; deactivation reasons: 0 -> 1024; animating application lifecycle event: 0
+2026-11-27 07:27:06.168 Df Aquarium Explore[17616:e6a5] [com.apple.FrontBoard:SceneExtension] Realizing settings extension <_UISceneOcclusionSettings> on FBSSceneSettings
+2026-11-27 07:27:06.175 Df Aquarium Explore[17616:e6a5] [com.apple.FrontBoard:SceneExtension] Realizing settings extension <_UISceneInterfaceProtectionSceneSettings> on FBSSceneSettings
+2026-11-27 07:27:06.175 Df Aquarium Explore[17616:e6a5] [com.apple.FrontBoard:SceneExtension] Realizing settings extension <_UIHomeAffordanceHostSceneSettings> on FBSSceneSettings
+2026-11-27 07:27:06.177 Df Aquarium Explore[17616:e6a5] [com.apple.FrontBoard:SceneExtension] Realizing settings extension _UISystemShellSceneHostingEnvironmentSettings on FBSSceneSettings
+2026-11-27 07:27:06.177 Df Aquarium Explore[17616:e6a5] [com.apple.FrontBoard:SceneExtension] Realizing settings extension _UISceneRenderingEnvironmentSettings on FBSSceneSettings
+2026-11-27 07:27:06.177 Df Aquarium Explore[17616:e6a5] [com.apple.FrontBoard:SceneExtension] Realizing settings extension <_UISceneTransitioningHostSettings> on FBSSceneSettings
+2026-11-27 07:27:06.178 E  Aquarium Explore[17616:0] [com.apple.os_debug_log:] assertion failed: 24H232 22F77: libxpc.dylib + 72720 [021C0BF8-EDD4-395A-B281-2CC7A26F742F]: 0x7d
+2026-11-27 07:27:06.178 Df Aquarium Explore[17616:e69d] [com.apple.BoardServices:Injection] activating monitor for service com.apple.frontboard.open
+2026-11-27 07:27:06.179 Df Aquarium Explore[17616:e6a5] [com.apple.FrontBoard:SceneExtension] Realizing settings extension <_UISceneHostingContentSizePreferenceClientSettings> on FBSSceneClientSettings
+2026-11-27 07:27:06.179 Df Aquarium Explore[17616:e6a5] [com.apple.FrontBoard:SceneExtension] Realizing settings extension _UISceneHostingTraitCollectionPropagationSettings on FBSSceneSettings
+2026-11-27 07:27:06.180 Df Aquarium Explore[17616:e6a5] [com.apple.FrontBoard:SceneExtension] Realizing settings extension <_UISceneHostingSheetPresentationSettings> on FBSSceneSettings
+2026-11-27 07:27:06.180 Df Aquarium Explore[17616:e6a5] [com.apple.FrontBoard:SceneExtension] Realizing settings extension <_UISceneHostingSheetPresentationClientSettings> on FBSSceneClientSettings
+2026-11-27 07:27:06.180 Df Aquarium Explore[17616:e6a5] [com.apple.FrontBoard:SceneExtension] Realizing settings extension <_UISceneHostingEventDeferringSettings> on FBSSceneSettings
+2026-11-27 07:27:06.182 Df Aquarium Explore[17616:e6a5] [com.apple.FrontBoard:SceneExtension] Realizing settings extension <UIKit__UITypedKeyValueSceneSettings> on FBSSceneSettings
+2026-11-27 07:27:06.182 Df Aquarium Explore[17616:e6a5] [com.apple.FrontBoard:SceneExtension] Realizing settings extension <UIKit__UITypedKeyValueSceneSettings> on FBSSceneClientSettings
+2026-11-27 07:27:06.182 Df Aquarium Explore[17616:e69d] [com.apple.BoardServices:Injection] activating monitor for service com.apple.frontboard.workspace-service
+2026-11-27 07:27:06.183 Df Aquarium Explore[17616:e69d] [com.apple.FrontBoard:Common] FBSWorkspace registering source: com.apple.frontboard.systemappservices
+2026-11-27 07:27:06.183 Df Aquarium Explore[17616:e69d] [com.apple.FrontBoard:Common] FBSWorkspace connected to endpoint : <BSServiceConnectionEndpoint: 0x60000170e4c0; target: com.apple.frontboard.systemappservices; service: com.apple.frontboard.workspace-service>
+2026-11-27 07:27:06.189 Df Aquarium Explore[17616:e69d] [com.apple.FrontBoard:Common] <FBSWorkspaceScenesClient:0x600002c0ce80 com.apple.frontboard.systemappservices> attempting immediate handshake from activate
+2026-11-27 07:27:06.190 Df Aquarium Explore[17616:e69d] [com.apple.FrontBoard:Common] <FBSWorkspaceScenesClient:0x600002c0ce80 com.apple.frontboard.systemappservices> sent handshake
+2026-11-27 07:27:06.191 Df Aquarium Explore[17616:e6b0] [com.apple.FrontBoard:SceneExtension] Realizing settings extension FBSSceneSettingsCore on FBSSceneSettings
+2026-11-27 07:27:06.192 Df Aquarium Explore[17616:e6b0] [com.apple.FrontBoard:SceneExtension] Realizing settings extension FBSSceneClientSettingsCore on FBSSceneClientSettings
+2026-11-27 07:27:06.193 Df Aquarium Explore[17616:e6b0] [com.apple.FrontBoard:SceneExtension] UIMutableApplicationSceneSettings setting counterpart class: UIApplicationSceneSettings
+2026-11-27 07:27:06.193 Df Aquarium Explore[17616:e6b0] [com.apple.FrontBoard:SceneExtension] UIMutableApplicationSceneClientSettings setting counterpart class: UIApplicationSceneClientSettings
+2026-11-27 07:27:06.193 Df Aquarium Explore[17616:e6b0] [com.apple.FrontBoard:SceneExtension] Realizing settings extension FBSSceneTransitionContextCore on FBSSceneTransitionContext
+2026-11-27 07:27:06.195 Df Aquarium Explore[17616:e69d] [com.apple.runningboard:general] Added observer for process assertions expiration warning: <_RBSExpirationWarningClient: 0x600000220b80>
+2026-11-27 07:27:06.205 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:UIScreen] Evaluated capturing state as 0 on <UIScreen: 0x1018260e0> for initial
+2026-11-27 07:27:06.206 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:UIScreen] Evaluated capturing state as 0 on <UIScreen: 0x1018260e0> for CADisplay KVO
+2026-11-27 07:27:06.211 Df Aquarium Explore[17616:e69d] [com.apple.Accessibility:AXSupportCommon] Read CategoryName: per-app = 1, category name = (null)
+2026-11-27 07:27:06.212 Df Aquarium Explore[17616:e69d] [com.apple.Accessibility:AXSupportCommon] Read CategoryName: per-app = 0, category name = (null)
+2026-11-27 07:27:06.219 Df Aquarium Explore[17616:e69d] [com.apple.dt.xctest:Default] Registering for test daemon availability notify post.
+2026-11-27 07:27:06.221 Df Aquarium Explore[17616:e69d] [com.apple.dt.xctest:Default] notify_get_state check indicated test daemon not ready.
+2026-11-27 07:27:06.222 Df Aquarium Explore[17616:e69d] [com.apple.dt.xctest:Default] notify_get_state check indicated test daemon not ready.
+2026-11-27 07:27:06.222 Df Aquarium Explore[17616:e69d] [com.apple.dt.xctest:Default] notify_get_state check indicated test daemon not ready.
+2026-11-27 07:27:06.223 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:Application] Deactivation reason added: 11; deactivation reasons: 1024 -> 3072; animating application lifecycle event: 0
+2026-11-27 07:27:06.223 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:ViewServices] Launching as view service: NO
+2026-11-27 07:27:06.232 A  Aquarium Explore[17616:e6a6] (CoreFoundation) Loading Preferences From User Session CFPrefsD
+2026-11-27 07:27:06.233 A  Aquarium Explore[17616:e6aa] (RunningBoardServices) didChangeInheritances
+2026-11-27 07:27:06.337 Df Aquarium Explore[17616:e69d] (WebCore) 0x101828180 - ResourceMonitorThrottler::Initialized with count: 5, duration: 86400, maxHosts: 100
+2026-11-27 07:27:06.337 Df Aquarium Explore[17616:e69d] (WebKit) 0x101827f88 - WebsiteDataStore::WebsiteDataStore sessionID=1
+2026-11-27 07:27:06.375 A  Aquarium Explore[17616:e69d] (TCC) TCCAccessRequest() IPC
+2026-11-27 07:27:06.375 Df Aquarium Explore[17616:e69d] [com.apple.xpc:connection] [0x600003d002d0] activating connection: mach=true listener=false peer=false name=com.apple.tccd
+2026-11-27 07:27:06.413 Df Aquarium Explore[17616:e69d] [com.apple.xpc:connection] [0x600003d002d0] invalidated after the last release of the connection object
+2026-11-27 07:27:06.414 A  Aquarium Explore[17616:e69d] (TCC) TCCAccessRequest() IPC
+2026-11-27 07:27:06.414 Df Aquarium Explore[17616:e69d] [com.apple.xpc:connection] [0x600003d003c0] activating connection: mach=true listener=false peer=false name=com.apple.tccd
+2026-11-27 07:27:06.417 Df Aquarium Explore[17616:e69d] [com.apple.xpc:connection] [0x600003d003c0] invalidated after the last release of the connection object
+2026-11-27 07:27:06.428 A  Aquarium Explore[17616:e69d] (libsystem_containermanager.dylib) container_system_group_path_for_identifier
+2026-11-27 07:27:06.428 Df Aquarium Explore[17616:e69d] [com.apple.containermanager:xpc] Requesting container lookup; class = 13, identifier = (null), group_identifier = systemgroup.com.apple.configurationprofiles, create = 1, temp = 0, euid = 501, uid = 501
+2026-11-27 07:27:06.428 A  Aquarium Explore[17616:e69d] (libsystem_containermanager.dylib) container_query_t
+2026-11-27 07:27:06.428 Df Aquarium Explore[17616:e69d] [com.apple.containermanager:xpc] Query; euid = 501, uid = 501, class = 13, identifier = [(null)](0), flags = 900000003
+2026-11-27 07:27:06.432 Df Aquarium Explore[17616:e69d] [com.apple.containermanager:unspecified] container_query_get_single_result: success
+2026-11-27 07:27:06.432 A  Aquarium Explore[17616:e69d] (libsystem_containermanager.dylib) container_copy_object
+2026-11-27 07:27:06.432 Df Aquarium Explore[17616:e69d] [com.apple.containermanager:unspecified] container_system_group_path_for_identifier: success
+2026-11-27 07:27:06.432 Df Aquarium Explore[17616:e69d] [com.apple.ManagedConfiguration:MC] Got system group container path from MCM for systemgroup.com.apple.configurationprofiles: /Users/runner/Library/Developer/CoreSimulator/Devices/0C95D7BB-B55C-4EE0-ACB9-8616BB736183/data/Containers/Shared/SystemGroup/systemgroup.com.apple.configurationprofiles
+2026-11-27 07:27:06.457 Df Aquarium Explore[17616:e69d] (WebKit) 0x110000900 - [PID=0] WebProcessCache::updateCapacity: Cache is disabled because process swap on navigation is disabled
+2026-11-27 07:27:06.470 Df Aquarium Explore[17616:e69d] (libMobileGestalt.dylib) No persisted cache on this platform.
+2026-11-27 07:27:06.511 Df Aquarium Explore[17616:e6a6] [com.apple.xpc:connection] [0x600003d082d0] activating connection: mach=true listener=false peer=false name=com.apple.webprivacyd
+2026-11-27 07:27:06.519 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x101907fa8 - PageConfiguration::delaysWebProcessLaunchUntilFirstLoad() -> false because of associated processPool value
+2026-11-27 07:27:06.519 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x10281aa08 - WebProcessPool::createWebPage: Not delaying WebProcess launch
+2026-11-27 07:27:06.522 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x110000e20 - [PID=0] WebProcessProxy::constructor:
+2026-11-27 07:27:06.534 Df Aquarium Explore[17616:e6a6] [com.apple.xpc:connection] [0x10182e0f0] activating connection: mach=true listener=false peer=false name=com.apple.lsd.mapdb
+2026-11-27 07:27:06.582 Df Aquarium Explore[17616:e69d] [com.apple.avkit:AVKit] +[AVPictureInPicturePlatformAdapter isPictureInPictureSupported]_block_invoke isPictureInPictureSupported NO
+2026-11-27 07:27:06.592 Df Aquarium Explore[17616:e69d] (libMobileGestalt.dylib) No persisted cache on this platform.
+2026-11-27 07:27:06.592 Df Aquarium Explore[17616:e69d] [com.apple.xpc:connection] [0x600003d004b0] activating connection: mach=true listener=false peer=false name=com.apple.IOSurface.Remote
+2026-11-27 07:27:06.708 Df Aquarium Explore[17616:e6aa] [com.apple.xpc:connection] [0x100f12de0] activating connection: mach=false listener=false peer=false name=(anonymous)
+2026-11-27 07:27:06.709 Df Aquarium Explore[17616:e6aa] [com.apple.BackBoard:MousePointer] Activating Connection: <(null):0x600002102ee0>
+2026-11-27 07:27:06.710 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110001410 - [PID=0, throttler=0x110000eb0] ProcessThrottler::Activity::Activity: Starting foreground activity / 'Process initialization'
+2026-11-27 07:27:06.713 Df Aquarium Explore[17616:e6a6] [com.apple.extensionkit:launch] Launching process with config: bundleID: com.apple.WebKit.WebContent instance ID: Optional([_EXExtensionInstanceIdentifier: B9787964-4985-4273-8612-024858EC2FD4])
+2026-11-27 07:27:06.718 Df Aquarium Explore[17616:e6a5] [com.apple.xpc:connection] [0x600003d00690] activating connection: mach=true listener=false peer=false name=com.apple.accessibility.mediaaccessibilityd
+2026-11-27 07:27:06.723 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Loading] 0x10205d218 - [pageProxyID=9, webPageID=10, PID=0] WebPageProxy::constructor:
+2026-11-27 07:27:06.724 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Media] PlaybackSessionManagerProxy::PlaybackSessionManagerProxy(C39945AA)
+2026-11-27 07:27:06.725 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Fullscreen] PlaybackSessionManagerProxy::VideoPresentationManagerProxy(C39945AA)
+2026-11-27 07:27:06.730 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x110000e20 - [PID=0] WebProcessProxy::addExistingWebPage: webPage=0x10205d218, pageProxyID=9, webPageID=10
+2026-11-27 07:27:06.732 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSwapping] 0x110000900 - [PID=0] WebProcessCache::updateCapacity: Cache is disabled by client
+2026-11-27 07:27:06.733 Df Aquarium Explore[17616:e69d] (libMobileGestalt.dylib) No persisted cache on this platform.
+2026-11-27 07:27:06.733 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110001470 - [PID=0, throttler=0x110002490] ProcessThrottler::Activity::Activity: Starting foreground activity / 'Process initialization'
+2026-11-27 07:27:06.741 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:TextInteraction] Conforming to BrowserEngineKit text input protocol
+2026-11-27 07:27:06.752 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Loading] 0x10205d218 - [pageProxyID=9, webPageID=10, PID=0] WebPageProxy::loadRequest:
+2026-11-27 07:27:06.754 Df Aquarium Explore[17616:e69d] [com.apple.runningboard:connection] Creating side-channel connection to com.apple.runningboard
+2026-11-27 07:27:06.754 Df Aquarium Explore[17616:e69d] [com.apple.xpc:connection] [0x600003d04c30] activating connection: mach=true listener=false peer=false name=com.apple.runningboard
+2026-11-27 07:27:06.754 Df Aquarium Explore[17616:e69d] [com.apple.runningboard:process] Hit the server for a process handle 17d1aebd000044d0 that resolved to: [app<io.github.kitamiya1.aquariumexplore((null))>:17616]
+2026-11-27 07:27:06.755 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x10205d218 - [pageProxyID=9, webPageID=10, PID=0] WebPageProxy::WebPageProxy::shouldForceForegroundPriorityForClientNavigation() returns 1 based on PageClient::canTakeForegroundAssertions()
+2026-11-27 07:27:06.755 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110003ea0 - [PID=0, throttler=0x110000eb0] ProcessThrottler::Activity::Activity: Starting foreground activity / 'Client navigation'
+2026-11-27 07:27:06.755 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Loading] 0x10205d218 - [pageProxyID=9, webPageID=10, PID=0] WebPageProxy::loadRequestWithNavigationShared:
+2026-11-27 07:27:06.755 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x1100076a0 - NetworkProcessProxy::NetworkProcessProxy
+2026-11-27 07:27:06.756 Df Aquarium Explore[17616:e69d] [com.apple.CFNetwork:Default] Initializing CFHTTPCookieStorage singleton
+2026-11-27 07:27:06.756 Df Aquarium Explore[17616:e69d] [com.apple.CFNetwork:Default] Creating default cookie storage with process/bundle identifier
+2026-11-27 07:27:06.757 Df Aquarium Explore[17616:e69d] [com.apple.network:] networkd_settings_read_from_file initialized networkd settings by reading plist directly
+2026-11-27 07:27:06.757 Df Aquarium Explore[17616:e69d] [com.apple.network:] networkd_settings_read_from_file initialized networkd settings by reading plist directly
+2026-11-27 07:27:06.759 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110003ed0 - [PID=0, throttler=0x110007730] ProcessThrottler::Activity::Activity: Starting foreground activity / 'Process initialization'
+2026-11-27 07:27:06.760 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110005070 - NavigationState is taking a process network assertion because a page load started
+2026-11-27 07:27:06.760 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110003f30 - [PID=0, throttler=0x110000eb0] ProcessThrottler::Activity::Activity: Starting background activity / 'Page Load'
+2026-11-27 07:27:06.762 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ViewState] 0x10281ea00 - WKApplicationStateTrackingView: View with page [0x10205d218, pageProxyID=9] was added to a window, _lastObservedStateWasBackground=0, isNowBackground=0
+2026-11-27 07:27:06.786 Df Aquarium Explore[17616:e6af] [com.apple.xpc:connection] [0x101838f40] activating connection: mach=true listener=false peer=false name=com.apple.fontservicesd
+2026-11-27 07:27:06.789 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ViewState] 0x10205d218 - [pageProxyID=9, webPageID=10, PID=0] WebPageProxy::updateActivityState: view visibility state changed 0 -> 1
+2026-11-27 07:27:06.795 Df Aquarium Explore[17616:e69d] [com.apple.BackBoard:Keyboard] Activating connection to server: (null)
+2026-11-27 07:27:06.795 Df Aquarium Explore[17616:e69d] [com.apple.BackBoard:Keyboard] server remote target <BSXPCServiceConnectionProxy<BKSKeyboardServiceClientToServerIPC>: 0x600002915f80>
+2026-11-27 07:27:06.796 Df Aquarium Explore[17616:e69d] [com.apple.BackBoard:Keyboard] currently observing: YES
+2026-11-27 07:27:06.796 Df Aquarium Explore[17616:e69d] [com.apple.BackBoard:Keyboard] connected: (
+2026-11-27 07:27:06.796 Df Aquarium Explore[17616:e69d] [com.apple.BackBoard:Keyboard] currently observing: NO
+2026-11-27 07:27:06.797 Df Aquarium Explore[17616:e69d] [com.apple.BackBoard:Keyboard] disconnected: (
+2026-11-27 07:27:06.797 Df Aquarium Explore[17616:e69d] [com.apple.BackBoard:Keyboard] currently observing: YES
+2026-11-27 07:27:06.797 Df Aquarium Explore[17616:e69d] [com.apple.BackBoard:Keyboard] connected: (
+2026-11-27 07:27:06.797 Df Aquarium Explore[17616:e69d] [com.apple.BackBoard:Keyboard] currently observing: NO
+2026-11-27 07:27:06.798 Df Aquarium Explore[17616:e69d] [com.apple.BackBoard:Keyboard] disconnected: (
+2026-11-27 07:27:07.169 Df Aquarium Explore[17616:e6b0] [com.apple.UIKit:BackgroundTask] Ending background task with UIBackgroundTaskIdentifier: 1
+2026-11-27 07:27:07.170 Df Aquarium Explore[17616:e6b0] [com.apple.UIKit:BackgroundTask] Ending task with identifier 1 and description: <_UIBackgroundTaskInfo: 0x600001706680>: taskID = 1, taskName = Launch Background Task for Coalescing, creationTime = 532 (elapsed = 1), _expireHandler: (null)
+2026-11-27 07:27:07.170 Df Aquarium Explore[17616:e6b0] [com.apple.UIKit:BackgroundTask] Decrementing reference count for assertion <BKSProcessAssertion: 0x600002102c60> (used by background task with identifier 1: <_UIBackgroundTaskInfo: 0x600001706680>: taskID = 1, taskName = Launch Background Task for Coalescing, creationTime = 532 (elapsed = 1))
+2026-11-27 07:27:07.170 Df Aquarium Explore[17616:e6b0] [com.apple.UIKit:BackgroundTask] Will invalidate assertion: <BKSProcessAssertion: 0x600002102c60> for task identifier: 1
+2026-11-27 07:27:07.221 A  Aquarium Explore[17616:e6b0] (RunningBoardServices) didChangeInheritances
+2026-11-27 07:27:08.044 Df Aquarium Explore[17616:e6a6] [com.apple.runningboard:process] Starting death monitoring for handle [xpcservice<com.apple.WebKit.WebContent([app<io.github.kitamiya1.aquariumexplore((null))>:17616])>{vt hash: 71395982}[uuid:B9787964-4985-4273-8612-024858EC2FD4]:17643]
+2026-11-27 07:27:08.056 Df Aquarium Explore[17616:e6a6] [com.apple.extensionkit:launch] Created new process ExtensionProcess: bundleID: com.apple.WebKit.WebContent instance ID: Optional([_EXExtensionInstanceIdentifier: B9787964-4985-4273-8612-024858EC2FD4]) pid: 17643.
+2026-11-27 07:27:08.056 Df Aquarium Explore[17616:e6a6] [com.apple.extensionkit:launch] Launching process with config: bundleID: com.apple.WebKit.GPU instance ID: Optional([_EXExtensionInstanceIdentifier: FF815FEF-FAB0-462C-80BC-65A7F674349E])
+2026-11-27 07:27:08.056 Df Aquarium Explore[17616:e6b0] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Foreground
+2026-11-27 07:27:08.956 Df Aquarium Explore[17616:e6a6] [com.apple.runningboard:process] Starting death monitoring for handle [xpcservice<com.apple.WebKit.GPU([app<io.github.kitamiya1.aquariumexplore((null))>:17616])>{vt hash: 223737757}[uuid:FF815FEF-FAB0-462C-80BC-65A7F674349E]:17669]
+2026-11-27 07:27:08.965 Df Aquarium Explore[17616:e6a6] [com.apple.extensionkit:launch] Created new process ExtensionProcess: bundleID: com.apple.WebKit.GPU instance ID: Optional([_EXExtensionInstanceIdentifier: FF815FEF-FAB0-462C-80BC-65A7F674349E]) pid: 17669.
+2026-11-27 07:27:08.965 Df Aquarium Explore[17616:e6a6] [com.apple.extensionkit:launch] Launching process with config: bundleID: com.apple.WebKit.Networking instance ID: Optional([_EXExtensionInstanceIdentifier: 910570D8-DB0D-4DAE-B120-DA4AA495DE61])
+2026-11-27 07:27:08.965 Df Aquarium Explore[17616:e6b0] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Foreground
+2026-11-27 07:27:08.966 E  Aquarium Explore[17616:e6a6] [com.apple.extensionkit:default] Failed to resolve host network app id to config: bundleID: com.apple.WebKit.Networking instance ID: Optional([_EXExtensionInstanceIdentifier: 910570D8-DB0D-4DAE-B120-DA4AA495DE61])
+2026-11-27 07:27:09.134 Df Aquarium Explore[17616:e6a6] [com.apple.runningboard:process] Starting death monitoring for handle [xpcservice<com.apple.WebKit.Networking([app<io.github.kitamiya1.aquariumexplore((null))>:17616])>{vt hash: 114736818}[uuid:910570D8-DB0D-4DAE-B120-DA4AA495DE61]:17670]
+2026-11-27 07:27:09.140 Df Aquarium Explore[17616:e6a6] [com.apple.extensionkit:launch] Created new process ExtensionProcess: bundleID: com.apple.WebKit.Networking instance ID: Optional([_EXExtensionInstanceIdentifier: 910570D8-DB0D-4DAE-B120-DA4AA495DE61]) pid: 17670.
+2026-11-27 07:27:09.140 Df Aquarium Explore[17616:e6a5] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Foreground
+2026-11-27 07:27:30.375 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:HardwareKeyboard] -[UIApplication GSKeyboardForHWLayout:senderID:forceRebuild:createIfNeeded:], New hardware layout is created with US layout and 0 standardType.
+2026-11-27 07:27:30.410 Df Aquarium Explore[17616:e69d] [com.apple.BackBoard:Keyboard] currently observing: YES
+2026-11-27 07:27:30.416 Df Aquarium Explore[17616:e69d] [com.apple.BackBoard:Keyboard] connected: (
+2026-11-27 07:27:30.416 Df Aquarium Explore[17616:e69d] [com.apple.BackBoard:Keyboard] currently observing: NO
+2026-11-27 07:27:30.416 Df Aquarium Explore[17616:e69d] [com.apple.BackBoard:Keyboard] disconnected: (
+2026-11-27 07:27:30.423 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ViewState] 0x10205d218 - [pageProxyID=9, webPageID=10, PID=0] WebPageProxy::viewIsBecomingVisible:
+2026-11-27 07:27:30.432 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x10205d218 - [pageProxyID=9, webPageID=10, PID=0] WebPageProxy::updateThrottleState: UIProcess is taking a foreground assertion because the view is visible
+2026-11-27 07:27:30.434 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110003f90 - [PID=0, throttler=0x110000eb0] ProcessThrottler::Activity::Activity: Starting foreground activity / 'View is visible'
+2026-11-27 07:27:30.437 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ViewState] 0x102061e00 (pageProxyID=9) -[WKWebView _endLiveResize]
+2026-11-27 07:27:30.461 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ViewState] -[WKWebView 0x102061e00 _scheduleVisibleContentRectUpdateAfterScrollInView]: hasScheduledVisibleRectUpdate is true but haven't updated visible content rects for 23.71s (last update was 23.71s ago) - valid 1
+2026-11-27 07:27:30.470 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:Application] Deactivation reason removed: 10; deactivation reasons: 3072 -> 2048; animating application lifecycle event: 0
+2026-11-27 07:27:30.480 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:EventBus] Event Timing Profile for Touch: not found, path="/System/Library/EventTimingProfiles/Sim.Touch.plist"
+2026-11-27 07:27:30.480 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:EventBus] Event Timing Profile for Pencil: not found, path="/System/Library/EventTimingProfiles/Sim.Pencil.plist"
+2026-11-27 07:27:30.480 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:UpdateScheduler] Selected display: name=LCD (PurpleMain), id=1
+2026-11-27 07:27:30.480 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ViewState] 0x102061e00 (pageProxyID=9) -[WKWebView _updateVisibleContentRects:] - have not received a commit 23.73s after visible content rect update; lastTransactionID 0
+2026-11-27 07:27:30.482 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ViewState] 0x102061e00 -[WKWebView _updateVisibleContentRects:] finally ran 23.73s after being scheduled
+2026-11-27 07:27:30.519 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:BackgroundTask] Will add backgroundTask with taskName: Persistent SceneSession Map Update, expirationHandler: <__NSGlobalBlock__: 0x1e6965d48>
+2026-11-27 07:27:30.520 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:BackgroundTask] Creating new assertion because there is no existing background assertion.
+2026-11-27 07:27:30.520 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:BackgroundTask] Creating new background assertion
+2026-11-27 07:27:30.520 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:BackgroundTask] Created new background assertion <BKSProcessAssertion: 0x6000021105f0>
+2026-11-27 07:27:30.522 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:BackgroundTask] Incrementing reference count for background assertion <BKSProcessAssertion: 0x6000021105f0>
+2026-11-27 07:27:30.522 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:BackgroundTask] Created background task <_UIBackgroundTaskInfo: 0x6000017267c0>: taskID = 2, taskName = Persistent SceneSession Map Update, creationTime = 556 (elapsed = 0).
+2026-11-27 07:27:30.524 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:Application] Deactivation reason added: 5; deactivation reasons: 2048 -> 2080; animating application lifecycle event: 1
+2026-11-27 07:27:30.525 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:InterfaceStyle] Should send trait collection or coordinate space update, interface style 1 -> 1, <UIWindowScene: 0x10190f5e0> (C0CA936F-EB2F-43EB-9D63-0D92C92996D4)
+2026-11-27 07:27:30.527 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:InterfaceStyle] Not push traits update to screen for new style 1, <UIWindowScene: 0x10190f5e0> (C0CA936F-EB2F-43EB-9D63-0D92C92996D4)
+2026-11-27 07:27:30.528 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:HomeAffordanceObservation] Initializing: <_UIHomeAffordanceSceneNotifier: 0x600002916760>; with scene: <UIWindowScene: 0x10190f5e0>
+2026-11-27 07:27:30.528 Df Aquarium Explore[17616:e69d] [com.apple.BacklightServices:scenes] 0x600000c289f0 setDelegate:<0x600000c28e70 _UIBacklightEnvironment> hasDelegate:YES for environment:sceneID:io.github.kitamiya1.aquariumexplore-default
+2026-11-27 07:27:30.529 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:InterfaceStyle] Not push traits update to screen for new style 1, <UIWindowScene: 0x10190f5e0> (C0CA936F-EB2F-43EB-9D63-0D92C92996D4)
+2026-11-27 07:27:30.529 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:EventDeferring] [0x600002916840] Initialized with scene: <UIWindowScene: 0x10190f5e0>; behavior: <_UIEventDeferringBehavior_iOS: 0x600000226040>; availableForProcess: 1, systemShellManagesKeyboardFocus: 1
+2026-11-27 07:27:30.534 Df Aquarium Explore[17616:e69d] [com.apple.BackBoard:EventDelivery] policyStatus:<BKSHIDEventDeliveryPolicyObserver: 0x60000210f840; process scope; status: target> was:none
+2026-11-27 07:27:30.535 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:KeyWindow] Setting default evaluation strategy for UIUserInterfaceIdiomPhone to LastOneWins
+2026-11-27 07:27:30.535 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:KeyWindow] Scene target of keyboard event deferring environment did change: 1; scene: UIWindowScene: 0x10190f5e0; scene identity: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Aio.github.kitamiya1.aquariumexplore-default
+2026-11-27 07:27:30.535 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:EventDeferring] [0x600002916840] Scene target of event deferring environments did update: scene: 0x10190f5e0; current systemShellManagesKeyboardFocus: 1; systemShellManagesKeyboardFocusForScene: 1; eligibleForRecordRemoval: 1;
+2026-11-27 07:27:30.535 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:KeyWindow] Scene became target of keyboard event deferring environment: UIWindowScene: 0x10190f5e0; scene identity: com.apple.frontboard.systemappservices/FBSceneManager:sceneID%3Aio.github.kitamiya1.aquariumexplore-default
+2026-11-27 07:27:30.535 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:KeyWindow] Setting default evaluation strategy for UIUserInterfaceIdiomPhone to SystemShellManaged
+2026-11-27 07:27:30.535 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:KeyWindow] Key window needs update: 0; currentKeyWindowScene: 0x0; evaluatedKeyWindowScene: 0x10190f5e0; currentApplicationKeyWindow: 0x0; evaluatedApplicationKeyWindow: 0x0; reason: UIWindowScene: 0x10190f5e0: Window scene became target of keyboard environment
+2026-11-27 07:27:30.539 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:InterfaceStyle] Not push traits update to screen for new style 1, <UIWindowScene: 0x10190f5e0> (C0CA936F-EB2F-43EB-9D63-0D92C92996D4)
+2026-11-27 07:27:30.539 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:InterfaceStyle] Not push traits update to screen for new style 1, <UIWindowScene: 0x10190f5e0> (C0CA936F-EB2F-43EB-9D63-0D92C92996D4)
+2026-11-27 07:27:30.539 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:InterfaceStyle] Not push traits update to screen for new style 1, <UIWindowScene: 0x10190f5e0> (C0CA936F-EB2F-43EB-9D63-0D92C92996D4)
+2026-11-27 07:27:30.545 Df Aquarium Explore[17616:e69d] [com.apple.FrontBoard:SceneExtension] Realizing settings extension <_UIApplicationSceneDisplaySettings> on FBSSceneSettings
+2026-11-27 07:27:30.551 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ViewState] 0x110000d00 - ApplicationStateTracker::ApplicationStateTracker(): m_isInBackground=1
+2026-11-27 07:27:30.552 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:InterfaceStyle] Not push traits update to screen for new style 1, <UIWindowScene: 0x10190f5e0> (C0CA936F-EB2F-43EB-9D63-0D92C92996D4)
+2026-11-27 07:27:30.552 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ViewState] 0x110000d00 - ApplicationStateTracker: UISceneWillEnterForeground
+2026-11-27 07:27:30.552 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ViewState] 0x10205d218 - [pageProxyID=9, webPageID=10, PID=0] WebPageProxy::applicationWillEnterForeground: isSuspendedUnderLock? 0
+2026-11-27 07:27:30.554 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ViewState] 0x10205d218 - [pageProxyID=9, webPageID=10, PID=0] WebPageProxy::viewIsBecomingVisible:
+2026-11-27 07:27:30.563 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:AppLifecycle] sceneOfRecord: sceneID: sceneID:io.github.kitamiya1.aquariumexplore-default  persistentID: C0CA936F-EB2F-43EB-9D63-0D92C92996D4
+2026-11-27 07:27:30.563 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:Application] Ignoring already applied deactivation reason: 5; deactivation reasons: 2080
+2026-11-27 07:27:30.563 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:Application] Deactivation reason added: 12; deactivation reasons: 2080 -> 6176; animating application lifecycle event: 1
+2026-11-27 07:27:30.565 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:Application] Deactivation reason removed: 11; deactivation reasons: 6176 -> 4128; animating application lifecycle event: 1
+2026-11-27 07:27:30.567 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:InterfaceStyle] Not push traits update to screen for new style 1, <UIWindowScene: 0x10190f5e0> (C0CA936F-EB2F-43EB-9D63-0D92C92996D4)
+2026-11-27 07:27:30.568 Df Aquarium Explore[17616:e6a6] [com.apple.UIIntelligenceSupport:xpc] establishing connection to agent
+2026-11-27 07:27:30.568 Df Aquarium Explore[17616:e6a6] [com.apple.xpc:session] [0x6000021123a0] Session created.
+2026-11-27 07:27:30.568 Df Aquarium Explore[17616:e6a6] [com.apple.xpc:session] [0x6000021123a0] Session created from connection [0x600003d001e0]
+2026-11-27 07:27:30.568 Df Aquarium Explore[17616:e6a6] [com.apple.xpc:connection] [0x600003d001e0] activating connection: mach=true listener=false peer=false name=com.apple.uiintelligencesupport.agent
+2026-11-27 07:27:30.568 Df Aquarium Explore[17616:e6a6] [com.apple.xpc:session] [0x6000021123a0] Session activated
+2026-11-27 07:27:30.573 Df Aquarium Explore[17616:e69d] [com.apple.xpc:connection] [0x10183a100] activating connection: mach=false listener=false peer=false name=(anonymous)
+2026-11-27 07:27:30.573 Df Aquarium Explore[17616:e69d] [com.apple.xpc:connection] [0x10182f820] activating connection: mach=false listener=false peer=false name=(anonymous)
+2026-11-27 07:27:30.573 Df Aquarium Explore[17616:e69d] [com.apple.xpc:connection] [0x101827a10] activating connection: mach=false listener=false peer=false name=(anonymous)
+2026-11-27 07:27:30.589 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ViewState] 0x102061e00 (pageProxyID=9) -[WKWebView _updateVisibleContentRects:] - have not received a commit 23.84s after visible content rect update; lastTransactionID 0
+2026-11-27 07:27:30.592 Df Aquarium Explore[17616:e69d] [com.apple.network:activity] Create activity from XPC object <nw_activity 50:1 [2E4667CA-DE51-4462-8E20-F687BD18F68B] (reporting strategy default)>
+2026-11-27 07:27:30.592 Df Aquarium Explore[17616:e69d] [com.apple.network:activity] Create activity from XPC object <nw_activity 50:2 [61412C24-C84C-4362-8450-5336D6FD3909] (reporting strategy default)>
+2026-11-27 07:27:30.592 Df Aquarium Explore[17616:e69d] [com.apple.network:activity] Set activity <nw_activity 50:1 [2E4667CA-DE51-4462-8E20-F687BD18F68B] (reporting strategy default)> as the global parent
+2026-11-27 07:27:30.646 Df com.apple.WebKit.GPU[17669:e73d] (WebKit) 0x1f318aa08 - GPUProcess::GPUProcess:
+2026-11-27 07:27:30.728 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:UpdateScheduler] Target list changed: <CADisplay:LCD PurpleMain>
+2026-11-27 07:27:30.730 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:AppLifecycle] sceneOfRecord: sceneID: sceneID:io.github.kitamiya1.aquariumexplore-default  persistentID: C0CA936F-EB2F-43EB-9D63-0D92C92996D4
+2026-11-27 07:27:30.730 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x1100076a0 - NetworkProcessProxy::sendXPCEndpointToProcess(0x110000e20) state = 0 has connection = 0 XPC endpoint message = 0x600003d002d0
+2026-11-27 07:27:30.731 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x1100076a0 - NetworkProcessProxy::sendXPCEndpointToProcess(0x110002400) state = 0 has connection = 0 XPC endpoint message = 0x600003d002d0
+2026-11-27 07:27:30.734 A  Aquarium Explore[17616:e69d] (CoreFoundation) Updating Key-Value Observers Of Preferences
+2026-11-27 07:27:30.743 E  Aquarium Explore[17616:e69d] [com.apple.WebKit:ResourceLoadStatistics] Failed to request storage access quirks from WebPrivacy.
+2026-11-27 07:27:30.743 E  Aquarium Explore[17616:e69d] [com.apple.WebKit:ResourceLoadStatistics] Failed to request storage access user agent string quirks from WebPrivacy.
+2026-11-27 07:27:30.744 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x110002400 - GPUProcessProxy::didFinishLaunching:
+2026-11-27 07:27:30.744 F  Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] GPU process (0x110002400) took 24.011297 seconds to launch
+2026-11-27 07:27:30.744 A  Aquarium Explore[17616:e69d] (libsystem_trace.dylib) Activity for state dumps
+2026-11-27 07:27:30.744 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x110002400 - GPUProcessProxy::connectionWillOpen:
+2026-11-27 07:27:30.745 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110002490 - [PID=17669] ProcessThrottler::didConnectToProcess
+2026-11-27 07:27:30.745 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110002490 - [PID=17669] ProcessThrottler::setThrottleState: Updating process assertion type to 3 (foregroundActivities=1, backgroundActivities=1)
+2026-11-27 07:27:30.746 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Foreground
+2026-11-27 07:27:30.747 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x600001723c40 - WKProcessAssertionBackgroundTaskManager: beginBackgroundTaskWithName
+2026-11-27 07:27:30.747 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] WKProcessAssertionBackgroundTaskManager: Took a FinishTaskInterruptable assertion for own process
+2026-11-27 07:27:30.748 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x1100076a0 - NetworkProcessProxy::sendXPCEndpointToProcess(0x110002400) state = 1 has connection = 1 XPC endpoint message = 0x600003d002d0
+2026-11-27 07:27:30.748 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x110000e20 - [PID=17643] WebProcessProxy::didFinishLaunching:
+2026-11-27 07:27:30.748 F  Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] WebContent process (0x110000e20) took 24.222980 seconds to launch
+2026-11-27 07:27:30.748 A  Aquarium Explore[17616:e69d] (libsystem_trace.dylib) Activity for state dumps
+2026-11-27 07:27:30.748 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110000eb0 - [PID=17643] ProcessThrottler::didConnectToProcess
+2026-11-27 07:27:30.748 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110000eb0 - [PID=17643] ProcessThrottler::setThrottleState: Updating process assertion type to 3 (foregroundActivities=3, backgroundActivities=6)
+2026-11-27 07:27:30.749 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Foreground
+2026-11-27 07:27:30.749 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110000e20 - [PID=17643] WebProcessProxy::didChangeThrottleState: type=2
+2026-11-27 07:27:30.749 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110000e20 - [PID=17643] WebProcessProxy::didChangeThrottleState(Foreground) Taking foreground assertion for network process
+2026-11-27 07:27:30.749 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x11000a4e0 - [PID=0, throttler=0x110007730] ProcessThrottler::Activity::Activity: Starting foreground activity / 'Networking for foreground view(s)'
+2026-11-27 07:27:30.750 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x11000bf50 - [PID=17669, throttler=0x110002490] ProcessThrottler::Activity::Activity: Starting foreground activity / 'GPU for foreground view(s)'
+2026-11-27 07:27:30.750 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x1100076a0 - NetworkProcessProxy::sendXPCEndpointToProcess(0x110000e20) state = 1 has connection = 1 XPC endpoint message = 0x600003d002d0
+2026-11-27 07:27:30.750 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x1100076a0 - NetworkProcessProxy::didFinishLaunching
+2026-11-27 07:27:30.750 F  Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] Networking process (0x1100076a0) took 23.994650 seconds to launch
+2026-11-27 07:27:30.750 A  Aquarium Explore[17616:e69d] (libsystem_trace.dylib) Activity for state dumps
+2026-11-27 07:27:30.751 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110007730 - [PID=17670] ProcessThrottler::didConnectToProcess
+2026-11-27 07:27:30.751 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110007730 - [PID=17670] ProcessThrottler::setThrottleState: Updating process assertion type to 3 (foregroundActivities=2, backgroundActivities=1)
+2026-11-27 07:27:30.751 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Foreground
+2026-11-27 07:27:30.752 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:InterfaceStyle] Not push traits update to screen for new style 1, <UIWindowScene: 0x10190f5e0> (C0CA936F-EB2F-43EB-9D63-0D92C92996D4)
+2026-11-27 07:27:30.755 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:AppLifecycle] sceneOfRecord: sceneID: sceneID:io.github.kitamiya1.aquariumexplore-default  persistentID: C0CA936F-EB2F-43EB-9D63-0D92C92996D4
+2026-11-27 07:27:30.762 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:Application] Deactivation reason removed: 12; deactivation reasons: 4128 -> 32; animating application lifecycle event: 1
+2026-11-27 07:27:30.763 Df Aquarium Explore[17616:e69d] [com.apple.KeyboardArbiter:Client] Send setDeactivating: N (-DeactivationReason:SuspendedEventsOnly)
+2026-11-27 07:27:30.763 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:Application] Deactivation reason removed: 5; deactivation reasons: 32 -> 0; animating application lifecycle event: 0
+2026-11-27 07:27:30.764 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Fullscreen] PlaybackSessionManagerProxy::applicationDidBecomeActive(C39945AA)
+2026-11-27 07:27:30.768 Df Aquarium Explore[17616:e6b0] [com.apple.WebKit:ProcessSuspension] 0x11000bdd0 - ProcessAssertion::acquireSync Trying to take RBS assertion 'GPUProcess Foreground Assertion' for process with PID=17669
+2026-11-27 07:27:30.775 Df Aquarium Explore[17616:e69d] [com.apple.KeyboardArbiter:Client] startConnection
+2026-11-27 07:27:30.789 Df Aquarium Explore[17616:e69d] [com.apple.xpc:connection] [0x100f0bb20] activating connection: mach=true listener=false peer=false name=com.apple.UIKit.KeyboardManagement.hosted
+2026-11-27 07:27:30.804 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:AppLifecycle] sceneOfRecord: sceneID: sceneID:io.github.kitamiya1.aquariumexplore-default  persistentID: C0CA936F-EB2F-43EB-9D63-0D92C92996D4
+2026-11-27 07:27:30.805 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:AppLifecycle] sceneOfRecord: sceneID: sceneID:io.github.kitamiya1.aquariumexplore-default  persistentID: C0CA936F-EB2F-43EB-9D63-0D92C92996D4
+2026-11-27 07:27:30.816 Df Aquarium Explore[17616:e69d] [com.apple.KeyboardArbiter:Client] handleKeyboardChange: set currentKeyboard:N (wasKeyboard:N)
+2026-11-27 07:27:30.817 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:KeyboardSceneDelegate] forceReloadInputViews
+2026-11-27 07:27:30.817 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:KeyboardSceneDelegate] _inputViewsForResponder: <(null): 0x0; >, automaticKeyboard: 0, force: 1
+2026-11-27 07:27:30.818 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:KeyboardSceneDelegate] _inputViewsForResponder, found custom inputView: <(null): 0x0>, customInputViewController: <(null): 0x0>
+2026-11-27 07:27:30.818 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:KeyboardSceneDelegate] _inputViewsForResponder, found inputAccessoryView: <(null): 0x0>
+2026-11-27 07:27:30.819 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:KeyboardSceneDelegate] _inputViewsForResponder, responderRequiresKeyboard 0 (automaticKeyboardEnabled: 0, activeInstance: <(null): 0x0>, self.isOnScreen: 0, requiresKBWhenFirstResponder: 0)
+2026-11-27 07:27:30.819 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:KeyboardSceneDelegate] _inputViewsForResponder, useKeyboard 0 (allowsSystemInputView: 1, !inputView <(null): 0x0>, responderRequiresKeyboard 0)
+2026-11-27 07:27:30.819 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:KeyboardSceneDelegate] _inputViewsForResponder, configuring _responderWithoutAutomaticAppearanceEnabled: <(null): 0x0> (_automaticAppearEnabled: 1)
+2026-11-27 07:27:30.819 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:KeyboardSceneDelegate] _inputViewsForResponder, needsIVPlaceholder: 0, needsIAVPlaceholder: 0, needsInputSetWithPlaceholder: 0
+2026-11-27 07:27:30.820 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:KeyboardSceneDelegate] _inputViewsForResponder returning: <<UIInputViewSet: 0x600003508840>; (empty)>
+2026-11-27 07:27:30.825 Df com.apple.WebKit.GPU[17669:e73d] [com.apple.WebKit:Process] 0x1f318aa08 - GPUProcess::initializeGPUProcess:
+2026-11-27 07:27:30.856 A  Aquarium Explore[17616:e6aa] (CoreServicesInternal) CFURLCreateBookmarkData
+2026-11-27 07:27:30.857 Df Aquarium Explore[17616:e69d] [com.apple.UIKit:KeyboardArbiterClientLog] isWritingToolsHandlingKeyboardTracking:Y (WT ready:Y, Arbiter ready:Y)
+2026-11-27 07:27:30.860 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ResourceLoadStatistics] StorageAccessPromptQuirkController::didUpdateCachedListData: Loaded 1 storage access prompt(s) quirks from WebPrivacy.
+2026-11-27 07:27:30.862 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110001410 - [PID=17643, throttler=0x110000eb0] ProcessThrottler::Activity::invalidate: Ending foreground activity / 'Process initialization'
+2026-11-27 07:27:30.862 Df Aquarium Explore[17616:e6b0] [com.apple.WebKit:ProcessSuspension] 0x11000bdd0 - ProcessAssertion() Successfully granted capability
+2026-11-27 07:27:30.863 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x1100076a0 - NetworkProcessProxy::getNetworkProcessConnection: Taking a background assertion because web process pid 17643 (core identifier 8) is requesting a connection
+2026-11-27 07:27:30.868 A  Aquarium Explore[17616:e9ec] (CoreFoundation) Updating Key-Value Observers Of Preferences
+2026-11-27 07:27:30.874 Df Aquarium Explore[17616:e6b0] [com.apple.WebKit:ProcessSuspension] 0x11000c770 - ProcessAssertion::acquireSync Trying to take RBS assertion 'WebProcess Foreground Assertion' for process with PID=17643
+2026-11-27 07:27:30.909 Df Aquarium Explore[17616:e6b0] [com.apple.WebKit:ProcessSuspension] 0x11000c770 - ProcessAssertion() Successfully granted capability
+2026-11-27 07:27:30.909 Df Aquarium Explore[17616:e6b0] [com.apple.WebKit:ProcessSuspension] 0x11000c830 - ProcessAssertion::acquireSync Trying to take RBS assertion 'NetworkProcess Foreground Assertion' for process with PID=17670
+2026-11-27 07:27:30.910 Df Aquarium Explore[17616:e69d] [com.apple.network:activity] <nw_activity 50:1 [2E4667CA-DE51-4462-8E20-F687BD18F68B] (global parent) (reporting strategy default) complete (reason success)> complete with reason 2 (success), duration 25326ms
+2026-11-27 07:27:30.910 Df Aquarium Explore[17616:e69d] [com.apple.network:activity] <nw_activity 50:2 [61412C24-C84C-4362-8450-5336D6FD3909] (reporting strategy default) complete (reason success)> complete with reason 2 (success), duration 25326ms
+2026-11-27 07:27:30.910 Df Aquarium Explore[17616:e69d] [com.apple.network:activity] Unsetting the global parent activity <nw_activity 50:1 [2E4667CA-DE51-4462-8E20-F687BD18F68B] (global parent) (reporting strategy default) complete (reason success)>
+2026-11-27 07:27:30.910 Df Aquarium Explore[17616:e69d] [com.apple.network:activity] Unset the global parent activity
+2026-11-27 07:27:30.921 A  Aquarium Explore[17616:e6a5] (RunningBoardServices) didChangeInheritances
+2026-11-27 07:27:30.940 Df Aquarium Explore[17616:e6b0] [com.apple.WebKit:ProcessSuspension] 0x11000c830 - ProcessAssertion() Successfully granted capability
+2026-11-27 07:27:30.959 A  Aquarium Explore[17616:e9ec] (CoreFoundation) Updating Key-Value Observers Of Preferences
+2026-11-27 07:27:31.010 A  Aquarium Explore[17616:e9ec] (CoreFoundation) Updating Key-Value Observers Of Preferences
+2026-11-27 07:27:31.032 A  Aquarium Explore[17616:e9ec] (CoreFoundation) Updating Key-Value Observers Of Preferences
+2026-11-27 07:27:31.039 Df Aquarium Explore[17616:e6b0] [com.apple.UIKit:BackgroundTask] Ending background task with UIBackgroundTaskIdentifier: 2
+2026-11-27 07:27:31.043 Df Aquarium Explore[17616:e6b0] [com.apple.UIKit:BackgroundTask] Ending task with identifier 2 and description: <_UIBackgroundTaskInfo: 0x6000017267c0>: taskID = 2, taskName = Persistent SceneSession Map Update, creationTime = 556 (elapsed = 1), _expireHandler: <__NSGlobalBlock__: 0x1e6965d48>
+2026-11-27 07:27:31.043 Df Aquarium Explore[17616:e6b0] [com.apple.UIKit:BackgroundTask] Decrementing reference count for assertion <BKSProcessAssertion: 0x6000021105f0> (used by background task with identifier 2: <_UIBackgroundTaskInfo: 0x6000017267c0>: taskID = 2, taskName = Persistent SceneSession Map Update, creationTime = 556 (elapsed = 1))
+2026-11-27 07:27:31.043 Df Aquarium Explore[17616:e6b0] [com.apple.UIKit:BackgroundTask] Will invalidate assertion: <BKSProcessAssertion: 0x6000021105f0> for task identifier: 2
+2026-11-27 07:27:31.047 A  Aquarium Explore[17616:e9ec] (CoreFoundation) Updating Key-Value Observers Of Preferences
+2026-11-27 07:27:31.049 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110003ed0 - [PID=17670, throttler=0x110007730] ProcessThrottler::Activity::invalidate: Ending foreground activity / 'Process initialization'
+2026-11-27 07:27:31.058 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110001470 - [PID=17669, throttler=0x110002490] ProcessThrottler::Activity::invalidate: Ending foreground activity / 'Process initialization'
+2026-11-27 07:27:31.077 A  Aquarium Explore[17616:e9ec] (CoreFoundation) Updating Key-Value Observers Of Preferences
+2026-11-27 07:27:31.081 A  Aquarium Explore[17616:e9ec] (CoreFoundation) Updating Key-Value Observers Of Preferences
+2026-11-27 07:27:31.095 A  Aquarium Explore[17616:e9ec] (CoreFoundation) Updating Key-Value Observers Of Preferences
+2026-11-27 07:27:31.097 A  Aquarium Explore[17616:e9ec] (CoreFoundation) Updating Key-Value Observers Of Preferences
+2026-11-27 07:27:31.112 A  Aquarium Explore[17616:e9ec] (CoreFoundation) Updating Key-Value Observers Of Preferences
+2026-11-27 07:27:31.151 Df Aquarium Explore[17616:e6af] [com.apple.xpc:connection] [0x10183a100] Re-initialization successful; calling out to event handler with XPC_ERROR_CONNECTION_INTERRUPTED
+2026-11-27 07:27:31.529 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Loading] 0x10205d218 - [pageProxyID=9, webPageID=10, PID=17643] WebPageProxy::decidePolicyForNavigationAction: frameID=13, isMainFrame=1, navigationID=26
+2026-11-27 07:27:31.549 Df com.apple.WebKit.WebContent[17643:e6ff] [com.apple.WebKit:Process] GPUProcessConnection::create - 0x10f0e5ce0
+2026-11-27 07:27:31.549 A  Aquarium Explore[17616:e6af] (CoreFoundation) Loading Preferences From User Session CFPrefsD
+2026-11-27 07:27:31.549 Df Aquarium Explore[17616:e6af] [com.apple.xpc:connection] [0x600003d00b40] activating connection: mach=true listener=false peer=false name=com.apple.Safari.SafeBrowsing.Service
+2026-11-27 07:27:31.551 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:AppSSO] 0x110000750 - SOAuthorizationCoordinator::tryAuthorize
+2026-11-27 07:27:31.560 A  Aquarium Explore[17616:e69d] (AppSSO) canPerformAuthorizationWithURL
+2026-11-27 07:27:31.562 A  Aquarium Explore[17616:e69d] (AppSSOCore) canPerformAuthorizationWithURL
+2026-11-27 07:27:31.563 A  Aquarium Explore[17616:e69d] (AppSSOCore) canPerformAuthorizationWithURL
+2026-11-27 07:27:31.563 A  Aquarium Explore[17616:e69d] (AppSSOCore) canPerformAuthorizationWithURL
+2026-11-27 07:27:31.565 Df Aquarium Explore[17616:e69d] [com.apple.authkit:siwa] Should process URL called
+2026-11-27 07:27:31.568 Df Aquarium Explore[17616:e69d] [com.apple.authkit:siwa] Fetching native takeover URLs
+2026-11-27 07:27:31.573 Df Aquarium Explore[17616:e69d] [com.apple.xpc:connection] [0x10183cd50] activating connection: mach=true listener=false peer=false name=com.apple.ak.authorizationservices.xpc
+2026-11-27 07:27:31.611 Df Aquarium Explore[17616:e69d] [com.apple.authkit:siwa] Native takeover URLs fetched
+2026-11-27 07:27:31.611 Df Aquarium Explore[17616:e69d] [com.apple.authkit:siwa] URL shouldn't be processed
+2026-11-27 07:27:31.611 Df Aquarium Explore[17616:e69d] [com.apple.AppSSO:SOConfigurationClient] -[SOConfigurationClient init]  on <SOConfigurationClient: 0x600000263320>
+2026-11-27 07:27:31.611 Df Aquarium Explore[17616:e69d] [com.apple.xpc:connection] [0x101827b30] activating connection: mach=true listener=false peer=false name=com.apple.AppSSO.service-xpc
+2026-11-27 07:27:31.612 Df Aquarium Explore[17616:e69d] [com.apple.AppSSO:SOServiceConnection] <SOServiceConnection: 0x6000002633c0>: new XPC connection
+2026-11-27 07:27:31.612 Df Aquarium Explore[17616:e69d] [com.apple.AppSSO:SOConfigurationClient] -[SOConfigurationClient _reloadConfig]  on <SOConfigurationClient: 0x600000263320>
+2026-11-27 07:27:31.612 Df Aquarium Explore[17616:e69d] [com.apple.AppSSO:SOClient] -[SOClient configurationWithCompletion:]  on <SOClient: 0x600000013210>
+2026-11-27 07:27:32.290 Df Aquarium Explore[17616:e69d] [com.apple.AppSSO:SOClient] configurationWithCompletion: success = YES, error = (null)
+2026-11-27 07:27:32.290 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:AppSSO] 0x110000750 - SOAuthorizationCoordinator::tryAuthorize: The requested URL is not registered for AppSSO handling. No further action needed.
+2026-11-27 07:27:32.290 E  Aquarium Explore[17616:e69d] [com.apple.WebKit:ResourceLoadStatistics] Failed to request query parameters from WebPrivacy.
+2026-11-27 07:27:32.291 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110002400 - GPUProcessProxy is taking a background assertion because a web process is requesting a connection
+2026-11-27 07:27:32.292 Df com.apple.WebKit.GPU[17669:e73d] [com.apple.WebKit:Process] 0x1f318aa08 - GPUProcess::createGPUConnectionToWebProcess: processIdentifier=8
+2026-11-27 07:27:32.297 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x110002400 - GPUProcessProxy::didCreateContextForVisibilityPropagation: webPageProxyID: 9, pagePID: 10, contextID: 2848494314
+2026-11-27 07:27:32.298 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] Created visibility propagation interaction <_UIVisibilityPropagationInteraction: 0x60000260cf60> for process with PID=17669
+2026-11-27 07:27:32.306 Df com.apple.WebKit.WebContent[17643:e6ff] [com.apple.WebKit:Process] 0x10f0e5ce0 - GPUProcessConnection::didInitialize
+2026-11-27 07:27:32.644 A  Aquarium Explore[17616:e69d] (libsystem_containermanager.dylib) container_system_group_path_for_identifier
+2026-11-27 07:27:32.644 Df Aquarium Explore[17616:e69d] [com.apple.containermanager:xpc] Requesting container lookup; class = 13, identifier = com.apple.nsurlsessiond, group_identifier = systemgroup.com.apple.nsurlstoragedresources, create = 1, temp = 0, euid = 501, uid = 501
+2026-11-27 07:27:32.644 A  Aquarium Explore[17616:e69d] (libsystem_containermanager.dylib) container_query_t
+2026-11-27 07:27:32.644 Df Aquarium Explore[17616:e69d] [com.apple.containermanager:xpc] Query; euid = 501, uid = 501, class = 13, identifier = [com.apple.nsurlsessiond](1), flags = 900000003
+2026-11-27 07:27:32.646 Df Aquarium Explore[17616:e69d] [com.apple.containermanager:unspecified] container_query_get_single_result: success
+2026-11-27 07:27:32.646 A  Aquarium Explore[17616:e69d] (libsystem_containermanager.dylib) container_copy_object
+2026-11-27 07:27:32.646 Df Aquarium Explore[17616:e69d] [com.apple.containermanager:unspecified] container_system_group_path_for_identifier: success
+2026-11-27 07:27:32.674 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ViewState] 0x102061e00 (pageProxyID=9) -[WKWebView _didCommitLayerTree:] - finally received commit 25.93s after visible content rect update request; transactionID 1
+2026-11-27 07:27:32.741 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Loading] 0x10205d218 - [pageProxyID=9, webPageID=10, PID=17643] WebPageProxy::decidePolicyForNavigationAction: listener called: frameID=13, isMainFrame=1, navigationID=26, policyAction=0, safeBrowsingWarning=0, isAppBoundDomain=0, wasNavigationIntercepted=0
+2026-11-27 07:27:32.742 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Loading] 0x10205d218 - [pageProxyID=9, webPageID=10, PID=17643] WebPageProxy::receivedNavigationActionPolicyDecision: frameID=13, isMainFrame=1, navigationID=26, policyAction=0
+2026-11-27 07:27:32.742 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSwapping] 0x10205d218 - [pageProxyID=9, webPageID=10, PID=17643] WebPageProxy::decidePolicyForNavigationAction: keep using process 17643 for navigation, reason=Process has not yet committed any provisional loads
+2026-11-27 07:27:32.742 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x110000e20 - [PID=17643] WebProcessProxy::canTerminateAuxiliaryProcess: returns false (pageCount=1, provisionalPageCount=0, suspendedPageCount=0, m_isInProcessCache=0, m_shutdownPreventingScopeCounter=0)
+2026-11-27 07:27:32.744 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Loading] 0x10205d218 - [pageProxyID=9, webPageID=10, PID=17643] WebPageProxy::didStartProvisionalLoadForFrame: frameID=13, isMainFrame=1
+2026-11-27 07:27:32.744 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Loading] 0x110000e20 - [PID=17643] WebProcessProxy::didStartProvisionalLoadForMainFrame:
+2026-11-27 07:27:32.766 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Loading] 0x10205d218 - [pageProxyID=9, webPageID=10, PID=17643] WebPageProxy::didNavigateWithNavigationDataShared:
+2026-11-27 07:27:32.771 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Loading] 0x10205d218 - [pageProxyID=9, webPageID=10, PID=17643] WebPageProxy::didCommitLoadForFrame: frameID=13, isMainFrame=1
+2026-11-27 07:27:32.799 E  Aquarium Explore[17616:e69d] [com.apple.WebKit:ResourceLoadStatistics] Failed to request allowed query parameters from WebPrivacy.
+2026-11-27 07:27:32.835 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Loading] 0x10205d218 - [pageProxyID=9, webPageID=10, PID=17643] WebPageProxy::didFinishLoadForFrame: frameID=13, isMainFrame=1
+2026-11-27 07:27:32.835 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110005070 - NavigationState will release its process network assertion soon because the page load completed
+2026-11-27 07:27:32.835 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110003ea0 - [PID=17643, throttler=0x110000eb0] ProcessThrottler::Activity::invalidate: Ending foreground activity / 'Client navigation'
+2026-11-27 07:27:32.836 E  Aquarium Explore[17616:e69d] [com.apple.WebKit:ResourceLoadStatistics] Failed to request restricted opener domains from WebPrivacy
+2026-11-27 07:27:33.383 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Loading] 0x10205d218 - [pageProxyID=9, webPageID=10, PID=17643] WebPageProxy::didFinishDocumentLoadForFrame: frameID=13, isMainFrame=1
+2026-11-27 07:27:35.837 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110005070 NavigationState is releasing background process assertion because a page load completed
+2026-11-27 07:27:35.837 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110003f30 - [PID=17643, throttler=0x110000eb0] ProcessThrottler::Activity::invalidate: Ending background activity / 'Page Load'
+2026-11-27 07:27:42.837 Df com.apple.WebKit.WebContent[17643:e6ff] [com.apple.WebKit:PerformanceLogging] 0x111007c00 - PerformanceMonitor::measurePostLoadMemoryUsage: Process was using 80601088 bytes of memory after the page load.
+2026-11-27 07:27:50.057 Df com.apple.WebKit.WebContent[17643:e6ff] [com.apple.WebKit:PerformanceLogging] 0x111007c00 - PerformanceMonitor::measurePostLoadCPUUsage: Process was using 0.7% CPU after the page load.
+2026-11-27 07:27:55.128 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ViewState] 0x102061e00 (pageProxyID=9) -[WKWebView _didCommitLayerTree:] - finally received commit 21.69s after visible content rect update request; transactionID 4
+2026-11-27 07:27:55.131 E  Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x110000e20 - [PID=17643] WebProcessProxy::gpuProcessConnectionDidBecomeUnresponsive
+2026-11-27 07:27:55.131 E  Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x110002400 - GPUProcessProxy::childConnectionDidBecomeUnresponsive:
+2026-11-27 07:27:55.131 E  Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x110002400 - GPUProcessProxy::didBecomeUnresponsive: GPUProcess with PID 17669 became unresponsive, terminating it
+2026-11-27 07:27:55.131 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] AuxiliaryProcessProxy::terminate: PID=17669
+2026-11-27 07:27:55.131 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Background
+2026-11-27 07:27:55.132 Df Aquarium Explore[17616:e6a7] [com.apple.WebKit:ProcessSuspension] 0x11000c8f0 - ProcessAssertion::acquireSync Trying to take RBS assertion 'XPCConnectionTerminationWatchdog' for process with PID=17669
+2026-11-27 07:27:55.177 Df Aquarium Explore[17616:e6a7] [com.apple.WebKit:ProcessSuspension] 0x11000c8f0 - ProcessAssertion() Successfully granted capability
+2026-11-27 07:27:55.193 Df Aquarium Explore[17616:e69d] [com.apple.extensionkit:launch] Assertion for extension process 'ExtensionProcess: bundleID: com.apple.WebKit.GPU instance ID: Optional([_EXExtensionInstanceIdentifier: FF815FEF-FAB0-462C-80BC-65A7F674349E]) pid: 17669' invalidated
+2026-11-27 07:27:55.198 E  Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x110002400 - GPUProcessProxy::gpuProcessExited: reason=Unresponsive
+2026-11-27 07:27:55.198 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x10281aa08 - WebProcessPool::gpuProcessDidExit: PID=0, reason=Unresponsive
+2026-11-27 07:27:55.199 E  Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x110000e20 - [PID=17643] WebProcessProxy::gpuProcessExited: reason=Unresponsive
+2026-11-27 07:27:55.199 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x11000bf50 - [PID=0, throttler=0x110002490] ProcessThrottler::Activity::invalidate: Ending foreground activity / 'GPU for foreground view(s)'
+2026-11-27 07:27:55.199 E  Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] ProcessAssertion::remainingRunTimeInSeconds failed to get identifier for process with PID=0
+2026-11-27 07:27:55.199 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110002490 - [PID=0] ProcessThrottler::sendPrepareToSuspendIPC: Sending PrepareToSuspend(1, isSuspensionImminent=0) IPC, remainingRunTime=0.000000s
+2026-11-27 07:27:55.199 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110002400 - GPUProcessProxy::sendPrepareToSuspend:
+2026-11-27 07:27:55.199 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110002490 - [PID=0] ProcessThrottler::setThrottleState: Updating process assertion type to 1 (foregroundActivities=0, backgroundActivities=0)
+2026-11-27 07:27:55.200 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Background
+2026-11-27 07:27:55.200 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110002490 - [PID=0] ProcessThrottler::didDisconnectFromProcess:
+2026-11-27 07:27:55.203 Df Aquarium Explore[17616:e6af] [com.apple.WebKit:ProcessSuspension] 0x110016f20 - ProcessAssertion::acquireSync Trying to take RBS assertion 'GPUProcess Background Assertion' for process with PID=0
+2026-11-27 07:27:55.203 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110002490 - [PID=0] ProcessThrottler::invalidateAllActivities: BEGIN (foregroundActivityCount: 0, backgroundActivityCount: 0)
+2026-11-27 07:27:55.203 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110002490 - [PID=0] ProcessThrottler::invalidateAllActivities: END
+2026-11-27 07:27:55.203 Df Aquarium Explore[17616:e69d] [com.apple.xpc:connection] [0x10182f820] invalidated after the last release of the connection object
+2026-11-27 07:27:55.219 E  Aquarium Explore[17616:e6af] [com.apple.runningboard:assertion] Error acquiring assertion: <Error Domain=RBSAssertionErrorDomain Code=2 "Specified target process 17669 does not exist" UserInfo={NSLocalizedFailureReason=Specified target process 17669 does not exist}>
+2026-11-27 07:27:55.227 Df Aquarium Explore[17616:e6af] [com.apple.WebKit:ProcessSuspension] 0x110016f20 - ProcessAssertion() Failed to grant capability Background
+2026-11-27 07:27:55.227 E  Aquarium Explore[17616:e6af] [com.apple.WebKit:ProcessSuspension] 0x110016f20 - ProcessAssertion::acquireSync Failed to acquire RBS assertion 'GPUProcess Background Assertion' for process with PID=0, error: (null)
+2026-11-27 07:27:55.227 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110016f20 - ProcessAssertion::processAssertionWasInvalidated() PID=0
+2026-11-27 07:27:55.227 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x11000bdd0 - ~ProcessAssertion: Releasing process assertion 'GPUProcess Foreground Assertion' for process with PID=17669
+2026-11-27 07:27:55.228 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110016f20 - ~ProcessAssertion: Releasing process assertion 'GPUProcess Background Assertion' for process with PID=0
+2026-11-27 07:27:55.228 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x0 - ProcessAssertion: RBS Foreground assertion for process with PID=0 was invalidated
+2026-11-27 07:27:55.385 E  com.apple.WebKit.WebContent[17643:e6ff] [com.apple.WebKit:Process] 0x10f0e5ce0 - GPUProcessConnection::didClose
+2026-11-27 07:27:55.386 Df com.apple.WebKit.WebContent[17643:e6ff] [com.apple.WebKit:Process] GPUProcessConnection::create - 0x10fdbca80
+2026-11-27 07:27:55.389 Df Aquarium Explore[17616:e69d] (libMobileGestalt.dylib) No persisted cache on this platform.
+2026-11-27 07:27:55.390 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110001410 - [PID=0, throttler=0x110002490] ProcessThrottler::Activity::Activity: Starting foreground activity / 'Process initialization'
+2026-11-27 07:27:55.390 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110001470 - [PID=0, throttler=0x110002490] ProcessThrottler::Activity::Activity: Starting foreground activity / 'GPU for foreground view(s)'
+2026-11-27 07:27:55.390 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110002400 - GPUProcessProxy is taking a background assertion because a web process is requesting a connection
+2026-11-27 07:27:55.404 Df Aquarium Explore[17616:e6af] [com.apple.extensionkit:launch] Launching process with config: bundleID: com.apple.WebKit.GPU instance ID: Optional([_EXExtensionInstanceIdentifier: 21AECE25-8056-4F73-A6EE-8A4E09D0FEF0])
+2026-11-27 07:27:55.454 A  Aquarium Explore[17616:e9ec] (RunningBoardServices) didChangeInheritances
+2026-11-27 07:27:55.455 A  Aquarium Explore[17616:e9ec] (RunningBoardServices) assertionsDidInvalidate
+2026-11-27 07:27:55.455 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x11000c8f0 - ProcessAssertion: RBS Background assertion for process with PID=17669 was invalidated
+2026-11-27 07:27:55.455 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x11000c8f0 - ProcessAssertion::processAssertionWasInvalidated() PID=17669
+2026-11-27 07:27:55.455 A  Aquarium Explore[17616:e9ec] (RunningBoardServices) processDidExit
+2026-11-27 07:27:55.456 Df Aquarium Explore[17616:e9ec] [com.apple.runningboard:process] Firing exit handlers for 17669 with context <RBSProcessExitContext| specific, status:<RBSProcessExitStatus| domain:runningboard(15) code:0>>
+2026-11-27 07:27:55.457 Df Aquarium Explore[17616:e6aa] [com.apple.runningboard:process] Calling process death completion block for handle [xpcservice<com.apple.WebKit.GPU([app<io.github.kitamiya1.aquariumexplore((null))>:17616])>{vt hash: 223737757}[uuid:FF815FEF-FAB0-462C-80BC-65A7F674349E]:17669]
+2026-11-27 07:27:59.358 Df Aquarium Explore[17616:e6af] [com.apple.runningboard:process] Starting death monitoring for handle [xpcservice<com.apple.WebKit.GPU([app<io.github.kitamiya1.aquariumexplore((null))>:17616])>{vt hash: 223737757}[uuid:21AECE25-8056-4F73-A6EE-8A4E09D0FEF0]:18969]
+2026-11-27 07:27:59.380 Df Aquarium Explore[17616:e6af] [com.apple.extensionkit:launch] Created new process ExtensionProcess: bundleID: com.apple.WebKit.GPU instance ID: Optional([_EXExtensionInstanceIdentifier: 21AECE25-8056-4F73-A6EE-8A4E09D0FEF0]) pid: 18969.
+2026-11-27 07:27:59.381 Df Aquarium Explore[17616:e6aa] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Foreground
+2026-11-27 07:27:59.384 Df Aquarium Explore[17616:e69d] [com.apple.xpc:connection] [0x101804b80] activating connection: mach=false listener=false peer=false name=(anonymous)
+2026-11-27 07:27:59.845 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x110002400 - GPUProcessProxy::didFinishLaunching:
+2026-11-27 07:27:59.854 F  Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] GPU process (0x110002400) took 4.458706 seconds to launch
+2026-11-27 07:27:59.854 A  Aquarium Explore[17616:e69d] (libsystem_trace.dylib) Activity for state dumps
+2026-11-27 07:27:59.854 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] 0x110002400 - GPUProcessProxy::connectionWillOpen:
+2026-11-27 07:27:59.855 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110002490 - [PID=18969] ProcessThrottler::didConnectToProcess
+2026-11-27 07:27:59.855 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:ProcessSuspension] 0x110002490 - [PID=18969] ProcessThrottler::setThrottleState: Updating process assertion type to 3 (foregroundActivities=2, backgroundActivities=2)
+2026-11-27 07:27:59.856 Df com.apple.WebKit.GPU[18969:f941] (WebKit) 0x1f318aa08 - GPUProcess::GPUProcess:
+2026-11-27 07:27:59.856 Df Aquarium Explore[17616:e69d] [com.apple.WebKit:Process] AssertionCapability::AssertionCapability: taking assertion Foreground
+2026-11-27 07:27:59.856 Df Aquarium Explore[17616:e9ec] [com.apple.WebKit:ProcessSuspension] 0x11000bdd0 - ProcessAssertion::acquireSync Trying to take RBS assertion 'GPUProcess Foreground Assertion' for process with PID=18969

@@ -9,7 +9,11 @@
 | 優先 | 保存先 | 使う条件 | 中身 |
 | ---: | --- | --- | --- |
 | 1 | IndexedDB（DB `ppp-aquarium`、ストア `saves`） | ふつうのブラウザ（スマホ含む） | 下の `SaveData` を構造化複製のまま（空洞は `Float64Array`） |
-| 2 | localStorage（鍵 `ppp-aquarium:<鍵>`） | IndexedDB が開けない（古いブラウザのプライベートモード等） | 書き出しファイルと同じ JSON 文字列 |
+| 2 | localStorage（鍵 `ppp-aquarium:<鍵>`） | IndexedDB が開けない（古いブラウザのプライベートモード等）・開くのに 4 秒以上かかる（主スレッドが空いていた時間で数える。重い生成の間は数えない） | 書き出しファイルと同じ JSON 文字列 |
+
+保存先は起動のたびに選び直す。IndexedDB と localStorage の中身は互いに見ないので、ある起動で localStorage へ落ちて保存した進捗は、
+次に IndexedDB が開けた起動では読まれない（以前は打ち切りを壁時計で数えていたため、重い生成と重なった初回起動で起きた。
+docs/app-packaging/report.md）。
 | 3 | メモリ | どちらも使えない・URL に `?nosave`（自動検証用） | 閉じると消える（メニューに「保存しません」と出す） |
 | 補 | localStorage（鍵 `ppp-aquarium:journal:<タブ>`） | IndexedDB のとき、ページが隠れる・閉じる直前だけ | 閉じる直前の控え（6 章） |
 
