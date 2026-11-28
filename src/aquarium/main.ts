@@ -1508,8 +1508,11 @@ async function boot() {
       // （腕を伸ばしきっても届かない向きへは、ゆっくり寄る：AquaClawFocus.bodyMove。世界の向き → スティックの向き）
       const bm = focus.bodyMove, bml = Math.hypot(bm[0], bm[1]), cyaw = camera.yaw;
       // （寄る先に物・箱・岩があれば寄らない：積んだ物へ体をぶつけて崩さない）
+      // （今いる所より近くに面がある＝寄る先に何か立っている。乗っている床・石の床そのものは止めない：体の中心から床までは
+      //   ちょうど体の半径なので、半径との比べだけでは、石の床の上では一度も寄れなかった）
+      const here = bml > 1e-4 ? world.contactSolid(crab.x, crab.y + crab.radius, crab.z) : 1;
       const ahead = bml > 1e-4 ? world.contactSolid(crab.x + (bm[0] / bml) * 0.14, crab.y + crab.radius, crab.z + (bm[1] / bml) * 0.14) : 1;
-      const shuffle = inFocus && bml > 0.03 && ahead > crab.radius + 0.03;
+      const shuffle = inFocus && bml > 0.03 && ahead > Math.min(crab.radius + 0.03, here - 0.02);
       const mv = !inFocus ? input.moveAxis() : shuffle ? { x: bm[0] * Math.cos(cyaw) - bm[1] * Math.sin(cyaw), y: -bm[0] * Math.sin(cyaw) - bm[1] * Math.cos(cyaw) } : { x: 0, y: 0 };
       if (moveLatch && (Math.hypot(mv.x, mv.y) < 0.2 || Math.abs(Math.atan2(Math.sin(Math.atan2(mv.x, mv.y) - moveLatch.ang), Math.cos(Math.atan2(mv.x, mv.y) - moveLatch.ang))) > 1.0)) moveLatch = null;
       // 鋏が挟む方に使われている間は掘れない（掘るのも鋏を使うので）
@@ -1527,7 +1530,8 @@ async function boot() {
       const reqL = grabL.pre(dt, grabHeldL, crab, rig.left);
       const reqs = [reqR, reqL].filter((r) => r !== null);
       // 集中モード：開いている鋏の先で物を押せる（挟んでいる物は押さない）
-      const tips = focus.w > 0.5 ? [
+      // （集中モードに入り切っている間だけ：戻るときに鋏がいつもの構えへ戻る途中で、横の物を払い飛ばさない）
+      const tips = focus.on && focus.w > 0.95 ? [
         // （鋏の先の小さな球：挟める距離 FOCUS_REACH よりずっと小さく。近づくだけで物を押しのけて挟めない、を防ぐ）
         // （閉じていく途中の物・離した直後の物は押さない）
         // （目標は物の面から 1.2 cm 離すので、それより小さく：触れて止まっているだけの物は押さない。さらに押し込むと押す）

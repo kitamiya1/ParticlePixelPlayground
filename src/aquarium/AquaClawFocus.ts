@@ -86,6 +86,10 @@ export class ClawFocus {
   private camTouched = false;
   private restore: { zoom: number; pitch: number } | null = null;
   private readonly wasHold = { R: false, L: false };
+  /** 面に沿う：動かしている向きの先の段の高さと、それを保つ残り時間 */
+  private readonly aheadF = { R: -Infinity, L: -Infinity };
+  private readonly aheadT = { R: 0, L: 0 };
+  private readonly blockT = { R: 0, L: 0 };
   /** 前のフレームのカニの位置と向き（空いた鋏の目標を体に付けて動かす） */
   private last: { x: number; y: number; z: number; h: number } | null = null;
   /** いま動かしている鋏を操作しているか（move の中） */
@@ -256,6 +260,9 @@ export class ClawFocus {
     const sx = c.mx * SPEED * dt + c.dx * MOUSE_K, sy = c.my * SPEED * dt - c.dy * MOUSE_K;
     const lift = c.lift * SPEED * 0.8 * dt - c.liftD * MOUSE_K;
     S.roll = clamp(S.roll + c.roll * ROLL_SPEED * dt, -1.3, 1.3);
+    // （床の上での、入力どおりの動き：段を越える判定に）
+    const mx = rx * sx + fx * sy, mz = rz * sx + fz * sy, ml = Math.hypot(mx, mz);
+    const px0 = p[0], pz0 = p[2];
     if (this.scheme === 'screen') {
       // 画面の右・上（カメラの姿勢から）と奥（画面の奥へ水平に）
       const P = this.camera.pose.pos, T = this.camera.pose.target;
@@ -290,8 +297,17 @@ export class ClawFocus {
     S.floor = floor;
     const hov = this.hover(G);
     if (this.scheme === 'surface') {
+      // 段を越える：物（積み木・石）の横に当たって止まったまま 0.3 秒押し続けたら、押している向きの少し先（3 cm）の面の上まで
+      // 上がって越える（真下の面だけを見ると、横から当たって止まったまま。近づいただけでは上がらない＝横から挟める）
+      let ahead = floor;
+      if (ml > 1e-5 && this.blockT[S.key] > 0.3) ahead = this.floorBelow([p[0] + (mx / ml) * 0.03, p[1], p[2] + (mz / ml) * 0.03], skip);
+      // （先の面が 12 cm より高ければ壁：越えずに止まる。上がった高さは 0.25 秒保つ：段の縁の上で上下に揺れない）
+      if (ahead > floor && ahead - floor < 0.12) {
+        this.aheadF[S.key] = ahead;
+        this.aheadT[S.key] = 0.25;
+      } else if ((this.aheadT[S.key] -= dt) <= 0) this.aheadF[S.key] = floor;
       // 面に沿って高さを保つ（段差でも急に跳ばない：上がるのは速く、下がるのはゆっくり）
-      const want = floor + hov + S.lift;
+      const want = Math.max(floor, this.aheadF[S.key]) + hov + S.lift;
       const k = 1 - Math.exp(-dt * (want > p[1] ? 16 : 7));
       p[1] += (want - p[1]) * k;
     }
@@ -299,6 +315,9 @@ export class ClawFocus {
     // ばねの伸びは挟んでいる間の目標の上限 LEAD で頭打ち）
     if (p[1] < floor + hov - 0.06) p[1] = floor + hov - 0.06;
     this.clamp(S, G);
+    // 押しているのに、ほとんど進めなかった時間（物・地形の横に当たって止まっている）
+    const moved = (p[0] - px0) * mx + (p[2] - pz0) * mz;
+    this.blockT[S.key] = ml > 1e-4 && moved < ml * ml * 0.3 ? this.blockT[S.key] + dt : 0;
   }
 
   /** 届く範囲（付け根から腕の長さ）・体の中・地形の中・挟んでいる物のつかみ点から離れすぎ、を止める */
