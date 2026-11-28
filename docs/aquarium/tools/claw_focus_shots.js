@@ -41,6 +41,9 @@ async (page) => {
   const placeClaw = (p, side, kind, k) => p.evaluate(([s, kd, i]) => {
     const X = window.__focus, A = window.__aqua, pr = X.blocks(kd)[i], c = A.crab;
     const at = () => { const dx = pr.p[0] - c.x, dz = pr.p[2] - c.z, l = Math.hypot(dx, dz) || 1; const off = Math.min(pr.semi[0], pr.semi[2]) + 0.015; return [pr.p[0] - (dx / l) * off, 0, pr.p[2] - (dz / l) * off]; };
+    // （近づく前に、手で足した高さを挟む高さ（0.02）へ戻す：上げたままだと積み木の角の上で止まる。人も下げてから寄せる）
+    const T = s === 'R' ? A.focus.R : A.focus.L;
+    if (Math.abs(T.lift - 0.02) > 0.005) X.lift(s, 0.02 - T.lift, 90);
     const r = X.moveTo(s, at, { tol: 0.02, max: 300 });
     X.release();
     A.freeze = false;

@@ -297,10 +297,11 @@ export class ClawFocus {
     S.floor = floor;
     const hov = this.hover(G);
     if (this.scheme === 'surface') {
-      // 段を越える：物（積み木・石）の横に当たって止まったまま 0.3 秒押し続けたら、押している向きの少し先（3 cm）の面の上まで
-      // 上がって越える（真下の面だけを見ると、横から当たって止まったまま。近づいただけでは上がらない＝横から挟める）
+      // 段を越える：地形の段（岩・盛った砂・石の床の縁）の横に当たって止まったまま 0.3 秒押し続けたら、押している向きの少し先
+      // （3 cm）の面の上まで上がって越える（真下の面だけを見ると、横から当たって止まったまま。近づいただけでは上がらない）。
+      // 動かせる物（積み木・平たい石・棒・石の台）は越えない：押して動かす・横から挟む物なので（越えるときは高さを手で）
       let ahead = floor;
-      if (ml > 1e-5 && this.blockT[S.key] > 0.3) ahead = this.floorBelow([p[0] + (mx / ml) * 0.03, p[1], p[2] + (mz / ml) * 0.03], skip);
+      if (ml > 1e-5 && this.blockT[S.key] > 0.3) ahead = this.props.terrainBelow(p[0] + (mx / ml) * 0.03, p[1] + 0.05, p[2] + (mz / ml) * 0.03);
       // （先の面が 12 cm より高ければ壁：越えずに止まる。上がった高さは 0.25 秒保つ：段の縁の上で上下に揺れない）
       if (ahead > floor && ahead - floor < 0.12) {
         this.aheadF[S.key] = ahead;

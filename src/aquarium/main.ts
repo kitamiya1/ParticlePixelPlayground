@@ -1506,13 +1506,27 @@ async function boot() {
       // 切り替えた直後の移動の基準：倒したままなら前の視点の向き（離す・大きく倒し直すまで）
       // 集中モード：カニはその場に留まる（移動・走る・跳ぶ・掘るは使わない。物の反作用・水流では少し動く）
       // （腕を伸ばしきっても届かない向きへは、ゆっくり寄る：AquaClawFocus.bodyMove。世界の向き → スティックの向き）
-      const bm = focus.bodyMove, bml = Math.hypot(bm[0], bm[1]), cyaw = camera.yaw;
+      let bm: readonly number[] = focus.bodyMove, bml = Math.hypot(bm[0], bm[1]);
+      const cyaw = camera.yaw;
       // （寄る先に物・箱・岩があれば寄らない：積んだ物へ体をぶつけて崩さない）
       // （今いる所より近くに面がある＝寄る先に何か立っている。乗っている床・石の床そのものは止めない：体の中心から床までは
       //   ちょうど体の半径なので、半径との比べだけでは、石の床の上では一度も寄れなかった）
       const here = bml > 1e-4 ? world.contactSolid(crab.x, crab.y + crab.radius, crab.z) : 1;
-      const ahead = bml > 1e-4 ? world.contactSolid(crab.x + (bm[0] / bml) * 0.14, crab.y + crab.radius, crab.z + (bm[1] / bml) * 0.14) : 1;
-      const shuffle = inFocus && bml > 0.03 && ahead > Math.min(crab.radius + 0.03, here - 0.02);
+      // （動かせる箱は、体の球を寄る向きへ 8 cm 進めた所で測る：下の地形の測り方は体の中心の高さ・14 cm 先なので、低い積み木の列を
+      //   見落として、体で押しのけていた）
+      const clear = (dx: number, dz: number, l: number) =>
+        world.contactSolid(crab.x + (dx / l) * 0.14, crab.y + crab.radius, crab.z + (dz / l) * 0.14) > Math.min(crab.radius + 0.03, here - 0.02) &&
+        props.movableDist(crab.x + (dx / l) * 0.08, crab.y + crab.radius, crab.z + (dz / l) * 0.08, crab.y + 0.06) > crab.radius + 0.03;
+      let shuffle = inFocus && bml > 0.03 && clear(bm[0], bm[1], bml);
+      // 寄る向きに物があれば、体の横向き（カニは横へ歩く）の分だけで寄る（前の積み木の列に体を当てずに、横の物へ腕を届かせる）
+      if (inFocus && bml > 0.03 && !shuffle) {
+        const sx = -Math.cos(crab.heading), sz = Math.sin(crab.heading), d = bm[0] * sx + bm[1] * sz;
+        if (Math.abs(d) > 0.03 && clear(sx * d, sz * d, Math.abs(d))) {
+          bm = [sx * d, sz * d];
+          bml = Math.abs(d);
+          shuffle = true;
+        }
+      }
       const mv = !inFocus ? input.moveAxis() : shuffle ? { x: bm[0] * Math.cos(cyaw) - bm[1] * Math.sin(cyaw), y: -bm[0] * Math.sin(cyaw) - bm[1] * Math.cos(cyaw) } : { x: 0, y: 0 };
       if (moveLatch && (Math.hypot(mv.x, mv.y) < 0.2 || Math.abs(Math.atan2(Math.sin(Math.atan2(mv.x, mv.y) - moveLatch.ang), Math.cos(Math.atan2(mv.x, mv.y) - moveLatch.ang))) > 1.0)) moveLatch = null;
       // 鋏が挟む方に使われている間は掘れない（掘るのも鋏を使うので）

@@ -52,7 +52,7 @@
    */
   const go = (s, x, z, o = {}) => {
     const T = S(s);
-    let f = 0, still = 0, last = [...T.p];
+    let f = 0, still = 0, boost = 0, best = Infinity;
     for (; f < (o.max ?? 400); f++) {
       const dx = x - T.p[0], dz = z - T.p[2], d = Math.hypot(dx, dz);
       let wantY = o.y;
@@ -72,6 +72,16 @@
       const k = Math.min(1, dl / 0.05) / m;
       const c = { mx: inp.mx * k, my: inp.my * k, lift: inp.lift * k };
       for (const key of ['mx', 'my', 'lift']) if (Math.abs(c[key]) < 0.04) c[key] = 0;
+      // 面に沿う：動かせる物（積み木など）の横で止まったら、人は高さを上げて越える（自動で越えるのは地形の段だけ）。
+      // 止まって 8 フレームで 0.5 秒上げる
+      if (F.scheme === 'surface' && o.y === undefined && still >= 8 && d > 1e-4 && floorAt(s, T.p[0] + (dx / d) * 0.03, T.p[1], T.p[2] + (dz / d) * 0.03) > T.floor + 0.02) boost = 30;
+      if (boost > 0) {
+        boost--;
+        c.lift = 1;
+      } else if (F.scheme === 'surface' && o.y === undefined && T.lift > 0.03 && still === 0) {
+        // （越えた後は、上げた分を下げて戻す：人も物を越えたら下げる）
+        c.lift = -1;
+      }
       X.ctl(s, c);
       X.run(1);
       // 記録
@@ -79,9 +89,12 @@
       stat.frames++;
       if (n >= 2) stat.axes2++;
       if (n >= 3) stat.axes3++;
-      const moved = Math.hypot(T.p[0] - last[0], T.p[1] - last[1], T.p[2] - last[2]);
-      last = [...T.p];
-      still = moved < 0.0003 && dl > 0.02 ? still + 1 : 0;
+      // 止まった = 行き先へ 0.5 mm も近づかないフレームが続く（物の面に沿って横へ少しずつ滑るのも止まった扱い）
+      const dNow = Math.hypot(x - T.p[0], z - T.p[2]);
+      if (dNow < best - 0.0005) {
+        best = dNow;
+        still = 0;
+      } else if (dl > 0.02) still++;
       if (still === 10) stat.stalls++;
       if (o.y === undefined && !G(s).holding) {
         // 鋏の先の、真下の面からの高さ（低すぎ = 当たる・高すぎ = 狙いにくい）

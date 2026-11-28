@@ -443,6 +443,25 @@ export class PropSystem {
   }
 
   /** 箱（積み木）までの距離（AquariumWorld.contactSolid が使う：カニ・小石・生き物が箱に乗る・ぶつかる）。exclude の箱は除く */
+  /**
+   * 動かせる箱だけへの距離（石の床は数えない）。ハサミ集中モードでカニが寄る先に積み木があるか。
+   * 上面が minTop より低い箱（平たい石・寝た棒：カニは上に乗る・またぐ。体で横から押さない）は数えない
+   */
+  movableDist(x: number, y: number, z: number, minTop = -Infinity): number {
+    let d = 1e3;
+    for (const b of this.boxes) {
+      if (b.fixed) continue;
+      const [qx, qy, qz, qw] = b.q;
+      const ext = Math.abs(2 * (qx * qy + qz * qw)) * b.semi[0] + Math.abs(1 - 2 * (qx * qx + qz * qz)) * b.semi[1] + Math.abs(2 * (qy * qz - qx * qw)) * b.semi[2];
+      if (b.p[1] + ext < minTop) continue;
+      const dx = x - b.p[0], dy = y - b.p[1], dz = z - b.p[2];
+      if (Math.hypot(dx, dy, dz) - b.rb * 1.75 > d) continue;
+      const l = qinv(b.q, dx, dy, dz, this.tmpL);
+      d = Math.min(d, boxSd(b.semi, l[0], l[1], l[2]));
+    }
+    return d;
+  }
+
   dist(x: number, y: number, z: number): number {
     if (x < this.bmin[0] - 0.5 || x > this.bmax[0] + 0.5 || y < this.bmin[1] - 0.5 || y > this.bmax[1] + 0.5 || z < this.bmin[2] - 0.5 || z > this.bmax[2] + 0.5) return 1e3;
     let d = 1e3;
@@ -490,6 +509,11 @@ export class PropSystem {
   }
 
   /** 真下へ探った最初の上面（地形・箱。skip の箱は除く：挟んでいる箱の上へ鋏が上っていかない） */
+  /** 地形（と動かない箱：石の床）だけの面の高さ。動かせる箱は数えない（ハサミ集中モードの段を越える判定） */
+  terrainBelow(x: number, yFrom: number, z: number): number {
+    return this.surfaceBelow(x, yFrom, z, this.boxes.filter((b) => !b.fixed));
+  }
+
   surfaceBelow(x: number, yFrom: number, z: number, skip: readonly (Prop | null)[]): number {
     const sk = skip.filter((p): p is Prop => !!p && p.box);
     const f = (py: number) => {
