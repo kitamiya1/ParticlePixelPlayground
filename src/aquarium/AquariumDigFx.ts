@@ -215,6 +215,35 @@ export class AquariumDigFx {
     this.stats.hiddenTris += count / 3;
   }
 
+  /**
+   * 矩形（x0..x1, z0..z1）の中で、高さ top より下に根元・中心がある植物と景色の小石を消す（積み木の検証エリアの石の床の下。
+   * 床を突き抜けて見えない）。消した数を返す
+   */
+  hideInRect(x0: number, x1: number, z0: number, z1: number, top: number): { plants: number; pebbles: number } {
+    const d = this.d;
+    const gone: number[] = [];
+    let np = 0, nb = 0;
+    for (const plants of this.plantsByChunk.values()) {
+      for (const g of plants) {
+        if (g.done || g.x < x0 || g.x > x1 || g.z < z0 || g.z > z1 || g.y > top + 0.05) continue;
+        g.done = true;
+        np++;
+        for (const i of g.idx) gone.push(i);
+      }
+    }
+    if (gone.length) this.stats.hiddenPlants += d.surfel.hideWorldPoints(gone);
+    const pos = d.pebbles.geo.getAttribute('position') as THREE.BufferAttribute;
+    d.pebbles.list.forEach((p, k) => {
+      if (this.hiddenPebble[k] || p.x < x0 - 0.05 || p.x > x1 + 0.05 || p.z < z0 - 0.05 || p.z > z1 + 0.05 || p.bottom > top) return;
+      for (let v = p.v0; v < p.v0 + p.vn; v++) pos.setXYZ(v, p.x, p.y, p.z);
+      pos.addUpdateRange(p.v0 * 3, p.vn * 3);
+      pos.needsUpdate = true;
+      this.hiddenPebble[k] = 1;
+      nb++;
+    });
+    return { plants: np, pebbles: nb };
+  }
+
   /** 区画の中で、根元の砂が無くなった植物と小石を消す */
   private hideAround(id: number) {
     const d = this.d;

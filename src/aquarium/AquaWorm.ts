@@ -344,6 +344,19 @@ export class Worm implements GrabCreature {
   private readonly gForce: V3 = [0, 0, 0];
   private gOver = 0;
   private gStretch = 0;
+  /**
+   * 2 か所目のつかみ（もう 1 本の鋏。2026-11-28：両方のハサミで同じゴカイの別の所を挟んで伸ばす）。体の外に全部出ているときだけ。
+   * 窓口は grip2（GrabCreature）。1 本目の鋏が離したら、2 か所目が 1 本目になる（grip2.primary）
+   */
+  g2On = false;
+  g2S = 0;
+  g2F = 0;
+  private g2A0: V3 | null = null;
+  private g2A1: V3 | null = null;
+  readonly g2Force: V3 = [0, 0, 0];
+  g2Stretch = 0;
+  g2Over = 0;
+  readonly grip2: WormGrip2;
   // ---- 引っ張りの状態（AquaTug.BurrowTug と同じ名前） ----
   ext = 0;
   stage: TugStage = 'early';
@@ -406,6 +419,56 @@ export class Worm implements GrabCreature {
     }
     this.rb = R * 1.4;
     this.home = [home[0], home[1], home[2]];
+    this.grip2 = new WormGrip2(this);
+  }
+
+  /** 体の太さ（指の開きを合わせる：つかみ点の節の太さ × 2） */
+  thick(): number {
+    return 2 * lerp(this.rad[this.gS], this.rad[Math.min(this.N - 1, this.gS + 1)], this.gF);
+  }
+
+  /** 2 か所目のつかみ点（世界） */
+  grip2Point(): V3 {
+    const a = this.g2S * 3, b = a + 3, f = this.g2F, X = this.x;
+    return [lerp(X[a], X[b], f), lerp(X[a + 1], X[b + 1], f), lerp(X[a + 2], X[b + 2], f)];
+  }
+
+  /** 2 か所目の窓口：外に出ている体のうち from にいちばん近い点（1 か所目のつかみ点から 2 節以内は除く） */
+  nearest2(from: readonly number[]): { p: V3; d: number } | null {
+    const c = this.closest(from, this.gS);
+    return c ? { p: c.p, d: Math.max(0, c.d) } : null;
+  }
+
+  /** 2 か所目を挟む・離す・鋏の構えを受け取る（WormGrip2） */
+  aim2(at: readonly number[]) {
+    const c = this.closest(at, this.gS);
+    if (!c) return;
+    this.g2S = c.i;
+    this.g2F = c.f;
+  }
+
+  setGrip2(on: boolean) {
+    this.g2On = on;
+    this.g2A0 = this.g2A1 = null;
+    this.g2Force.fill(0);
+    this.g2Stretch = this.g2Over = 0;
+    if (on) this.events.push({ kind: 'grab' });
+  }
+
+  setGrip2Anchor(a0: readonly number[], a1: readonly number[]) {
+    this.g2A0 = [a0[0], a0[1], a0[2]];
+    this.g2A1 = [a1[0], a1[1], a1[2]];
+  }
+
+  /** 1 本目の鋏が離したとき、2 か所目を 1 本目へ（体は挟まれたまま） */
+  private handoff(): boolean {
+    if (!this.g2On) return false;
+    this.gS = this.g2S;
+    this.gF = this.g2F;
+    this.g2On = false;
+    this.g2A0 = this.g2A1 = null;
+    this.grip2.primary = true;
+    return true;
   }
 
   // ---------------- 添字 ----------------
@@ -867,12 +930,18 @@ export class Worm implements GrabCreature {
     this.gOver = 0;
     let tugOver = 0;
     const avx = a0 && a1 ? (a1[0] - a0[0]) / dt : 0, avy = a0 && a1 ? (a1[1] - a0[1]) / dt : 0, avz = a0 && a1 ? (a1[2] - a0[2]) / dt : 0;
+    // 2 か所目（もう 1 本の鋏）：構えの前・今のフレーム（1 本目の鋏が先に進めるので、2 本目は前のフレームの値）
+    const b0 = this.g2On ? this.g2A0 : null, b1 = this.g2On ? this.g2A1 : null;
+    this.g2Force.fill(0);
+    this.g2Over = 0;
+    this.av2 = b0 && b1 ? [(b1[0] - b0[0]) / dt, (b1[1] - b0[1]) / dt, (b1[2] - b0[2]) / dt] : [0, 0, 0];
     for (let k = 1; k <= n; k++) {
       let A: V3 | null = null;
       if (a0 && a1) {
         const f = k / n;
         A = [lerp(a0[0], a1[0], f), lerp(a0[1], a1[1], f), lerp(a0[2], a1[2], f)];
       }
+      this.A2 = b0 && b1 ? [lerp(b0[0], b1[0], k / n), lerp(b0[1], b1[1], k / n), lerp(b0[2], b1[2], k / n)] : null;
       this.substep(h, A, avx, avy, avz);
       if (A && this.held) {
         const fl = Math.hypot(this.gForce[0], this.gForce[1], this.gForce[2]) / k;
@@ -883,6 +952,7 @@ export class Worm implements GrabCreature {
     out.force[0] = this.gForce[0] / n;
     out.force[1] = this.gForce[1] / n;
     out.force[2] = this.gForce[2] / n;
+    for (let i = 0; i < 3; i++) this.g2Force[i] /= n;
     out.over = this.gOver;
     out.tugOver = tugOver;
     out.stretch = this.gStretch;
@@ -952,10 +1022,12 @@ export class Worm implements GrabCreature {
     if (this.nb > 0) this.placeKinematic(h);
     // ---- 制約 ----
     this.lam.fill(0);
-    let gl = 0;
+    let gl = 0, gl2 = 0;
+    const A2 = this.A2;
     for (let it = 0; it < ITER; it++) {
       this.solveDistances(h, it & 1);
       if (A && this.held) gl = this.solveClaw(h, A, gl);
+      if (A2 && this.g2On) gl2 = this.solveClaw2(h, A2, gl2);
     }
     this.solveBend();
     this.collide();
@@ -1028,7 +1100,55 @@ export class Worm implements GrabCreature {
         V[j * 3 + 2] += (avz - vz) * k * wf;
       }
     }
+    // 2 か所目も同じ（もう 1 本の鋏と一緒に動く）
+    if (this.A2 && this.g2On) {
+      const a = this.g2S, b = a + 1, f = this.g2F, av = this.av2;
+      const vx = lerp(V[a * 3], V[b * 3], f), vy = lerp(V[a * 3 + 1], V[b * 3 + 1], f), vz = lerp(V[a * 3 + 2], V[b * 3 + 2], f);
+      const k = 1 - Math.exp(-h * 14);
+      for (const [j, wf] of [[a, 1 - f], [b, f]] as const) {
+        if (W[j] === 0) continue;
+        V[j * 3] += (av[0] - vx) * k * wf;
+        V[j * 3 + 1] += (av[1] - vy) * k * wf;
+        V[j * 3 + 2] += (av[2] - vz) * k * wf;
+      }
+    }
     this.guard();
+  }
+
+  /** 2 か所目の鋏の構え（このフレームの小刻みの値）と速さ */
+  private A2: V3 | null = null;
+  private av2: V3 = [0, 0, 0];
+
+  /** 制約：2 か所目の鋏の構えと挟んだ点（solveClaw と同じ。力は g2Force へ） */
+  private solveClaw2(h: number, A: V3, gl: number): number {
+    const X = this.x, W = this.w, S = this.spec;
+    const a = this.g2S, b = a + 1, f = this.g2F;
+    const px = lerp(X[a * 3], X[b * 3], f), py = lerp(X[a * 3 + 1], X[b * 3 + 1], f), pz = lerp(X[a * 3 + 2], X[b * 3 + 2], f);
+    const ex = A[0] - px, ey = A[1] - py, ez = A[2] - pz;
+    const C = Math.hypot(ex, ey, ez);
+    this.g2Stretch = C;
+    this.g2Over = Math.max(this.g2Over, (SPRING_K * C) / S.grip);
+    if (C < 1e-7) return gl;
+    const nx = ex / C, ny = ey / C, nz = ez / C;
+    const wa = W[a] * (1 - f) * (1 - f), wb = W[b] * f * f, ws = wa + wb;
+    if (ws === 0) return gl;
+    const at = 1 / (SPRING_K * h * h);
+    let dl = (C - at * gl) / (ws + at);
+    const cap = S.grip * h * h;
+    if (gl + dl > cap) dl = cap - gl;
+    if (dl <= 0) return gl;
+    const ka = W[a] * (1 - f) * dl, kb = W[b] * f * dl;
+    X[a * 3] += nx * ka;
+    X[a * 3 + 1] += ny * ka;
+    X[a * 3 + 2] += nz * ka;
+    X[b * 3] += nx * kb;
+    X[b * 3 + 1] += ny * kb;
+    X[b * 3 + 2] += nz * kb;
+    const F = dl / (h * h);
+    this.g2Force[0] += nx * F;
+    this.g2Force[1] += ny * F;
+    this.g2Force[2] += nz * F;
+    return gl + dl;
   }
 
   /** 巣穴に沿った速さ（挟まれている = 踏ん張りと張力、それ以外 = 暮らしの目標）と、節が出る・入る */
@@ -1817,11 +1937,12 @@ export class Worm implements GrabCreature {
     return Math.hypot(this.x[e * 3] - m[0], this.x[e * 3 + 1] - m[1], this.x[e * 3 + 2] - m[2]) > 0.035 || this.N - this.nb >= 2;
   }
 
-  /** 外に出ている体のうち from にいちばん近い節の間（i と i+1）と割合・点 */
-  private closest(from: readonly number[]): { i: number; f: number; p: V3; d: number } | null {
+  /** 外に出ている体のうち from にいちばん近い節の間（i と i+1）と割合・点（avoid = その節の間から 2 つ以内は除く） */
+  private closest(from: readonly number[], avoid = -10): { i: number; f: number; p: V3; d: number } | null {
     const X = this.x, N = this.N;
     let best: { i: number; f: number; p: V3; d: number } | null = null;
     for (let i = 0; i < N - 1; i++) {
+      if (Math.abs(i - avoid) < 2) continue;
       const ba = this.isBuried(i), bb = this.isBuried(i + 1);
       if (ba && bb) continue;
       const a = i * 3, b = a + 3;
@@ -1876,6 +1997,11 @@ export class Worm implements GrabCreature {
   }
 
   onRelease(kind: 'release' | 'slip' | 'pop') {
+    // もう 1 本の鋏が 2 か所目を挟んでいれば、そちらが 1 本目になる（体は挟まれたまま）
+    if (kind !== 'pop' && this.handoff()) {
+      this.events.push({ kind: 'release', why: kind });
+      return;
+    }
     this.held = false;
     this.tugT = 0;
     this.gForce.fill(0);
@@ -1971,6 +2097,60 @@ export class Worm implements GrabCreature {
       return;
     }
     this.recover();
+  }
+}
+
+/**
+ * ゴカイの 2 か所目の窓口（もう 1 本の鋏）。1 本目の鋏が挟んでいて、体が全部外に出ているときだけ挟める。2 か所目のばねは
+ * ゴカイの体の制約の中で 1 本目と一緒に解く（Worm.solveClaw2）。1 本目が離すと、こちらが 1 本目になる（primary）
+ */
+export class WormGrip2 implements GrabCreature {
+  primary = false;
+  readonly bonus = 0;
+  constructor(readonly worm: Worm) {}
+  get name() {
+    return this.worm.name;
+  }
+  get p(): readonly number[] {
+    return this.primary ? this.worm.p : this.worm.grip2Point();
+  }
+  get rb() {
+    return this.worm.rb;
+  }
+  get grip() {
+    return this.worm.spec.grip;
+  }
+  grabbable(): boolean {
+    const w = this.worm;
+    return !this.primary && !w.gone && w.held && !w.g2On && w.nb === 0;
+  }
+  nearest(from: readonly number[]): { p: V3; d: number } | null {
+    return this.grabbable() ? this.worm.nearest2(from) : null;
+  }
+  gripPoint(): readonly number[] {
+    return this.primary ? this.worm.gripPoint() : this.worm.grip2Point();
+  }
+  aim(at: readonly number[]) {
+    this.worm.aim2(at);
+  }
+  thick(): number {
+    return this.worm.thick();
+  }
+  onGrab() {
+    this.worm.setGrip2(true);
+  }
+  onRelease(kind: 'release' | 'slip' | 'pop') {
+    if (this.primary) {
+      this.primary = false;
+      this.worm.onRelease(kind);
+    } else this.worm.setGrip2(false);
+  }
+  stepHeld(dt: number, a0: readonly number[], a1: readonly number[]) {
+    if (this.primary) return this.worm.stepHeld(dt, a0, a1);
+    // （体は 1 本目の鋏の側で進める。ここでは構えを渡し、前の刻みの力を返す）
+    this.worm.setGrip2Anchor(a0, a1);
+    const w = this.worm;
+    return { force: [w.g2Force[0], w.g2Force[1], w.g2Force[2]] as V3, over: w.g2Over, tugOver: 0, stretch: w.g2Stretch, done: false };
   }
 }
 

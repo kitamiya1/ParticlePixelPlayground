@@ -19,8 +19,11 @@
 //   progress.flags（イベントの進み具合）。足すときは version を上げて migrate に変換を書く。
 
 export const SAVE_FORMAT = 'ppp-aquarium-save';
-/** 版 3（2026-11-28）：栄養（player.nutrition）と、食べられた生き物（tanks[id].food）を足した */
-export const SAVE_VERSION = 3;
+/**
+ * 版 3（2026-11-28）：栄養（player.nutrition）と、食べられた生き物（tanks[id].food）を足した。
+ * 版 4（2026-11-28）：積み木の検証エリアの物の位置・向き（tanks[id].props）を足した
+ */
+export const SAVE_VERSION = 4;
 /** 編集 1 個の数の並び（a.xyz, b.xyz, r, 種類 0 = 掘った / 1 = 盛った）。版 1 は種類なしの 7 個（PRIM_STRIDE_V1） */
 export const PRIM_STRIDE = 8;
 export const PRIM_STRIDE_V1 = 7;
@@ -53,10 +56,21 @@ export interface FoodSave {
   critters: CritterSave[];
 }
 
+/** 動かせる物（版 4：積み木の検証エリアの箱）の位置と向き（四元数 x, y, z, w） */
+export interface PropSave {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  q: [number, number, number, number];
+}
+
 /** 水槽 1 つ分の状態（将来：植物 plants・生き物 creatures を足す） */
 export interface TankSave {
   dig: DigSave;
   food: FoodSave;
+  /** 版 4 から */
+  props: PropSave[];
 }
 
 /** 栄養（版 3。経験値に相当する蓄積型：合計・種類ごとに得た量・食べ終えた数。時間では減らない） */
@@ -232,7 +246,32 @@ export function migrate(raw: unknown): unknown {
     if (isObj(d.tanks)) for (const [id, t] of Object.entries(d.tanks)) tanks[id] = isObj(t) ? { ...t, food: { critters: [] } } : t;
     d = { ...d, version: 3, tanks: isObj(d.tanks) ? tanks : d.tanks, player: isObj(d.player) ? { ...d.player, nutrition: { total: 0, byKind: {}, eaten: {} } } : d.player };
   }
+  if (d.version === 3) {
+    // 版 3 → 4：水槽ごとに動かせる物の空の一覧（積み木は置いた所から始まる）
+    const tanks: Record<string, unknown> = {};
+    if (isObj(d.tanks)) for (const [id, t] of Object.entries(d.tanks)) tanks[id] = isObj(t) ? { ...t, props: [] } : t;
+    d = { ...d, version: 4, tanks: isObj(d.tanks) ? tanks : d.tanks };
+  }
   return d;
+}
+
+/** 動かせる物の一覧の検証（id は文字列 64 文字まで・重複は拒否・位置は水槽の中・向きは有限で長さ 0 でない。600 個まで） */
+function readProps(v: unknown, id: string, ctx: SaveContext): PropSave[] {
+  if (!Array.isArray(v)) fail(`水槽 ${id} の物の一覧の形が違います`);
+  if (v.length > 600) fail(`水槽 ${id} の物が多すぎます`);
+  const out: PropSave[] = [];
+  for (const p of v) {
+    if (!isObj(p)) fail(`水槽 ${id} の物の形が違います`);
+    const pid = str(p.id, 'prop.id');
+    if (out.some((q) => q.id === pid)) fail(`物 ${pid} が重複しています`);
+    const x = num(p.x, 'prop.x'), y = num(p.y, 'prop.y'), z = num(p.z, 'prop.z');
+    if (!inBox(x, y, z, ctx.tankBox)) fail(`物 ${pid} の位置が水槽の外です`);
+    if (!Array.isArray(p.q) || p.q.length !== 4) fail(`物 ${pid} の向きの形が違います`);
+    const q = p.q.map((c, i) => num(c, `prop.q[${i}]`, -2, 2)) as [number, number, number, number];
+    if (Math.hypot(...q) < 0.5) fail(`物 ${pid} の向きが正しくありません`);
+    out.push({ id: pid, x, y, z, q });
+  }
+  return out;
 }
 
 /** 栄養の検証（数でない・負は拒否。種類の名前は 32 文字まで・項目は 16 個まで） */
@@ -322,7 +361,7 @@ export function validateSave(input: unknown, ctx: SaveContext): ValidateResult {
         continue;
       }
       if (!isObj(t) || !isObj(t.dig)) fail(`水槽 ${id} の情報の形が違います`);
-      tanks[id] = { dig: { prims: readPrims(t.dig.prims, ctx) }, food: readFood(t.food, id, ctx) };
+      tanks[id] = { dig: { prims: readPrims(t.dig.prims, ctx) }, food: readFood(t.food, id, ctx), props: readProps(t.props, id, ctx) };
     }
 
     const buddies: BuddySave[] = [];

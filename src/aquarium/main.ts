@@ -43,9 +43,13 @@ import { AlgaeBeds, LifeGrab, PlantGrab, WeedPieces, type Detach, type TwistResu
 import { diag, diagLog, IS_APP, selftestMode } from './AquaPlatform';
 import { GpuGuard } from './AquaGpuGuard';
 import { WORM_DESC, WORM_NAME, WormSystem, type Worm } from './AquaWorm';
+import { ClawFocus, ClawMarks, emptyCtl, FocusTouch, FOCUS_SCHEME_LABEL, type ClawCtl } from './AquaClawFocus';
+import { addBlocks, blocksToSave, floorRect, resetBlocks, restoreBlocks } from './AquaBlocks';
 
 /** いまの水槽の id（保存データの tanks の鍵。将来の隣の水槽は別の id） */
 const HOME_TANK = 'home';
+/** 積み木・物理パズルの検証エリアの中心（x, z）：砂の広場の西、ガラス際の手前のほぼ平らな砂（傾き 15 cm / 2 m。石の床を置く） */
+const BLOCKS_XZ: [number, number] = [-11.75, 2.75];
 /**
  * スナモグリの巣穴（砂の広場の手前の砂。スタート地点から西へ約 6、手前のガラスから 1.6。水中の砂。
  * 排水管の縦の管（x −6.5, z 5.6）・エビの住みかから離す）
@@ -163,11 +167,15 @@ async function boot() {
       { x: BURROW_XZ[0], z: BURROW_XZ[1], r: 2.6 },
       ...finds.map((f) => ({ x: f.pos[0], z: f.pos[2], r: 1.2 })),
       ...PROPS.map(([x, z]) => ({ x, z, r: 0.7 })),
+      { x: BLOCKS_XZ[0], z: BLOCKS_XZ[1], r: 1.6 },
     ],
   });
   // 挟める物（小石・貝殻・重い石）と、右の大きな鋏で挟む操作
   const props = new PropSystem(world);
   PROPS.forEach(([x, z, kind, s, yaw], i) => props.add(`${kind}${i}`, kind, x, z, 6, s, yaw));
+  // 積み木・物理パズルの検証エリア（箱の物。保存する：版 4）
+  const blocksArea = addBlocks(props, world, BLOCKS_XZ[0], BLOCKS_XZ[1]);
+  const blocks = blocksArea.list;
   const grab = new GrabSystem(world, props);
   // 巣穴から見えているスナモグリの触角・鋏の付け根も、同じ鋏で挟める（引っこ抜き。抜けた後は挟めない）
   grab.creatures.push(buddy.tug);
@@ -198,6 +206,15 @@ async function boot() {
   // 水草をかき分ける（第 3 段階）：植物ごとのしなり（近くの植物だけばねで動かす。設定で GPU だけの方式と比べられる）
   const plantField = new PlantField(plants.plants);
   view.surfel.enablePlantBend(plants.plants.plantId, plantField.uniforms);
+  // 検証エリアの石の床の下の植物・景色の小石は隠す（床を突き抜けて見えない・挟めない）
+  {
+    const fr = floorRect(blocksArea.floor), T = plantField.table;
+    for (let i = 0; i < plantField.removed.length; i++) {
+      const x = T.root[i * 3], y = T.root[i * 3 + 1], z = T.root[i * 3 + 2];
+      if (x > fr.x0 - 0.05 && x < fr.x1 + 0.05 && z > fr.z0 - 0.05 && z < fr.z1 + 0.05 && y < fr.top + 0.05) plantField.removed[i] = 1;
+    }
+    view.digFx.hideInRect(fr.x0 - 0.05, fr.x1 + 0.05, fr.z0 - 0.05, fr.z1 + 0.05, fr.top);
+  }
   /** 水草を押す球：カニの体（脚の広がり）と、挟んでいる物・動いている物 */
   const pushers: Pusher[] = [];
   const updatePlants = (dt: number) => {
@@ -238,6 +255,8 @@ async function boot() {
   grabL.promote = grab.promote;
   grab.other = grabL;
   grabL.other = grab;
+  // ハサミ集中モード（AquaClawFocus）：カニはその場に留まり、左右の腕を独立して動かす・開閉する
+  const focus = new ClawFocus(world, props, rig, crab, camera, grab, grabL);
   // 第 5 段階：水草を挟む・引く・抜く・ちぎる（かけらはそのまま挟んで運べる）と、エビ・小魚を捕まえる（左右の鋏とも）
   const weeds = new WeedPieces(plantField, view.surfel, props, plants.set.pos);
   const onDetach = (G: GS) => (d: Detach) => {
@@ -249,16 +268,22 @@ async function boot() {
     weeds.spawn(d, G);
   };
   const plantGrabR = new PlantGrab(plantField, onDetach(grab)), plantGrabL = new PlantGrab(plantField, onDetach(grabL));
+  // 両方のハサミで同じ株を挟む（引き裂く）：互いの窓口を組にする
+  plantGrabR.partner = plantGrabL;
+  plantGrabL.partner = plantGrabR;
   const lifeGrabR = new LifeGrab(life, world), lifeGrabL = new LifeGrab(life, world);
   grab.creatures.push(lifeGrabR, plantGrabR);
   grabL.creatures.push(lifeGrabL, plantGrabL);
   // ゴカイ：外に出ている体のどこでも、左右どちらの鋏でも挟める（1 匹を 2 本で同時には挟まない）。
   // 保存から戻して個体を作り直したら入れ替える
-  for (const w of worms.worms) grab.creatures.push(w), grabL.creatures.push(w);
+  // （2 か所目の窓口 grip2：もう 1 本の鋏で同じゴカイの別の所を挟んで伸ばす）
+  for (const w of worms.worms) grab.creatures.push(w, w.grip2), grabL.creatures.push(w, w.grip2);
   const swapWorms = (sw: { from: Worm; to: Worm }[]) => {
     for (const G of [grab, grabL]) for (const { from, to } of sw) {
       const k = G.creatures.indexOf(from);
       if (k >= 0) G.creatures[k] = to;
+      const k2 = G.creatures.indexOf(from.grip2);
+      if (k2 >= 0) G.creatures[k2] = to.grip2;
     }
   };
   // ---------------- 食事（AquaEat）：挟んだ物を口元へ運んで食べる・栄養 ----------------
@@ -396,11 +421,11 @@ async function boot() {
   };
   // 操作の説明（右上の「？」で開く。初回だけ自動で出し、「×」で閉じたら次からは出さない）。欄は右上のメニューを作った後に作る
   const helpBrief = touch
-    ? `<p>左のスティックで歩く。右のボタンは絵のとおり：跳ぶ・ダッシュ・掘る（切り替えで盛る。何かを挟んでいる間は 食べる）・ハサミ（たたくと閉じる / もう一度で開く）・視点（長押しで一覧）。画面をドラッグで見回す。</p><p class="hint">詳しい操作は、右上の「？」でいつでも見られます。</p>`
-    : `<p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 歩く・<kbd>Shift</kbd> 走る・<kbd>Space</kbd> 跳ぶ・<kbd>F</kbd> 掘る・<kbd>E</kbd> 押している間 挟む（挟んだまま <kbd>F</kbd> 食べる）・<kbd>V</kbd> 視点（長押しで一覧）。ドラッグで見回し、ホイールでズーム。</p><p class="hint">詳しい操作は、右上の「？」でいつでも見られます。</p>`;
+    ? `<p>左のスティックで歩く。右のボタンは絵のとおり：跳ぶ・ダッシュ・掘る（切り替えで盛る。何かを挟んでいる間は 食べる）・ハサミ（たたくと閉じる / もう一度で開く。スティックの上の小さい方は左のハサミ）・視点（長押しで一覧）。右上の「集中」で左右の腕を自由に動かすハサミ集中モード。画面をドラッグで見回す。</p><p class="hint">詳しい操作は、右上の「？」でいつでも見られます。</p>`
+    : `<p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 歩く・<kbd>Shift</kbd> 走る・<kbd>Space</kbd> 跳ぶ・<kbd>F</kbd> 掘る・<kbd>E</kbd> / <kbd>Q</kbd> 押している間 右 / 左のハサミで挟む（挟んだまま <kbd>F</kbd> 食べる）・<kbd>Tab</kbd> ハサミ集中モード・<kbd>V</kbd> 視点（長押しで一覧）。ドラッグで見回し、ホイールでズーム。</p><p class="hint">詳しい操作は、右上の「？」でいつでも見られます。</p>`;
   const helpFull = touch
-    ? `<ul><li>ボタンの絵：地面から上への矢印 ジャンプ、流れる線と » ダッシュ、くぼみへ↓と砂粒 掘る（砂山へ↓ は盛る。水草を挟んでいる間は 切れ目 = ちぎる・根と↑ = 抜く）、カニのハサミ 挟む（閉じた絵 = 挟んでいる）、いまの視点の絵 視点の切り替え、小さな横長 掘る ↔ 盛る。「🔊」の欄の「ボタンの名前を表示」で名前も出せる</li><li>左スティック：移動。ダッシュ：押している間</li><li>ジャンプ：跳ぶ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へスティックを倒し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（張り出しへはその向きへ押し続けると回り込む。跳んで天井に触れるとつかまる。ジャンプで離れる。「案内を出す」にすると、逆さの間はカニの横の矢印がスティック↑の向き）</li><li>掘る：押している間 前の砂を掘る。押したまま指をずらすと、その向き（上・下・左右・斜め）を掘る。掘りながらスティックで好きな向きへ動ける</li><li>盛る：「掘る」ボタンの上の切り替えで「盛る」にすると、同じボタンで手持ちの砂を置ける（押している間 少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>画面ドラッグ：視点の回転。2 本指：カメラのズーム</li><li>視点：短く押すと 三人称 → 肩越し → 自由追従 → ガラス越し（水槽の外から地下の穴を観察）→ 箱庭 → 三人称 の順に切り替わり、切り替えた視点の名前が少しだけ出る。長押しで視点の一覧（いまの視点に印。押したまま指を滑らせて離すか、たたいて選ぶ。「従来」も一覧から）</li><li>挟む：1 回たたくと右の大きなハサミを閉じ（ボタンが明るく「離す」になる）、もう一度たたくと開く。閉じたままジャンプ・ダッシュ・移動・視点の操作ができる。景色の小石・貝殻はどれでも挟める。水草の茎・葉も挟める（引っ張るほど大きくしなって抵抗し、カニが引き戻される。離すとビヨーンと戻る。引くだけでは抜けない：引っ張りすぎるとハサミが滑る。挟んだまま「掘る」ボタン（ちぎる / 抜くの絵になる）を押すと、高い所を挟んだテープ状の葉・有茎草はちぎれ、それ以外は引っ張っている間だけ根元から抜ける。抜いた・ちぎった草は運べる）。エビ・小魚も、ゆっくり近づいて素早く挟めば捕まえられる（暴れて逃げることもある）。挟んだまま歩く・泳ぐと引っ張られてついてくる。重い石は持ち上がらず引きずる（大きな石・岩・流木は動かず、カニの方が引き戻される）。閉じたまま近くの物へ寄ると、ハサミがそちらを向いて挟む。ふだんは輪や名前を出さない（触れて・挟んでみると、動き・重さ・音で分かる。「🔊」の欄の「案内を出す」で、挟める所の輪・物の名前を出せる）</li><li>引っこ抜く：巣穴から見えている触角を「挟む」で挟み（閉じたまま穴へ近づくと、ハサミが触角を向く）、スティックで後ろへ下がって引っ張る（押しているだけでは抜けない）。暴れているときに引きすぎるとハサミが滑る（震えたら少しゆるめる）。力が抜けた隙に引くと出てくる。離すと穴へ戻っていく</li><li>食べる：ハサミで挟んだまま「掘る」ボタン（食べるの絵になる）を押している間、口元へ運んで少しずつ食べる（離すと中断。もう一度押すと続きから。「挟む」を開くと食べかけを落とす）。藻（岩・流木をつかんだまま押すと、そこの苔をむしる）・ちぎった水草・捕まえたエビ / 小魚・引き抜いたゴカイを食べられる。捕まえた生き物は、食べずに「挟む」を開けば逃がせる。小石・貝殻は口元で確かめて押し戻す。仲間は食べない。食べると左上の「栄養」が増える（減らない）</li><li>仲間：右上のボタンで「呼ぶ（同行）/ 自由に暮らす」を切り替え</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li>右上の「？」：この説明</li><li>ゲームパッド：左スティック 移動、右スティック 腕（両ハサミ）の向き、LT / L2 左ハサミ・RT / R2 右ハサミ（押している間）、A / × ジャンプ、B / ○ ダッシュ、X / □ 掘る・盛る（押している間は右スティックで掘る向き）、Y / △ 掘る ↔ 盛る、RB / R1 次の視点、左スティック押し込み 肩越し ↔ 三人称、水草を挟んだまま X / □ ちぎる・抜く、ほかの物を挟んだまま X / □ 押している間 食べる、LB / L1 を押したまま右スティック・十字キーでカメラ、Back 仲間、Start 説明</li><li>右上の「🔊」：音と設定（消音・音量、操作ボタンの大きさ・濃さ、カメラの方式、歩き方（接地 IK / 従来）と接地の診断、水草のかき分け、案内の表示。最初に画面に触れると音が出せるようになる）</li><li>左上の「詳細」：区画・発見の数・FPS・画面の倍率の記録など（× で閉じる）</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`
-    : `<ul><li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る</li><li><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へ押し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（跳んで・泳いで天井に触れても張り付く。<kbd>Space</kbd> で離れる）</li><li><kbd>F</kbd> 長押し：掘る（押したままマウスを動かすと上下左右・斜めを狙う。掘りながら <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で好きな向きへ動ける）</li><li>右ボタンを押したままドラッグ：その向きを掘る</li><li><kbd>G</kbd> 掘る ↔ 盛る の切り替え。盛るのときは <kbd>F</kbd> 長押しで手持ちの砂を置く（少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>ドラッグ：視点回転　ホイール：ズーム</li><li><kbd>V</kbd> 次の視点（三人称 → 肩越し → 自由追従 → ガラス越し → 箱庭。ガラス越しはガラス際まで掘った穴を外から観察）。<kbd>V</kbd> 長押しで視点の一覧（<kbd>1</kbd>〜<kbd>6</kbd> かクリックで選ぶ・<kbd>Esc</kbd> で閉じる）　<kbd>C</kbd> 肩越し ↔ 三人称　<kbd>R</kbd> スタート地点へ</li><li><kbd>E</kbd> 押している間：右の大きなハサミを閉じて、届く所の小石・貝殻を挟む（離すと放す）。景色の小石・貝殻はどれでも挟める。水草の茎・葉も挟める（引っ張るほどしなって抵抗し、離すとビヨーンと戻る。引くだけでは抜けない。挟んだまま <kbd>F</kbd> で、高い所を挟んだ葉はちぎれ、それ以外は引っ張りながらなら根元から抜ける。抜いた草は運べる）。エビ・小魚も、ゆっくり近づいて素早く挟めば捕まえられる。押したままマウスを動かすと腕（ハサミ）の向きを右・左・上・下へ変えられる。挟んだまま歩く・泳ぐと引っ張られてついてくる。重い石は持ち上がらず引きずる（大きな石・岩・流木は動かず、カニの方が引き戻される）。ふだんは輪や名前を出さない（触れて・挟んでみると、動き・重さ・音で分かる。「🔊」の欄の「案内を出す」で、挟める所の輪・物の名前を出せる）</li><li>引っこ抜く：巣穴から見えている触角を <kbd>E</kbd> で挟み、押したまま <kbd>S</kbd> などで後ろへ下がって引っ張る（押しているだけでは抜けない）。暴れているときに引きすぎる（<kbd>Shift</kbd> で急に引く等）とハサミが滑る（震えたら少しゆるめる）。力が抜けた隙に引くと出てくる。離すと穴へ戻っていく　<kbd>Q</kbd> 仲間を呼ぶ / 自由に暮らす（右上のボタンでも）</li><li>食べる：<kbd>E</kbd> で挟んだまま <kbd>F</kbd>（またはマウスの右ボタン）を押している間、口元へ運んで少しずつ食べる（離すと中断。もう一度押すと続きから。<kbd>E</kbd> を離すと食べかけを落とす）。藻（岩・流木をつかんだまま押すと、そこの苔をむしる）・ちぎった水草・捕まえたエビ / 小魚・引き抜いたゴカイを食べられる。捕まえた生き物は、食べずに <kbd>E</kbd> を離せば逃がせる。小石・貝殻は口元で確かめて押し戻す。仲間は食べない。食べると左上の「栄養」が増える（減らない）</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li><kbd>H</kbd> または右上の「？」：この説明の表示 / 非表示</li><li>ゲームパッド：左スティック 移動、右スティック 腕（両ハサミ）の向き、LT / L2 左ハサミ・RT / R2 右ハサミ（押している間）、A / × ジャンプ、B / ○ ダッシュ、X / □ 掘る・盛る（押している間は右スティックで掘る向き）、Y / △ 掘る ↔ 盛る、RB / R1 次の視点、左スティック押し込み 肩越し ↔ 三人称、水草を挟んだまま X / □ ちぎる・抜く、ほかの物を挟んだまま X / □ 押している間 食べる、LB / L1 を押したまま右スティック・十字キーでカメラ、Back 仲間、Start 説明</li><li>右上の「🔊」：音と設定（消音・音量、操作ボタンの大きさ・濃さ、カメラの方式、歩き方（接地 IK / 従来）と接地の診断、水草のかき分け、案内の表示。最初に画面に触れると音が出せるようになる）</li><li><kbd>I</kbd> または左上の「詳細」：区画・発見の数・FPS・画面の倍率の記録などの表示 / 非表示</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`;
+    ? `<ul><li>ボタンの絵：地面から上への矢印 ジャンプ、流れる線と » ダッシュ、くぼみへ↓と砂粒 掘る（砂山へ↓ は盛る。水草を挟んでいる間は 切れ目 = ちぎる・根と↑ = 抜く）、カニのハサミ 挟む（閉じた絵 = 挟んでいる）、いまの視点の絵 視点の切り替え、小さな横長 掘る ↔ 盛る。「🔊」の欄の「ボタンの名前を表示」で名前も出せる</li><li>左スティック：移動。ダッシュ：押している間</li><li>ジャンプ：跳ぶ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へスティックを倒し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（張り出しへはその向きへ押し続けると回り込む。跳んで天井に触れるとつかまる。ジャンプで離れる。「案内を出す」にすると、逆さの間はカニの横の矢印がスティック↑の向き）</li><li>掘る：押している間 前の砂を掘る。押したまま指をずらすと、その向き（上・下・左右・斜め）を掘る。掘りながらスティックで好きな向きへ動ける</li><li>盛る：「掘る」ボタンの上の切り替えで「盛る」にすると、同じボタンで手持ちの砂を置ける（押している間 少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>画面ドラッグ：視点の回転。2 本指：カメラのズーム</li><li>視点：短く押すと 三人称 → 肩越し → 自由追従 → ガラス越し（水槽の外から地下の穴を観察）→ 箱庭 → 三人称 の順に切り替わり、切り替えた視点の名前が少しだけ出る。長押しで視点の一覧（いまの視点に印。押したまま指を滑らせて離すか、たたいて選ぶ。「従来」も一覧から）</li><li>挟む：1 回たたくと右の大きなハサミを閉じ（ボタンが明るく「離す」になる）、もう一度たたくと開く。閉じたままジャンプ・ダッシュ・移動・視点の操作ができる。景色の小石・貝殻はどれでも挟める。水草の茎・葉も挟める（引っ張るほど大きくしなって抵抗し、カニが引き戻される。離すとビヨーンと戻る。引くだけでは抜けない：引っ張りすぎるとハサミが滑る。挟んだまま「掘る」ボタン（ちぎる / 抜くの絵になる）を押すと、高い所を挟んだテープ状の葉・有茎草はちぎれ、それ以外は引っ張っている間だけ根元から抜ける。抜いた・ちぎった草は運べる）。エビ・小魚も、ゆっくり近づいて素早く挟めば捕まえられる（暴れて逃げることもある）。挟んだまま歩く・泳ぐと引っ張られてついてくる。重い石は持ち上がらず引きずる（大きな石・岩・流木は動かず、カニの方が引き戻される）。閉じたまま近くの物へ寄ると、ハサミがそちらを向いて挟む。ふだんは輪や名前を出さない（触れて・挟んでみると、動き・重さ・音で分かる。「🔊」の欄の「案内を出す」で、挟める所の輪・物の名前を出せる）</li><li>左のハサミ：スティックの上の小さい「挟む」（たたくと閉じる / もう一度で開く）。左右で別々の物も、1 つの物の 2 か所も挟める</li><li>ハサミ集中モード：右上の「集中」で入る（「通常へ」で戻る）。カニはその場に留まり、左のスティック = 左の腕・右のスティック = 右の腕。それぞれのスティックの上の外側のボタンを押している間 そのハサミを閉じる（人差し指で押せる。「🔊」の欄でたたいて切り替える方式にもできる）。スティックの内側の細いつまみを上下にずらすと高さ。「動かし方」で腕の動かし方を切り替え。画面のドラッグ 視点・2 本指 ズーム。挟んでいる物は切り替えても落とさない</li><li>引っこ抜く：巣穴から見えている触角を「挟む」で挟み（閉じたまま穴へ近づくと、ハサミが触角を向く）、スティックで後ろへ下がって引っ張る（押しているだけでは抜けない）。暴れているときに引きすぎるとハサミが滑る（震えたら少しゆるめる）。力が抜けた隙に引くと出てくる。離すと穴へ戻っていく</li><li>食べる：ハサミで挟んだまま「掘る」ボタン（食べるの絵になる）を押している間、口元へ運んで少しずつ食べる（離すと中断。もう一度押すと続きから。「挟む」を開くと食べかけを落とす）。藻（岩・流木をつかんだまま押すと、そこの苔をむしる）・ちぎった水草・捕まえたエビ / 小魚・引き抜いたゴカイを食べられる。捕まえた生き物は、食べずに「挟む」を開けば逃がせる。小石・貝殻は口元で確かめて押し戻す。仲間は食べない。食べると左上の「栄養」が増える（減らない）</li><li>仲間：右上のボタンで「呼ぶ（同行）/ 自由に暮らす」を切り替え</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li>右上の「？」：この説明</li><li>ゲームパッド：左スティック 移動、右スティック 腕（両ハサミ）の向き、LT / L2 左ハサミ・RT / R2 右ハサミ（押している間。押し込むほど強く握る）、左右のスティックの同時押し ハサミ集中モード（左スティック = 左の腕・右スティック = 右の腕・LT / RT 押し込んだ分だけ閉じる＝触れた後は握る力・LB / RB を押したままスティック 高さと手首・十字キー カメラ・Y / △ 腕の動かし方・B / ○ で戻る）、A / × ジャンプ、B / ○ ダッシュ、X / □ 掘る・盛る（押している間は右スティックで掘る向き）、Y / △ 掘る ↔ 盛る、RB / R1 次の視点、左スティック押し込み 肩越し ↔ 三人称、水草を挟んだまま X / □ ちぎる・抜く、ほかの物を挟んだまま X / □ 押している間 食べる、LB / L1 を押したまま右スティック・十字キーでカメラ、Back 仲間、Start 説明</li><li>右上の「🔊」：音と設定（消音・音量、操作ボタンの大きさ・濃さ、カメラの方式、歩き方（接地 IK / 従来）と接地の診断、水草のかき分け、案内の表示。最初に画面に触れると音が出せるようになる）</li><li>左上の「詳細」：区画・発見の数・FPS・画面の倍率の記録など（× で閉じる）</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`
+    : `<ul><li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る</li><li><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へ押し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（跳んで・泳いで天井に触れても張り付く。<kbd>Space</kbd> で離れる）</li><li><kbd>F</kbd> 長押し：掘る（押したままマウスを動かすと上下左右・斜めを狙う。掘りながら <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で好きな向きへ動ける）</li><li>右ボタンを押したままドラッグ：その向きを掘る</li><li><kbd>G</kbd> 掘る ↔ 盛る の切り替え。盛るのときは <kbd>F</kbd> 長押しで手持ちの砂を置く（少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>ドラッグ：視点回転　ホイール：ズーム</li><li><kbd>V</kbd> 次の視点（三人称 → 肩越し → 自由追従 → ガラス越し → 箱庭。ガラス越しはガラス際まで掘った穴を外から観察）。<kbd>V</kbd> 長押しで視点の一覧（<kbd>1</kbd>〜<kbd>6</kbd> かクリックで選ぶ・<kbd>Esc</kbd> で閉じる）　<kbd>C</kbd> 肩越し ↔ 三人称　<kbd>R</kbd> スタート地点へ</li><li><kbd>E</kbd> 押している間：右の大きなハサミを閉じて、届く所の小石・貝殻を挟む（離すと放す）。景色の小石・貝殻はどれでも挟める。水草の茎・葉も挟める（引っ張るほどしなって抵抗し、離すとビヨーンと戻る。引くだけでは抜けない。挟んだまま <kbd>F</kbd> で、高い所を挟んだ葉はちぎれ、それ以外は引っ張りながらなら根元から抜ける。抜いた草は運べる）。エビ・小魚も、ゆっくり近づいて素早く挟めば捕まえられる。押したままマウスを動かすと腕（ハサミ）の向きを右・左・上・下へ変えられる。挟んだまま歩く・泳ぐと引っ張られてついてくる。重い石は持ち上がらず引きずる（大きな石・岩・流木は動かず、カニの方が引き戻される）。ふだんは輪や名前を出さない（触れて・挟んでみると、動き・重さ・音で分かる。「🔊」の欄の「案内を出す」で、挟める所の輪・物の名前を出せる）</li><li>引っこ抜く：巣穴から見えている触角を <kbd>E</kbd> で挟み、押したまま <kbd>S</kbd> などで後ろへ下がって引っ張る（押しているだけでは抜けない）。暴れているときに引きすぎる（<kbd>Shift</kbd> で急に引く等）とハサミが滑る（震えたら少しゆるめる）。力が抜けた隙に引くと出てくる。離すと穴へ戻っていく　<kbd>B</kbd> 仲間を呼ぶ / 自由に暮らす（右上のボタンでも。以前の <kbd>Q</kbd> は左のハサミになった）</li><li><kbd>Q</kbd> 押している間：左の小さなハサミで挟む（<kbd>E</kbd> の右と同じ。押したままマウスを動かすと左の腕だけ向きを変える）。左右で別々の物も、1 つの物の 2 か所も挟める</li><li><kbd>Tab</kbd> ハサミ集中モード（右上の「集中」でも。<kbd>Tab</kbd> / <kbd>Esc</kbd> で戻る）：カニはその場に留まり、左右の腕を別々に動かす。<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 左の腕・<kbd>Q</kbd> / <kbd>E</kbd> 左の高さ・<kbd>Z</kbd> / <kbd>X</kbd> 左の手首・左 <kbd>Shift</kbd> 押している間 左を閉じる。マウス 右の腕（方向キーでも）・左ボタン 押している間 右を閉じる・右ボタンを押したまま上下 右の高さ（左右で手首）。中ボタンのドラッグ 視点・ホイール ズーム・<kbd>M</kbd> 腕の動かし方（面に沿う / 床に沿う＋高さ / 画面に沿う）。挟んでいる物は切り替えても落とさない（押し直すまで持っている）</li><li>食べる：<kbd>E</kbd> で挟んだまま <kbd>F</kbd>（またはマウスの右ボタン）を押している間、口元へ運んで少しずつ食べる（離すと中断。もう一度押すと続きから。<kbd>E</kbd> を離すと食べかけを落とす）。藻（岩・流木をつかんだまま押すと、そこの苔をむしる）・ちぎった水草・捕まえたエビ / 小魚・引き抜いたゴカイを食べられる。捕まえた生き物は、食べずに <kbd>E</kbd> を離せば逃がせる。小石・貝殻は口元で確かめて押し戻す。仲間は食べない。食べると左上の「栄養」が増える（減らない）</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li><kbd>H</kbd> または右上の「？」：この説明の表示 / 非表示</li><li>ゲームパッド：左スティック 移動、右スティック 腕（両ハサミ）の向き、LT / L2 左ハサミ・RT / R2 右ハサミ（押している間。押し込むほど強く握る）、左右のスティックの同時押し ハサミ集中モード（左スティック = 左の腕・右スティック = 右の腕・LT / RT 押し込んだ分だけ閉じる＝触れた後は握る力・LB / RB を押したままスティック 高さと手首・十字キー カメラ・Y / △ 腕の動かし方・B / ○ で戻る）、A / × ジャンプ、B / ○ ダッシュ、X / □ 掘る・盛る（押している間は右スティックで掘る向き）、Y / △ 掘る ↔ 盛る、RB / R1 次の視点、左スティック押し込み 肩越し ↔ 三人称、水草を挟んだまま X / □ ちぎる・抜く、ほかの物を挟んだまま X / □ 押している間 食べる、LB / L1 を押したまま右スティック・十字キーでカメラ、Back 仲間、Start 説明</li><li>右上の「🔊」：音と設定（消音・音量、操作ボタンの大きさ・濃さ、カメラの方式、歩き方（接地 IK / 従来）と接地の診断、水草のかき分け、案内の表示。最初に画面に触れると音が出せるようになる）</li><li><kbd>I</kbd> または左上の「詳細」：区画・発見の数・FPS・画面の倍率の記録などの表示 / 非表示</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`;
   let help: HelpPanel | null = null;
   const marker = document.createElement('div');
   marker.id = 'crab-marker';
@@ -477,12 +502,16 @@ async function boot() {
   input.onPress('KeyH', () => help?.toggle());
   input.onPress('KeyI', () => hud.toggle());
   input.onPress('KeyR', () => {
+    setFocus(false);
     eat.reset();
     grab.release();
     grabL.release();
     touchUi?.setGrabLatched(false);
+    touchUi?.setGrabLatched(false, 'L');
     crab.teleport(world.spawn.x, world.spawn.z);
   });
+  /** ハサミ集中モードへ入る・戻る（下で中身を決める：画面の切り替え・ポインターの固定・スマホの操作） */
+  let setFocus: (on: boolean) => void = () => {};
   // 自動検証用：発見の記録を消す
   const resetDiscovery = () => {
     tracker.visited.clear();
@@ -504,15 +533,19 @@ async function boot() {
     burrow: [BURROW_XZ[0] + 0.6, BURROW_XZ[1], 6],
     // 水草の森の中（第 3 段階の検証）
     forest: [-11.0, -6.6, 6],
+    // 積み木・物理パズルの検証エリアの手前
+    blocks: [BLOCKS_XZ[0], BLOCKS_XZ[1] - 0.4, 6],
   };
   const goto = (name: string) => {
     const p = places[name];
     if (p) {
+      setFocus(false);
       eat.reset();
       grab.release();
       grabL.release();
       // スマホの「挟む」スイッチも開く（瞬間移動の後に閉じたままにしない）
       touchUi?.setGrabLatched(false);
+      touchUi?.setGrabLatched(false, 'L');
     }
     if (p) crab.teleport(p[0], p[1], world.contactSurfaceBelow(p[0], p[2], p[1]) + 0.02);
     return crab.region;
@@ -522,7 +555,7 @@ async function boot() {
     // （巣穴の生き物も「挟む」で挟んで引っ張る。以前の「調べる / 引っこ抜く」ボタンは使わない）
     // カメラのボタン：短く押す = 次の視点、長押し = 視点の一覧（押したまま指を滑らせて離すと選ぶ）
     touchUi = new TouchControls(input, {
-      runLabel: 'ダッシュ', jump: true, dig: true, grab: true, icons: true,
+      runLabel: 'ダッシュ', jump: true, dig: true, grab: true, grabL: true, icons: true,
       onCamera: () => cycleView(1),
       onCameraHold: () => picker.open(),
       onCameraDrag: (x, y, end) => picker.drag(x, y, end),
@@ -633,7 +666,7 @@ async function boot() {
   let created = Date.now();
   let playTime = 0;
   const flags: Record<string, boolean> = {};
-  const restoreInfo = { status: loaded.status, prims: 0, restoreMs: 0, flushMs: 0, loadMs, playerFallback: false };
+  const restoreInfo = { status: loaded.status, prims: 0, restoreMs: 0, flushMs: 0, loadMs, playerFallback: false, blocks: 0 };
   if (loaded.status === 'ok' || loaded.status === 'recovered') {
     const d = loaded.data;
     created = d.created;
@@ -660,6 +693,8 @@ async function boot() {
     // 栄養（版 3）と、食べられたエビ・小魚（食べかけは底に横たわったまま・食べ終えた個体は消えたまま）
     eat.nutrition.restore(d.player.nutrition);
     if (tank) life.restoreEaten(tank.food.critters);
+    // 積み木の検証エリア（版 4）：置いた・組み立てた位置と向き
+    if (tank) restoreInfo.blocks = restoreBlocks(props, blocks, tank.props);
     // プレイヤー：保存した位置が固体の中なら（あり得ないが）スタート地点へ
     const P = d.player;
     if (world.contactSolid(P.x, P.y + crab.radius, P.z) > crab.radius * 0.5) {
@@ -709,7 +744,7 @@ async function boot() {
     saveId: '',
     player: { tank: HOME_TANK, x: crab.x, y: crab.y, z: crab.z, heading: crab.heading, camera: camera.mode, sand: Math.max(0, crab.sandHeld), tool: crab.tool, nutrition: eat.nutrition.toSave() },
     progress: { visited: [...tracker.visited], flags: { ...flags, [FLAG_EXAMINED]: buddy.examined } },
-    tanks: { [HOME_TANK]: { dig: { prims: world.dig.exportPrims() }, food: { critters: life.eatenList() } } },
+    tanks: { [HOME_TANK]: { dig: { prims: world.dig.exportPrims() }, food: { critters: life.eatenList() }, props: blocksToSave(blocks) } },
     buddies: [buddy.toSave(), ...worms.toSave()],
   });
   const saver = new AutoSaver(store, gather);
@@ -757,7 +792,8 @@ async function boot() {
   };
   buddyBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
   buddyBtn.addEventListener('click', toggleBuddy);
-  input.onPress('KeyQ', toggleBuddy);
+  // （Q は左のハサミ（E = 右と対）にしたので、仲間は B キー：2026-11-28）
+  input.onPress('KeyB', toggleBuddy);
   // 右上の「音」（消音・音量・試し聞き）
   const audioMenu = new AudioMenu(menu, audio);
   // 同じ欄に表示の設定（ボタンの大きさ・濃さ・案内）
@@ -771,8 +807,82 @@ async function boot() {
     toggleBuddy,
     toggleHelp: () => help?.toggle(),
     toast,
+    toggleFocus: () => setFocus(!focus.on),
+    cycleScheme: () => cycleScheme(),
   });
   showBuddyBtn();
+
+  // ---------------- ハサミ集中モード ----------------
+  // 右上の「集中」ボタン（PC・スマホとも）・Tab キー・パッドの左右のスティックの同時押し（B / ○ でも戻る）
+  const focusBtn = document.createElement('button');
+  focusBtn.type = 'button';
+  focusBtn.className = 'menu-btn focus';
+  focusBtn.setAttribute('aria-label', 'ハサミ集中モード');
+  focusBtn.innerHTML = `${touchIcon('clawOpen')}<span>集中</span>`;
+  menu.insertBefore(focusBtn, menu.firstChild);
+  focusBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+  focusBtn.addEventListener('click', () => setFocus(!focus.on));
+  // 集中モードの印（いまの腕の動かし方・戻り方）
+  const focusTag = document.createElement('div');
+  focusTag.id = 'focus-tag';
+  document.body.appendChild(focusTag);
+  const showFocusTag = () => {
+    focusTag.classList.toggle('show', focus.on);
+    focusTag.textContent = `ハサミ集中：${FOCUS_SCHEME_LABEL[focus.scheme]}${touch ? '' : pad.connected ? '（B / ○ で戻る・Y / △ で動かし方）' : '（Tab で戻る・M で動かし方）'}`;
+  };
+  const focusTouch = touch ? new FocusTouch(input, () => setFocus(false), () => cycleScheme()) : null;
+  /** ポインターの固定（失敗しても遊べる。新しいブラウザは Promise を返すので、拒否を握りつぶす） */
+  const lockPointer = () => {
+    try {
+      const r = (canvas.requestPointerLock as unknown as (() => unknown) | undefined)?.call(canvas) as Promise<void> | undefined;
+      if (r && typeof r.catch === 'function') r.catch(() => {});
+    } catch {
+      /* 固定は必須ではない */
+    }
+  };
+  const marks = new ClawMarks();
+  const cycleScheme = () => {
+    const s = focus.cycleScheme();
+    uiPrefs.set({ focusScheme: s });
+    toast(`腕の動かし方：${FOCUS_SCHEME_LABEL[s]}`);
+  };
+  setFocus = (on: boolean) => {
+    if (on === focus.on) return;
+    // 入る：いま食べていればやめる（挟んだ物は持ったまま）。スマホの通常の「挟む」スイッチは集中モードでは使わない
+    if (on) eat.reset();
+    focus.set(on);
+    pad.focus = on;
+    // （タッチの画面を持つ PC でもマウスで操作できるように。マウスの入力はタッチと別に届く）
+    input.focusMouse = on;
+    document.body.classList.toggle('claw-focus', on);
+    focusBtn.classList.toggle('on', on);
+    focusTouch?.show(on);
+    // マウスの動きをそのまま右の鋏へ（画面の端で止まらない）。固定できない環境でも動きは届く
+    if (on && !touch) lockPointer();
+    else if (document.pointerLockElement) document.exitPointerLock?.();
+    // 戻る：挟んでいる鋏のスマホのスイッチは閉じたまま（押し直すまで持っている）
+    if (!on) {
+      touchUi?.setGrabLatched(grab.state === 'holding', 'R');
+      touchUi?.setGrabLatched(grabL.state === 'holding', 'L');
+    }
+    showFocusTag();
+    toast(on ? `ハサミ集中モード（${FOCUS_SCHEME_LABEL[focus.scheme]}）` : '通常のモード');
+  };
+  input.onPress('Tab', () => setFocus(!focus.on));
+  input.onPress('KeyM', () => focus.on && cycleScheme());
+  input.trapTab = true;
+  // （Esc は視点の一覧を閉じる。一覧が開いていなければ集中モードから戻る）
+  input.onPress('Escape', () => (picker.isOpen ? picker.close() : setFocus(false)));
+  // ポインターの固定がブラウザに外された（Esc など）：集中モードのまま、マウスはふつうに使える（クリックでまた固定）
+  canvas.addEventListener('pointerdown', (e) => {
+    if (focus.on && e.pointerType === 'mouse' && !document.pointerLockElement) lockPointer();
+  });
+  uiPrefs.onChange((p) => {
+    focus.setScheme(p.focusScheme);
+    focusTouch?.setMode(p.focusToggle);
+    marks.on = p.clawMarks;
+    showFocusTag();
+  });
   // 巣穴の案内（近くで触角が見えているとき：挟めること。引っ張っている間は出さない = 手応えの印 tugCue に任せる）
   const prompt = document.createElement('div');
   prompt.id = 'act-prompt';
@@ -796,6 +906,7 @@ async function boot() {
   const showGrabHint = () => {
     const pr = grab.hint;
     touchUi?.setGrabReady(!!pr);
+    touchUi?.setGrabReady(!!grabL.hint, 'L');
     // 輪：届く物 → 明るく、近い物 → 薄く（挟んでいる間・何も無いときは出さない）
     const at = grab.hintAt ?? grab.near?.at ?? null;
     const qc = at && !grab.held ? view.project(at[0], at[1], at[2]) : null;
@@ -1223,7 +1334,89 @@ async function boot() {
   // dig = true で掘るボタンを押したことにする。digAim = { x, y } で照準を決める（null = 実際の入力。自動検証用）
   // hold = true で「挟む」を押したことにする（自動検証用。巣穴の触角も挟める）
   // holdL = true で左の鋏（ゲームパッドの左トリガー）を押したことにする（自動検証用）
-  const debug: { freeze: boolean; fps: number; dig: boolean; hold: boolean; holdL: boolean; digAim: { x: number; y: number } | null; step: (n: number, dt?: number) => void } = { freeze: false, fps: 0, dig: false, hold: false, holdL: false, digAim: null, step: () => {} };
+  // focusCtl = 集中モードの左右の鋏の入力（null = 実際の入力。自動検証用。値は実際の入力に足す）
+  const debug: { freeze: boolean; fps: number; dig: boolean; hold: boolean; holdL: boolean; digAim: { x: number; y: number } | null; focusCtl: { R: Partial<ClawCtl>; L: Partial<ClawCtl> } | null; step: (n: number, dt?: number) => void } = { freeze: false, fps: 0, dig: false, hold: false, holdL: false, digAim: null, focusCtl: null, step: () => {} };
+  /**
+   * 集中モードの左右の鋏の入力：ゲームパッド（左右のスティック・トリガー・バンパー + スティック = 高さとひねり）・
+   * PC（WASD + Q / E 高さ + Z / X ひねり + 左 Shift 閉じる = 左、マウス + 左クリック閉じる + 右ドラッグ 高さ・ひねり = 右）・
+   * スマホ（左右のスティック・高さのつまみ・開閉のボタン）をまとめる。開閉はいちばん強く押している物
+   */
+  const focusCtls = (): { R: ClawCtl; L: ClawCtl } => {
+    const R = emptyCtl(), L = emptyCtl();
+    const P = pad.pf;
+    if (pad.connected) {
+      for (const [C, s, mod, t] of [[L, P.l, P.lb, P.lt], [R, P.r, P.rb, P.rt]] as const) {
+        if (mod) {
+          C.lift += s.y;
+          C.roll += s.x;
+        } else {
+          C.mx += s.x;
+          C.my += s.y;
+        }
+        C.close = Math.max(C.close, t);
+      }
+    }
+    const k = (c: string) => (input.isDown(c) ? 1 : 0);
+    L.mx += k('KeyD') - k('KeyA');
+    L.my += k('KeyW') - k('KeyS');
+    L.lift += k('KeyE') - k('KeyQ');
+    L.roll += k('KeyX') - k('KeyZ');
+    if (input.isDown('ShiftLeft')) L.close = 1;
+    if (input.focusMouse) {
+      if (input.mouseR) {
+        R.liftD += input.mouseRDY;
+        R.roll += clamp(input.mouseRDX * 0.08, -1, 1);
+      } else {
+        R.dx += input.mouseDX;
+        R.dy += input.mouseDY;
+      }
+      if (input.mouseL) R.close = 1;
+    }
+    // 方向キー：右の鋏（マウスの代わり）・Enter 右を閉じる
+    R.mx += k('ArrowRight') - k('ArrowLeft');
+    R.my += k('ArrowUp') - k('ArrowDown');
+    if (input.isDown('Enter')) R.close = 1;
+    const T = focusTouch;
+    if (T) {
+      L.mx += T.stick.L.x; L.my += T.stick.L.y; L.lift += T.lift.L; L.close = Math.max(L.close, T.close.L);
+      R.mx += T.stick.R.x; R.my += T.stick.R.y; R.lift += T.lift.R; R.close = Math.max(R.close, T.close.R);
+    }
+    const D = debug.focusCtl;
+    if (D) {
+      for (const [C, d] of [[R, D.R], [L, D.L]] as const) {
+        for (const key of ['mx', 'my', 'dx', 'dy', 'lift', 'liftD', 'roll'] as const) C[key] += d[key] ?? 0;
+        if (d.close !== undefined) C.close = Math.max(C.close, d.close);
+      }
+    }
+    for (const C of [R, L]) {
+      const l = Math.hypot(C.mx, C.my);
+      if (l > 1) {
+        C.mx /= l;
+        C.my /= l;
+      }
+      C.lift = clamp(C.lift, -1, 1);
+      C.roll = clamp(C.roll, -1, 1);
+    }
+    return { R, L };
+  };
+  /** 離した・滑った数（集中モードのスマホの切り替え式ボタンを開く）・積み木の位置の指紋（動いて止まったら保存） */
+  const slipSeen = { R: 0, L: 0 };
+  let blockSig = blocks.reduce((s, b) => s + b.p[0] * 3.1 + b.p[1] * 7.3 + b.p[2] * 1.7 + b.q[0] + b.q[1] * 2 + b.q[3] * 5, 0);
+  /**
+   * 鋏の印：通常モードは、いま押すと挟む所（右は常に。左は右と違う物のときか左を使っている間）。
+   * 集中モードは鋏の先・下の面の影と高さの線・いま閉じると挟む所・挟んでいる所
+   */
+  const drawMarks = () => {
+    const fw = focus.w;
+    const hintR = grab.hintAt && !grab.held ? grab.hintAt : null;
+    const lActive = grabHeldLNow || grabL.state !== 'idle' || fw > 0.5;
+    const hintL = grabL.hintAt && !grabL.held && (lActive || grabL.hint !== grab.hint) ? grabL.hintAt : null;
+    marks.draw((x, y, z) => view.project(x, y, z), fw, {
+      R: { tip: rig.pinch, floor: fw > 0.5 ? focus.R.floor : null, hint: hintR, hold: fw > 0.5 ? grab.gripAt() : null, busy: grab.state === 'holding' },
+      L: { tip: rig.pinchL, floor: fw > 0.5 ? focus.L.floor : null, hint: hintL, hold: fw > 0.5 ? grabL.gripAt() : null, busy: grabL.state === 'holding' },
+    });
+  };
+  let grabHeldLNow = false;
   let time = 0;
   let last = performance.now();
   let acc = 0, frames = 0, hudT = 0, frameMax = 0, frameMaxShown = 0;
@@ -1238,22 +1431,36 @@ async function boot() {
       pad.poll(dtRaw);
       // 挟む：PC は E（押している間）、スマホは「挟む」スイッチ（たたくと閉じ、もう一度で開く）、ゲームパッドは右トリガー。
       // 小石・貝殻・重い石も、景色の小石・貝殻も、巣穴から見えている触角も、岩・流木も同じ操作。左の鋏は左トリガー
-      const grabHeld = input.touchGrabLatch || input.isDown('KeyE') || pad.clawR || debug.hold;
-      const grabHeldL = pad.clawL || debug.holdL;
-      // 腕の向き（ゲームパッドの右スティック・E を押したままのマウス）
-      const aim = input.armAim();
+      // 左のハサミ：Q（押している間）・スマホの左の「挟む」スイッチ・左トリガー（2026-11-28：PC・スマホでも使える）
+      const inFocus = focus.on;
+      const grabHeld = !inFocus && (input.touchGrabLatch || input.isDown('KeyE') || pad.clawR || debug.hold);
+      const grabHeldL = !inFocus && (input.touchGrabLatchL || input.isDown('KeyQ') || pad.clawL || debug.holdL);
+      grabHeldLNow = grabHeldL;
+      // 握る強さ（通常モード）：トリガーの押し込み（0.35 で閉じる）を 0.25〜1 にする。ボタン・キーは 1
+      if (!inFocus) {
+        grab.squeeze = pad.clawR && pad.analog && !input.isDown('KeyE') && !input.touchGrabLatch && !debug.hold ? clamp((pad.clawRv - 0.2) / 0.7, 0.25, 1) : 1;
+        grabL.squeeze = pad.clawL && pad.analog && !input.isDown('KeyQ') && !input.touchGrabLatchL && !debug.holdL ? clamp((pad.clawLv - 0.2) / 0.7, 0.25, 1) : 1;
+      }
+      // 腕の向き（ゲームパッドの右スティック・E を押したままのマウス = 両方。Q を押したままのマウス = 左だけ）
+      const aim = inFocus ? { x: 0, y: 0 } : input.armAim();
+      const aimQ = inFocus ? null : input.armAimL();
       grab.aiming = Math.hypot(aim.x, aim.y) > 0.15;
-      grabL.aiming = grab.aiming;
+      grabL.aiming = grab.aiming || (!!aimQ && Math.hypot(aimQ.x, aimQ.y) > 0.15);
+      const aimL = aimQ ?? { x: aim.x, y: aim.y };
       // 狙いの補助（腕）：手で向けていない・閉じている・まだ挟んでいない間は、近くの挟める物の方へ腕を下げる・横へ向ける
-      // （ふだんの構えは体の右 0.06・高さ 0.33。体の向きは下の face で物へ向く）
-      const na = grab.near?.at;
-      if (!grab.aiming && grabHeld && !grab.held && na) {
+      // （ふだんの構えは体の右 0.06・高さ 0.33。体の向きは下の face で物へ向く。左の鋏は左へ 0.06）
+      for (const [G, A, held, sx] of [[grab, aim, grabHeld, 1], [grabL, aimL, grabHeldL, -1]] as const) {
+        const na = G.near?.at;
+        if (G.aiming || !held || G.held || !na) continue;
         const dx = na[0] - crab.x, dz = na[2] - crab.z, h = crab.heading;
-        aim.x = clamp((dx * -Math.cos(h) + dz * Math.sin(h) - 0.06) / 0.13, -1, 1);
-        aim.y = clamp((na[1] - crab.y - 0.33) / 0.12, -1, 1);
+        A.x = clamp((dx * -Math.cos(h) + dz * Math.sin(h) - 0.06 * sx) / 0.13, -1, 1);
+        A.y = clamp((na[1] - crab.y - 0.33) / 0.12, -1, 1);
       }
       rig.armAim.x = aim.x;
       rig.armAim.y = aim.y;
+      rig.armAimL = aimL;
+      // 集中モード：左右の鋏の目標・開閉（カニの姿勢を決める前に。届く範囲は前のフレームの付け根で決める）
+      focus.update(dt, ...(((c) => [c.R, c.L])(focusCtls()) as [ClawCtl, ClawCtl]), input);
       // 仲間・巣穴（触角の出具合・引っ張っている間の体。引っ張っている間はカニを穴へ向け、穴の上に乗せない）
       const br = buddy.update(dt, crab);
       showPrompt((grab.busy && !grab.holdingCreature) || (grabL.busy && !grabL.holdingCreature) ? null : br.prompt);
@@ -1267,7 +1474,7 @@ async function boot() {
       // 狙いの補助：「挟む」を押している（閉じている）がまだ挟んでいない間は、鋏の側を近くの挟める物へ向け直す
       // （横歩きで横を向いていても届く。巣穴の触角は少し遠くからでも向く）。押していないときは向きを変えない（勝手につかまない）
       const [bx, , bz] = buddy.burrow;
-      const nearAt = grab.near?.at ?? null;
+      const nearAt = grab.near?.at ?? grabL.near?.at ?? null;
       const face = !(grabHeld || grabHeldL) || grab.held || grabL.held || grab.aiming ? null
         : br.prompt?.kind === 'peek' && Math.hypot(crab.x - bx, crab.z - bz) < 0.9 ? { x: bx, z: bz }
         : nearAt ? { x: nearAt[0], z: nearAt[2] } : null;
@@ -1297,10 +1504,36 @@ async function boot() {
       syncFeed();
       // （水草を挟んでいる間は、正面（鋏の側）を挟んだ所へ向けたまま下がる・回り込む：背を向けて鋏が届かなくならない）
       // 切り替えた直後の移動の基準：倒したままなら前の視点の向き（離す・大きく倒し直すまで）
-      const mv = input.moveAxis();
+      // 集中モード：カニはその場に留まる（移動・走る・跳ぶ・掘るは使わない。物の反作用・水流では少し動く）
+      // （腕を伸ばしきっても届かない向きへは、ゆっくり寄る：AquaClawFocus.bodyMove。世界の向き → スティックの向き）
+      let bm: readonly number[] = focus.bodyMove, bml = Math.hypot(bm[0], bm[1]);
+      const cyaw = camera.yaw;
+      // （寄る先に物・箱・岩があれば寄らない：積んだ物へ体をぶつけて崩さない）
+      // （今いる所より近くに面がある＝寄る先に何か立っている。乗っている床・石の床そのものは止めない：体の中心から床までは
+      //   ちょうど体の半径なので、半径との比べだけでは、石の床の上では一度も寄れなかった）
+      const here = bml > 1e-4 ? world.contactSolid(crab.x, crab.y + crab.radius, crab.z) : 1;
+      // （動かせる箱は、体の球を寄る向きへ 8 cm 進めた所で測る：下の地形の測り方は体の中心の高さ・14 cm 先なので、低い積み木の列を
+      //   見落として、体で押しのけていた）
+      const clear = (dx: number, dz: number, l: number) =>
+        world.contactSolid(crab.x + (dx / l) * 0.14, crab.y + crab.radius, crab.z + (dz / l) * 0.14) > Math.min(crab.radius + 0.03, here - 0.02) &&
+        props.movableDist(crab.x + (dx / l) * 0.08, crab.y + crab.radius, crab.z + (dz / l) * 0.08, crab.y + 0.06) > crab.radius + 0.03;
+      let shuffle = inFocus && bml > 0.03 && clear(bm[0], bm[1], bml);
+      // 寄る向きに物があれば、体の横向き（カニは横へ歩く）の分だけで寄る（前の積み木の列に体を当てずに、横の物へ腕を届かせる）
+      if (inFocus && bml > 0.03 && !shuffle) {
+        const sx = -Math.cos(crab.heading), sz = Math.sin(crab.heading), d = bm[0] * sx + bm[1] * sz;
+        if (Math.abs(d) > 0.03 && clear(sx * d, sz * d, Math.abs(d))) {
+          bm = [sx * d, sz * d];
+          bml = Math.abs(d);
+          shuffle = true;
+        }
+      }
+      const mv = !inFocus ? input.moveAxis() : shuffle ? { x: bm[0] * Math.cos(cyaw) - bm[1] * Math.sin(cyaw), y: -bm[0] * Math.sin(cyaw) - bm[1] * Math.cos(cyaw) } : { x: 0, y: 0 };
       if (moveLatch && (Math.hypot(mv.x, mv.y) < 0.2 || Math.abs(Math.atan2(Math.sin(Math.atan2(mv.x, mv.y) - moveLatch.ang), Math.cos(Math.atan2(mv.x, mv.y) - moveLatch.ang))) > 1.0)) moveLatch = null;
       // 鋏が挟む方に使われている間は掘れない（掘るのも鋏を使うので）
-      crab.update(dt, { move: mv, run: input.isRunning(), jumpHeld: input.isJumpHeld(), cameraYaw: moveLatch?.yaw ?? camera.yaw, dig: digNow && !grab.busy && !grabL.busy, digAim: debug.digAim ?? input.digAim(), pull, face: pg ? { x: pg.p[0], z: pg.p[2] } : face, tow: mergeTow(mergeTow(grab.tow, grabL.tow), eat.feedW > 0 ? { ax: 0, ay: 0, az: 0, slow: eat.slow } : null), support: rig.gait !== 'cycle' && rig.feet && rig.ikW > 0.5 ? rig.feet.support : null, lead: rig.gait === 'lead' || rig.gait === 'hybrid' });
+      // （集中モード：脚を踏ん張ってその場に留まる。挟んだ物の反作用で体が横へ流されない）
+      const towAll = mergeTow(mergeTow(grab.tow, grabL.tow), eat.feedW > 0 ? { ax: 0, ay: 0, az: 0, slow: eat.slow } : null);
+      const tow = inFocus && towAll ? { ax: 0, ay: towAll.ay, az: 0, slow: towAll.slow } : towAll;
+      crab.update(dt, { move: mv, run: !inFocus && input.isRunning(), jumpHeld: !inFocus && input.isJumpHeld(), cameraYaw: moveLatch?.yaw ?? camera.yaw, dig: !inFocus && digNow && !grab.busy && !grabL.busy, digAim: debug.digAim ?? input.digAim(), pull: inFocus ? null : pull, face: inFocus ? { x: crab.x + Math.sin(crab.heading), z: crab.z + Math.cos(crab.heading) } : pg ? { x: pg.p[0], z: pg.p[2] } : face, tow, support: rig.gait !== 'cycle' && rig.feet && rig.ikW > 0.5 ? rig.feet.support : null, lead: rig.gait === 'lead' || rig.gait === 'hybrid' });
       camera.update(dt, input, crab);
       // 挟む：鋏の構え → 体と鋏の姿勢 → 左右の鋏の状態 → 物・生き物を進める（ばね。2 本で 1 回）→ 動いた物へ鋏を伸ばし直す・生き物の体を置き直す
       Object.assign(rig.grip, grab.rigGrip());
@@ -1310,8 +1543,17 @@ async function boot() {
       const reqR = grab.pre(dt, grabHeld, crab, rig);
       const reqL = grabL.pre(dt, grabHeldL, crab, rig.left);
       const reqs = [reqR, reqL].filter((r) => r !== null);
-      const res = props.updateMany(dt, crab, reqs);
-      const none = { force: [0, 0, 0] as [number, number, number], stretch: 0 };
+      // 集中モード：開いている鋏の先で物を押せる（挟んでいる物は押さない）
+      // （集中モードに入り切っている間だけ：戻るときに鋏がいつもの構えへ戻る途中で、横の物を払い飛ばさない）
+      const tips = focus.on && focus.w > 0.95 ? [
+        // （鋏の先の小さな球：挟める距離 FOCUS_REACH よりずっと小さく。近づくだけで物を押しのけて挟めない、を防ぐ）
+        // （閉じていく途中の物・離した直後の物は押さない）
+        // （目標は物の面から 1.2 cm 離すので、それより小さく：触れて止まっているだけの物は押さない。さらに押し込むと押す）
+        { p: rig.pinch, r: 0.009, skip: grab.holding ?? (grab.state === 'closing' ? grab.target : null) ?? grab.justReleased },
+        { p: rig.pinchL, r: 0.008, skip: grabL.holding ?? (grabL.state === 'closing' ? grabL.target : null) ?? grabL.justReleased },
+      ].filter((t, i) => (i === 0 ? grab : grabL).state !== 'holding') : [];
+      const res = props.updateMany(dt, crab, reqs, tips);
+      const none = { force: [0, 0, 0] as [number, number, number], stretch: 0, slide: 0 };
       grab.post(dt, crab, rig, reqR ? res[0] : none);
       grabL.post(dt, crab, rig.left, reqL ? res[reqR ? 1 : 0] : none);
       // 抜けた・ちぎれた水草のかけらを、その鋏に挟ませる
@@ -1353,6 +1595,21 @@ async function boot() {
       onGrabEvents();
       // スマホの「挟む」スイッチ：閉じているのにハサミが開いた（滑った・抜けた・水流に乗った・瞬間移動）ら、スイッチも開く
       if (input.touchGrabLatch && grab.state === 'idle') touchUi?.setGrabLatched(false);
+      if (input.touchGrabLatchL && grabL.state === 'idle') touchUi?.setGrabLatched(false, 'L');
+      // 集中モードのスマホの開閉（たたいて切り替え）：滑った・離れたら開く
+      if (focusTouch && focus.on) {
+        if (grab.state === 'idle' && focusTouch.close.R > 0 && grab.stats.slips + grab.stats.releases !== slipSeen.R) focusTouch.open('R');
+        if (grabL.state === 'idle' && focusTouch.close.L > 0 && grabL.stats.slips + grabL.stats.releases !== slipSeen.L) focusTouch.open('L');
+      }
+      slipSeen.R = grab.stats.slips + grab.stats.releases;
+      slipSeen.L = grabL.stats.slips + grabL.stats.releases;
+      drawMarks();
+      // 積み木が動いた（止まった後）：保存する
+      const bsig = blocks.reduce((s, b) => s + b.p[0] * 3.1 + b.p[1] * 7.3 + b.p[2] * 1.7 + b.q[0] + b.q[1] * 2 + b.q[3] * 5, 0);
+      if (Math.abs(bsig - blockSig) > 1e-3 && !blocks.some((b) => b.awake)) {
+        blockSig = bsig;
+        saver.markDirty();
+      }
       updateClimbCue();
       // 「スポン！」の文字と輪：穴の上に置いて、0.9 秒で消える
       if (popT > 0 && popAt) {
@@ -1431,9 +1688,11 @@ async function boot() {
       // （左の鋏も使っているときは「右：… / 左：…」）
       const clawText = (G: GS) => {
         const held = G.held, strain = G.strain;
-        return held ? `${held.name}${strain > 0.8 ? '（重い！）' : strain > 0.45 ? '（ずっしり）' : ''}` : G.state === 'closing' ? '…' : '空振り';
+        // （集中モード・アナログのトリガー：握る強さも）
+        const gp = held && (focus.on || G.squeeze < 1) ? `・握る ${Math.round(G.gripNow * 100)}%` : '';
+        return held ? `${held.name}${strain > 0.8 ? '（重い！）' : strain > 0.45 ? '（ずっしり）' : ''}${gp}` : G.state === 'closing' ? '…' : focus.on ? '—' : '空振り';
       };
-      const both = grabL.state !== 'idle';
+      const both = grabL.state !== 'idle' || focus.on;
       const eatingText = eat.eating && eat.food ? `食べている：${eat.food.name}（残り ${Math.round(eat.food.left * 100)}%）` : null;
       const grabChip = grab.state === 'idle' && !both && !eatingText ? null : {
         text: eatingText ?? (both ? `右：${grab.state === 'idle' ? '—' : clawText(grab)} / 左：${clawText(grabL)}` : `挟む：${clawText(grab)}`),
@@ -1572,7 +1831,7 @@ async function boot() {
       }, 2500);
     }, 4000);
   }
-  (window as unknown as Record<string, unknown>).__aqua = Object.assign(debug, { world, crab, rig, camera, view, settings, input, spots, finds, tracker, life, resetDiscovery, goto, places, sump: SUMP, save: { store, saver, menu: saveMenu, ctx: saveCtx, gather, restore: restoreInfo, loaded }, help, viewport, buddy, toggleBuddy, worms, grab, grabL, eat, algae, eatClaws, plantField, pushers, plantSet: plants.set, weeds, plantGrabR, plantGrabL, lifeGrabR, lifeGrabL, props, decor, touchUi, setView, cycleView, toggleClose, picker, viewToast, moveLatch: () => moveLatch, uiPrefs, audio, audioMenu, pad, buildMs, bootMs, gpu, diagLog, buildPhases: built.ms, plantMs: plants.ms, plantCounts: plants.counts, plantTimes: plants.times });
+  (window as unknown as Record<string, unknown>).__aqua = Object.assign(debug, { world, crab, rig, camera, view, settings, input, spots, finds, tracker, life, resetDiscovery, goto, places, sump: SUMP, save: { store, saver, menu: saveMenu, ctx: saveCtx, gather, restore: restoreInfo, loaded }, help, viewport, buddy, toggleBuddy, worms, grab, grabL, eat, algae, eatClaws, plantField, pushers, plantSet: plants.set, weeds, plantGrabR, plantGrabL, lifeGrabR, lifeGrabL, props, decor, touchUi, focus, focusTouch, marks, blocks, resetBlocks: () => resetBlocks(props, blocks), setFocus: (on: boolean) => setFocus(on), focusCtls, setView, cycleView, toggleClose, picker, viewToast, moveLatch: () => moveLatch, uiPrefs, audio, audioMenu, pad, buildMs, bootMs, gpu, diagLog, buildPhases: built.ms, plantMs: plants.ms, plantCounts: plants.counts, plantTimes: plants.times });
 }
 
 // 読み込み表示を先に描画させてから重い生成処理に入る

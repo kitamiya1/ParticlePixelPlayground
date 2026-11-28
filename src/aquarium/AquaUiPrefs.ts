@@ -7,6 +7,7 @@
 // 設定の欄は右上の「🔊」（音と設定）の中。
 
 import { WORM_FEEL_LABEL, WORM_FEELS, type WormFeel } from './AquaWorm';
+import { FOCUS_SCHEME_LABEL, FOCUS_SCHEMES, type FocusScheme } from './AquaClawFocus';
 
 export const UI_KEY = 'ppp-aquarium:ui';
 
@@ -37,9 +38,14 @@ export interface UiPrefs {
   labels: boolean;
   /** ゴカイの引っこ抜きの手応え（柔らかめ・標準・硬め。比べて選ぶ） */
   wormFeel: WormFeel;
+  /** ハサミ集中モードの腕の動かし方（比べて選ぶ。AquaClawFocus）・スマホの開閉ボタン（押している間 / たたくたびに切り替え） */
+  focusScheme: FocusScheme;
+  focusToggle: 'hold' | 'toggle';
+  /** 鋏の印（挟める所・挟む所・集中モードの鋏の先と影）。既定 true（小さく薄く） */
+  clawMarks: boolean;
 }
 
-export const UI_DEFAULTS: UiPrefs = { btnScale: 0.75, btnAlpha: 0.25, guides: false, camStyle: 'tps', gait: 'hybrid', plants: 'dyn', footDiag: false, labels: false, wormFeel: 'std' };
+export const UI_DEFAULTS: UiPrefs = { btnScale: 0.75, btnAlpha: 0.25, guides: false, camStyle: 'tps', gait: 'hybrid', plants: 'dyn', footDiag: false, labels: false, wormFeel: 'std', focusScheme: 'surface', focusToggle: 'hold', clawMarks: true };
 export const BTN_SCALE_RANGE: [number, number] = [0.55, 1.1];
 export const BTN_ALPHA_RANGE: [number, number] = [0.08, 0.6];
 
@@ -68,6 +74,8 @@ export class UiPrefStore {
     if (!GAITS.includes(p.gait)) p.gait = UI_DEFAULTS.gait;
     if (p.plants !== 'dyn' && p.plants !== 'gpu') p.plants = UI_DEFAULTS.plants;
     if (!WORM_FEELS.includes(p.wormFeel)) p.wormFeel = UI_DEFAULTS.wormFeel;
+    if (!FOCUS_SCHEMES.includes(p.focusScheme)) p.focusScheme = UI_DEFAULTS.focusScheme;
+    if (p.focusToggle !== 'hold' && p.focusToggle !== 'toggle') p.focusToggle = UI_DEFAULTS.focusToggle;
     this.prefs = p;
     // URL で決めた値は覚えない（覚えている値の方を残す）
     const keep = { ...readPrefs(), ...p };
@@ -91,6 +99,9 @@ function readPrefs(): UiPrefs {
         footDiag: typeof v.footDiag === 'boolean' ? v.footDiag : UI_DEFAULTS.footDiag,
         labels: typeof v.labels === 'boolean' ? v.labels : UI_DEFAULTS.labels,
         wormFeel: WORM_FEELS.includes(v.wormFeel) ? v.wormFeel : UI_DEFAULTS.wormFeel,
+        focusScheme: FOCUS_SCHEMES.includes(v.focusScheme) ? v.focusScheme : UI_DEFAULTS.focusScheme,
+        focusToggle: v.focusToggle === 'toggle' ? 'toggle' : 'hold',
+        clawMarks: typeof v.clawMarks === 'boolean' ? v.clawMarks : UI_DEFAULTS.clawMarks,
       };
     }
   } catch {
@@ -127,7 +138,11 @@ export function mountUiPrefs(panel: HTMLElement, store: UiPrefStore, opts: { tou
     <div class="row seg" data-k="plants"><button type="button" data-v="dyn">しなる（近くだけ計算）</button><button type="button" data-v="gpu">GPU だけ</button></div>` : ''}${opts.worm ? `
     <div class="sec">ゴカイの引っこ抜きの手応え</div>
     <div class="row seg" data-k="worm">${WORM_FEELS.map((f) => `<button type="button" data-v="${f}">${WORM_FEEL_LABEL[f]}</button>`).join('')}</div>` : ''}
+    <div class="sec">ハサミ集中モードの腕の動かし方（比べて選ぶ）</div>
+    <div class="row seg" data-k="fscheme">${FOCUS_SCHEMES.map((f) => `<button type="button" data-v="${f}">${FOCUS_SCHEME_LABEL[f]}</button>`).join('')}</div>${opts.touch ? `
+    <div class="row seg" data-k="ftoggle"><button type="button" data-v="hold">開閉：押している間</button><button type="button" data-v="toggle">開閉：たたいて切り替え</button></div>` : ''}
     <div class="sec">表示</div>
+    <label class="row"><input type="checkbox" data-k="marks"> 鋏の印（挟める所・挟む所・集中モードの鋏の先と影）</label>
     <label class="row"><input type="checkbox" data-k="guides"> 案内を出す（挟める物の輪・物の名前・引っ張りの手応え・操作の知らせ）</label>
     <div class="row"><button type="button" data-k="reset">表示の設定を元に戻す</button></div>`;
   panel.appendChild(sec);
@@ -144,6 +159,10 @@ export function mountUiPrefs(panel: HTMLElement, store: UiPrefStore, opts: { tou
   for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="gait"] button')) b.addEventListener('click', () => store.set({ gait: b.dataset.v as GaitStyle }));
   for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="plants"] button')) b.addEventListener('click', () => store.set({ plants: b.dataset.v as PlantStyle }));
   for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="worm"] button')) b.addEventListener('click', () => store.set({ wormFeel: b.dataset.v as WormFeel }));
+  for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="fscheme"] button')) b.addEventListener('click', () => store.set({ focusScheme: b.dataset.v as FocusScheme }));
+  for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="ftoggle"] button')) b.addEventListener('click', () => store.set({ focusToggle: b.dataset.v as 'hold' | 'toggle' }));
+  const mk = q<HTMLInputElement>('marks')!;
+  mk.addEventListener('change', () => store.set({ clawMarks: mk.checked }));
   q('reset')!.addEventListener('click', () => store.set({ btnScale: UI_DEFAULTS.btnScale, btnAlpha: UI_DEFAULTS.btnAlpha, guides: UI_DEFAULTS.guides, labels: UI_DEFAULTS.labels }));
   store.onChange((p) => {
     if (scale) scale.value = String(Math.round(p.btnScale * 100));
@@ -158,5 +177,8 @@ export function mountUiPrefs(panel: HTMLElement, store: UiPrefStore, opts: { tou
     for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="gait"] button')) b.classList.toggle('on', b.dataset.v === p.gait);
     for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="plants"] button')) b.classList.toggle('on', b.dataset.v === p.plants);
     for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="worm"] button')) b.classList.toggle('on', b.dataset.v === p.wormFeel);
+    for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="fscheme"] button')) b.classList.toggle('on', b.dataset.v === p.focusScheme);
+    for (const b of sec.querySelectorAll<HTMLButtonElement>('[data-k="ftoggle"] button')) b.classList.toggle('on', b.dataset.v === p.focusToggle);
+    mk.checked = p.clawMarks;
   });
 }
