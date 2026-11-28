@@ -566,21 +566,22 @@ body.claw-focus #touch-ui { display: none; }
 #focus-touch .flift.R { right: calc(170px + env(safe-area-inset-right)); }
 #focus-touch .flift i { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; background: rgba(255, 255, 255, 0.45); }
 #focus-touch .flift.on { background: rgba(12, 15, 24, 0.4); }
-#focus-touch .fexit, #focus-touch .fscheme { position: fixed; top: calc(52px + env(safe-area-inset-top)); min-height: 40px; padding: 4px 14px; border-radius: 20px;
-  pointer-events: auto; font-size: 13px; font-weight: 700; color: #fff; background: rgba(20, 30, 40, 0.55); border: 1px solid rgba(255, 255, 255, 0.3); }
-#focus-touch .fexit { right: calc(12px + env(safe-area-inset-right)); }
-#focus-touch .fscheme { left: calc(12px + env(safe-area-inset-left)); top: calc(96px + env(safe-area-inset-top)); }
+/* 「通常へ」「動かし方」：左右のスティックの間の下の真ん中（右上のメニューは狭い画面で 2 段になって重なるので、上には置かない） */
+#focus-touch .fexit, #focus-touch .fscheme { position: fixed; left: 50%; transform: translateX(-50%); width: 64px; min-height: 40px; padding: 2px 4px;
+  border-radius: 20px; pointer-events: auto; font-size: 12px; font-weight: 700; color: #fff; background: rgba(20, 30, 40, 0.55); border: 1px solid rgba(255, 255, 255, 0.3); }
+#focus-touch .fexit { bottom: calc(18px + env(safe-area-inset-bottom)); }
+#focus-touch .fscheme { bottom: calc(66px + env(safe-area-inset-bottom)); }
 /* 狭い縦長の画面：高さのつまみをスティックの上（内側）へ。開閉のボタンはスティックの上の外側のまま */
 @media (max-width: 520px) {
   #focus-touch .flift { bottom: calc(190px + env(safe-area-inset-bottom)); height: 96px; }
   #focus-touch .flift.L { left: calc(106px + env(safe-area-inset-left)); }
   #focus-touch .flift.R { right: calc(106px + env(safe-area-inset-right)); }
-  #focus-touch .fexit { top: calc(96px + env(safe-area-inset-top)); }
-  #focus-touch .fscheme { top: calc(140px + env(safe-area-inset-top)); }
 }
-/* 低い横長の画面：開閉のボタンを少し下げる（スティックのすぐ上） */
+/* 低い横長の画面：開閉のボタンを少し下げる（スティックのすぐ上）。「通常へ」「動かし方」は右上のメニューと重ならないよう、
+   左右のスティックの間の下の真ん中へ */
 @media (max-height: 420px) {
   #focus-touch .fclose { bottom: calc(166px + env(safe-area-inset-bottom)); width: 76px; height: 76px; }
-  #focus-touch .fexit, #focus-touch .fscheme { top: calc(48px + env(safe-area-inset-top)); }
-  #focus-touch .fscheme { left: auto; right: calc(100px + env(safe-area-inset-right)); }
+  #focus-touch .fexit, #focus-touch .fscheme { bottom: calc(18px + env(safe-area-inset-bottom)); }
+  #focus-touch .fexit { transform: translateX(4px); }
+  #focus-touch .fscheme { transform: translateX(calc(-100% - 4px)); }
 }

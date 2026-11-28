@@ -852,7 +852,8 @@ async function boot() {
     if (on) eat.reset();
     focus.set(on);
     pad.focus = on;
-    input.focusMouse = on && !touch;
+    // （タッチの画面を持つ PC でもマウスで操作できるように。マウスの入力はタッチと別に届く）
+    input.focusMouse = on;
     document.body.classList.toggle('claw-focus', on);
     focusBtn.classList.toggle('on', on);
     focusTouch?.show(on);
@@ -873,8 +874,8 @@ async function boot() {
   // （Esc は視点の一覧を閉じる。一覧が開いていなければ集中モードから戻る）
   input.onPress('Escape', () => (picker.isOpen ? picker.close() : setFocus(false)));
   // ポインターの固定がブラウザに外された（Esc など）：集中モードのまま、マウスはふつうに使える（クリックでまた固定）
-  canvas.addEventListener('pointerdown', () => {
-    if (focus.on && !touch && !document.pointerLockElement) lockPointer();
+  canvas.addEventListener('pointerdown', (e) => {
+    if (focus.on && e.pointerType === 'mouse' && !document.pointerLockElement) lockPointer();
   });
   uiPrefs.onChange((p) => {
     focus.setScheme(p.focusScheme);
