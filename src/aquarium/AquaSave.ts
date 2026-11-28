@@ -11,14 +11,16 @@
 //   書き込みは「current が正常と分かっているときだけ」current を backup へ写してから current を書く（1 つのトランザクション）。
 //   読み込みで current が壊れていたら、current は消さずに隔離し、backup を試す。どちらも読めなければ初期状態で始める
 //   （壊れたデータは隔離に残るので、自動保存が上書きしても失われない）。
-// - 形式：format = 'ppp-aquarium-save'、version（いまは 2。版 1 は migrate で 2 へ直して読む）。読み込みは migrate → validate の順で、validate を通った
+// - 形式：format = 'ppp-aquarium-save'、version（いまは 3。版 1・2 は migrate で 3 へ直して読む）。読み込みは migrate → validate の順で、validate を通った
 //   データだけをゲームへ渡す。未知の場所・仲間の id は捨てる（警告）。形が合わない・数が有限でない・範囲外は全体を拒否する。
 // - 書き出し・読み込み（ファイル）：JSON。Float64Array は base64（リトルエンディアン）の文字列にする。
-// - 拡張：水槽ごとの tanks[id]（いまは dig だけ。掘った空洞と盛った砂を編集の順に 1 つの並びで持つ。植物・繁殖個体は同じ所へ足す）、仲間の traits（遺伝的特徴）、
+// - 拡張：水槽ごとの tanks[id]（dig：掘った空洞と盛った砂を編集の順に 1 つの並びで持つ。food：食べられた生き物（版 3）。植物・繁殖個体は同じ所へ足す）、
+//   プレイヤーの栄養（player.nutrition。版 3）、仲間の traits（遺伝的特徴）、
 //   progress.flags（イベントの進み具合）。足すときは version を上げて migrate に変換を書く。
 
 export const SAVE_FORMAT = 'ppp-aquarium-save';
-export const SAVE_VERSION = 2;
+/** 版 3（2026-11-28）：栄養（player.nutrition）と、食べられた生き物（tanks[id].food）を足した */
+export const SAVE_VERSION = 3;
 /** 編集 1 個の数の並び（a.xyz, b.xyz, r, 種類 0 = 掘った / 1 = 盛った）。版 1 は種類なしの 7 個（PRIM_STRIDE_V1） */
 export const PRIM_STRIDE = 8;
 export const PRIM_STRIDE_V1 = 7;
@@ -35,9 +37,33 @@ export interface DigSave {
   prims: Float64Array;
 }
 
+/** 食べられたエビ・小魚（AquaLife の番号。left = 残り、gone = 食べ終えて消えた。位置 = 食べかけが横たわっている所） */
+export interface CritterSave {
+  kind: 'fish' | 'shrimp';
+  i: number;
+  left: number;
+  gone: boolean;
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** 水槽の食べ物の状態（版 3。ゴカイの食べかけは buddies[] の traits の eat・left） */
+export interface FoodSave {
+  critters: CritterSave[];
+}
+
 /** 水槽 1 つ分の状態（将来：植物 plants・生き物 creatures を足す） */
 export interface TankSave {
   dig: DigSave;
+  food: FoodSave;
+}
+
+/** 栄養（版 3。経験値に相当する蓄積型：合計・種類ごとに得た量・食べ終えた数。時間では減らない） */
+export interface NutritionSave {
+  total: number;
+  byKind: Record<string, number>;
+  eaten: Record<string, number>;
 }
 
 export interface PlayerSave {
@@ -50,6 +76,8 @@ export interface PlayerSave {
   /** 手持ちの砂（体積。0〜SaveContext.sandCap）と、いまの道具（版 2 から） */
   sand: number;
   tool: SaveTool;
+  /** 栄養（版 3 から） */
+  nutrition: NutritionSave;
 }
 
 export interface BuddySave {
@@ -184,6 +212,7 @@ function primsV1toV2(v: unknown): Float64Array | null {
  * 旧い版のデータを今の版へ変換する（元のデータは書き換えず、変換した写しを返す）。
  * - 版 1 → 2：空洞の並びに種類（0 = 掘った）を足して 8 個ずつにする。プレイヤーに手持ちの砂 0・道具「掘る」を足す。
  *   掘った穴・仲間・訪れた場所・進み具合はそのまま。版 1 には盛った砂が無いので、合成の順序は掘った順のまま（同じ形）
+ * - 版 2 → 3：プレイヤーに栄養 0（何も食べていない）、水槽ごとに食べられた生き物の空の一覧を足す。ほかはそのまま
  * 形が違う所は直さずに残す（validateSave が拒否する）
  */
 export function migrate(raw: unknown): unknown {
@@ -198,7 +227,45 @@ export function migrate(raw: unknown): unknown {
     }
     d = { ...d, version: 2, tanks: isObj(d.tanks) ? tanks : d.tanks, player: isObj(d.player) ? { ...d.player, sand: 0, tool: 'dig' } : d.player };
   }
+  if (d.version === 2) {
+    const tanks: Record<string, unknown> = {};
+    if (isObj(d.tanks)) for (const [id, t] of Object.entries(d.tanks)) tanks[id] = isObj(t) ? { ...t, food: { critters: [] } } : t;
+    d = { ...d, version: 3, tanks: isObj(d.tanks) ? tanks : d.tanks, player: isObj(d.player) ? { ...d.player, nutrition: { total: 0, byKind: {}, eaten: {} } } : d.player };
+  }
   return d;
+}
+
+/** 栄養の検証（数でない・負は拒否。種類の名前は 32 文字まで・項目は 16 個まで） */
+function readNutrition(v: unknown): NutritionSave {
+  if (!isObj(v)) fail('栄養の情報がありません');
+  const total = num(v.total, 'player.nutrition.total', 0, 1e9);
+  const rec = (r: unknown, what: string): Record<string, number> => {
+    const out: Record<string, number> = {};
+    if (r === undefined) return out;
+    if (!isObj(r)) fail(`${what} の形が違います`);
+    for (const [k, x] of Object.entries(r).slice(0, 16)) if (k.length <= 32) out[k] = num(x, `${what}.${k}`, 0, 1e9);
+    return out;
+  };
+  return { total, byKind: rec(v.byKind, 'player.nutrition.byKind'), eaten: rec(v.eaten, 'player.nutrition.eaten') };
+}
+
+/** 食べられた生き物の一覧の検証（番号は整数 0〜9999・残り 0..1・位置は水槽の中。同じ個体の重複は拒否） */
+function readFood(v: unknown, id: string, ctx: SaveContext): FoodSave {
+  if (!isObj(v) || !Array.isArray(v.critters)) fail(`水槽 ${id} の食べ物の情報の形が違います`);
+  const critters: CritterSave[] = [];
+  for (const c of v.critters) {
+    if (!isObj(c)) fail(`水槽 ${id} の食べられた生き物の形が違います`);
+    const kind = c.kind === 'fish' || c.kind === 'shrimp' ? c.kind : fail(`水槽 ${id} の食べられた生き物の種類が違います`);
+    const i = num(c.i, 'critter.i', 0, 9999);
+    if (!Number.isInteger(i)) fail('critter.i が整数ではありません');
+    if (critters.some((q) => q.kind === kind && q.i === i)) fail(`食べられた生き物 ${kind}${i} が重複しています`);
+    const left = num(c.left, 'critter.left', 0, 1);
+    if (typeof c.gone !== 'boolean') fail('critter.gone の形が違います');
+    const x = num(c.x, 'critter.x'), y = num(c.y, 'critter.y'), z = num(c.z, 'critter.z');
+    if (!inBox(x, y, z, ctx.tankBox)) fail(`食べられた生き物 ${kind}${i} の位置が水槽の外です`);
+    critters.push({ kind, i, left, gone: c.gone, x, y, z });
+  }
+  return { critters };
 }
 
 /** 保存データを検証して、ゲームへ渡せる形にする（知らない id は捨てて警告にする。形が違えば拒否） */
@@ -228,6 +295,7 @@ export function validateSave(input: unknown, ctx: SaveContext): ValidateResult {
     // 手持ちの砂：上限（sandCap。第 10 段階からは持てる量の上限が無いので、水槽の砂より十分大きい検証用の値）を少し超える程度は丸める。負・数でないものは拒否
     const sand = Math.min(num(P.sand, 'player.sand', 0, ctx.sandCap * 4), ctx.sandCap);
     const tool: SaveTool = P.tool === 'fill' ? 'fill' : 'dig';
+    const nutrition = readNutrition(P.nutrition);
 
     const G = raw.progress;
     if (!isObj(G)) fail('進捗の情報がありません');
@@ -254,7 +322,7 @@ export function validateSave(input: unknown, ctx: SaveContext): ValidateResult {
         continue;
       }
       if (!isObj(t) || !isObj(t.dig)) fail(`水槽 ${id} の情報の形が違います`);
-      tanks[id] = { dig: { prims: readPrims(t.dig.prims, ctx) } };
+      tanks[id] = { dig: { prims: readPrims(t.dig.prims, ctx) }, food: readFood(t.food, id, ctx) };
     }
 
     const buddies: BuddySave[] = [];
@@ -279,7 +347,7 @@ export function validateSave(input: unknown, ctx: SaveContext): ValidateResult {
       buddies.push({ id, species: str(b.species, 'buddy.species'), found: b.found, mode: b.mode === 'follow' ? 'follow' : 'free', tank: btank, x: bx, y: by, z: bz, home, traits });
     }
 
-    return { ok: true, warnings, data: { format: SAVE_FORMAT, version, created, savedAt, playTime, rev, saveId, player: { tank, x: px, y: py, z: pz, heading, camera, sand, tool }, progress: { visited, flags }, tanks, buddies } };
+    return { ok: true, warnings, data: { format: SAVE_FORMAT, version, created, savedAt, playTime, rev, saveId, player: { tank, x: px, y: py, z: pz, heading, camera, sand, tool, nutrition }, progress: { visited, flags }, tanks, buddies } };
   } catch (e) {
     if (e instanceof SaveError) return { ok: false, error: e.message };
     return { ok: false, error: `読み込めませんでした（${(e as Error).message}）` };
@@ -312,7 +380,7 @@ function base64ToF64(s: string): Float64Array {
 /** 保存データ → 書き出すファイルの文字列（JSON。空洞は base64） */
 export function encodeSaveFile(d: SaveData): string {
   const tanks: Record<string, unknown> = {};
-  for (const [id, t] of Object.entries(d.tanks)) tanks[id] = { dig: { prims: { f64: f64ToBase64(t.dig.prims) } } };
+  for (const [id, t] of Object.entries(d.tanks)) tanks[id] = { ...t, dig: { prims: { f64: f64ToBase64(t.dig.prims) } } };
   return JSON.stringify({ ...d, tanks });
 }
 

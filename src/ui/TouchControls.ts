@@ -71,6 +71,8 @@ export const TOUCH_ICONS = {
   snip: '<path d="M12 22v-6.2"/><path d="M12 10.2V5"/><path class="dot" d="M12 7.2c1.4-3 4-4.4 7-3.8-1.2 3-3.8 4.4-7 3.8z"/><path class="dot" d="M2 11.2c3-1.6 6.4-1.6 9.4-.2-3.2.6-6.2.8-9.4.2z"/><path class="dot" d="M2 15c3 1.4 6.4 1.2 9.4-.4-3.2-.4-6.2-.4-9.4.4z"/><path d="M15 11.2l2.2-1.2M15.2 14.6l2.2 1.1M15.6 12.9h2.6"/>',
   // 抜く：根の付いた草と、上への矢印（地面の線は茎の所で切れている）
   uproot: '<path d="M3 17h6M15 17h6"/><path d="M12 15.5V6"/><path d="M12 9.5C9 9.2 7.2 7.4 7 4.6c2.8.2 4.6 2 5 4.9z"/><path d="M12 15.5l-2.6 3.8M12 15.5l2.6 3.8M12 15.5v5"/><path d="M19.5 12V3.5"/><path d="M17 6l2.5-2.5L22 6"/>',
+  // 食べる（水槽：挟んだ物を口元へ）：かじった跡のある食べ物を、口（左の開いた扉のような 2 枚）へ運ぶ矢印と、散るかけら
+  eat: '<path d="M3 7.5l3.4 2.6v4.2L3 16.8"/><path d="M8.6 6.6v11"/><path class="dot" d="M21.5 12a5.2 5.2 0 0 1-8.4 4.1c1.2-.6 1.6-1.6 1.2-2.6.9-.3 1.4-1 1.3-2-.1-.9-.8-1.5-1.7-1.6.6-1 .5-2-.4-2.7A5.2 5.2 0 0 1 21.5 12z"/><path d="M12.4 3.4l-2 1.6"/><path d="M10.4 3.2v1.8h1.8"/><circle class="dot" cx="11.2" cy="19.8" r="1"/><circle class="dot" cx="14.2" cy="21" r="0.8"/>',
   // 視点：三人称 = 後ろのカメラからカニを見る線
   camTps: '<path class="dot" d="M10 10.6c0-3.4 2.9-5.6 6.5-5.6S23 7.2 23 10.6z"/><path d="M11.2 10.6l-1.8 2.6M21.8 10.6l1.6 2.4M13.6 10.6l-.8 2.8M19.4 10.6l.8 2.8"/><rect class="dot" x="1" y="15.6" width="8" height="5.8" rx="1.4"/><path d="M9.6 15.2l2.6-2" stroke-dasharray="1.4 1.6"/>',
   // 肩越し = 手前に大きくカニの背中と 2 本の眼、その先へ広がる見る範囲
@@ -115,7 +117,7 @@ export class TouchControls {
       <div class="stick"><i class="ring"></i><div class="knob"></div></div>
       <button class="tb run" type="button" aria-label="${opts.runLabel ?? '走る'}" data-label="${opts.runLabel ?? '走る'}">${f(touchIcon('run'))}</button>${opts.jump ? `
       <button class="tb jump" type="button" aria-label="ジャンプ" data-label="ジャンプ">${f(touchIcon('jump'))}</button>` : ''}${opts.dig ? `
-      <button class="tb dig" type="button" aria-label="掘る" data-label="掘る">${f(`<i class="aim"></i>${touchIcon('dig', 'i-dig')}${touchIcon('fill', 'i-fill')}${touchIcon('snip', 'i-snip')}${touchIcon('uproot', 'i-uproot')}`)}</button>` : ''}${opts.onCamera ? `
+      <button class="tb dig" type="button" aria-label="掘る" data-label="掘る">${f(`<i class="aim"></i>${touchIcon('dig', 'i-dig')}${touchIcon('fill', 'i-fill')}${touchIcon('snip', 'i-snip')}${touchIcon('uproot', 'i-uproot')}${touchIcon('eat', 'i-eat')}`)}</button>` : ''}${opts.onCamera ? `
       <button class="tb cam" type="button" aria-label="視点の切り替え（長押しで一覧）" data-label="視点">${f(touchIcon('camTps', 'i-view'))}</button>` : ''}${opts.act ? `
       <button class="act" type="button"><i class="ring"></i><span></span></button>` : ''}${opts.grab ? `
       <button class="tb grab" type="button" aria-pressed="false" aria-label="挟む" data-label="挟む">${f(`${touchIcon('clawOpen', 'i-open')}${touchIcon('clawShut', 'i-shut')}`)}</button>` : ''}`;

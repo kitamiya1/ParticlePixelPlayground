@@ -134,6 +134,13 @@ export class Prop {
 
   /** 景色の小石・貝殻（AquaDecor）から作った物：景色のメッシュの番号（描画は景色のメッシュの頂点を動かす）。それ以外は −1 */
   decor = -1;
+  /**
+   * 食べ物（AquaEat）：種類（null = 食べられない物）・大きさ（栄養と時間の倍率）・残り（0..1。見た目が縮む）。
+   * eating = 口元で食べている（カニの体から押し出さない：口に入っている）
+   */
+  food: { kind: 'algae' | 'plant'; size: number } | null = null;
+  left = 1;
+  eating = false;
   private readonly label: string;
 
   /**
@@ -255,6 +262,14 @@ export class PropSystem {
     const pr = new Prop(id, kind, scale, [x, ground + spec.semi[1] * scale + 0.01, z], yaw);
     this.props.push(pr);
     return pr;
+  }
+
+  /** 物を取り除く（食べ終えた） */
+  remove(pr: Prop) {
+    const k = this.props.indexOf(pr);
+    if (k >= 0) this.props.splice(k, 1);
+    pr.held = false;
+    pr.awake = false;
   }
 
   /** 置いた所へ戻す（自動検証・水槽の外へ出てしまったとき） */
@@ -428,7 +443,7 @@ export class PropSystem {
     const cy = crab.y + crab.radius;
     const dx = p[0] - crab.x, dy = p[1] - cy, dz = p[2] - crab.z, dl = Math.hypot(dx, dy, dz);
     const minD = crab.radius + pr.rm * 0.9;
-    if (dl < minD && dl > 1e-5) {
+    if (dl < minD && dl > 1e-5 && !pr.eating) {
       const nx = dx / dl, ny = dy / dl, nz = dz / dl, push = minD - dl;
       p[0] += nx * push; p[1] += ny * push; p[2] += nz * push;
       const vn = v[0] * nx + v[1] * ny + v[2] * nz;
@@ -751,9 +766,34 @@ export class GrabSystem {
   promote: (pr: Prop) => void = () => {};
   /** 岩・流木（動かない物）を挟む */
   readonly fixed: FixedGrip;
+  /**
+   * 挟んだ物を口元へ運んで食べている（AquaEat。main が毎フレーム書く）：鋏が届かない・ばねが伸びた・強く引いたことによる
+   * 滑りを止める（口元へ引き寄せている物を、構えを動かしたせいで落とさない）
+   */
+  feeding = false;
 
   constructor(private readonly world: AquariumWorld, readonly props: PropSystem) {
     this.fixed = new FixedGrip(world);
+  }
+
+  /**
+   * 食べ終えた：挟んでいた物・生き物を、出来事（離した音）を出さずに手放して鋏を空にする（物・生き物を世界から消すのは呼んだ側）。
+   * 鋏は閉じたまま空（押し続けていても、一度離すまで次の物を挟まない：empty の待ち）
+   */
+  consume() {
+    if (this.state === 'holding' && this.target) {
+      this.target.held = false;
+      this.target.eating = false;
+    } else if (this.state === 'holding' && this.creature) this.creature.onRelease('release');
+    this.state = 'empty';
+    this.retryT = 0.8;
+    this.target = null;
+    this.creature = null;
+    this.tow = null;
+    this.slipT = 0;
+    this.load = this.over = 0;
+    this.fAnchor = null;
+    this.feeding = false;
   }
 
   /** 挟んでいる・閉じている（鋏が使われている：穴掘りはできない） */
@@ -813,6 +853,7 @@ export class GrabSystem {
   release(kind: 'release' | 'slip' | 'pop' = 'release') {
     if (this.state === 'holding' && this.target) {
       this.target.held = false;
+      this.target.eating = false;
       this.target.wake();
       this.events.push({ kind: kind === 'pop' ? 'release' : kind, prop: this.target });
       if (kind === 'slip') this.stats.slips++;
@@ -833,6 +874,7 @@ export class GrabSystem {
     this.slipT = 0;
     this.load = this.over = 0;
     this.fAnchor = null;
+    this.feeding = false;
   }
 
   /** 構えた鋏の先から届く物（いちばん近い物の表面までの距離が reach 以内。ガラス・岩越しには挟めない） */
@@ -1050,7 +1092,8 @@ export class GrabSystem {
       this.tow = { ax: -F[0] / CRAB_MASS, ay: -F[1] / CRAB_MASS, az: -F[2] / CRAB_MASS, slow: 1 - 0.28 * strain * strain };
       // 滑り落ちる：伸びすぎ・鋏が届かない状態が続いた
       // （鋏が大きく届かない = 鋏と物が離れて見える、ときは早めに滑らせる）
-      const over = r.stretch > SLIP_STRETCH || claw.reachErr > SLIP_REACH;
+      // （口元へ運んで食べている間は滑らない：feeding）
+      const over = !this.feeding && (r.stretch > SLIP_STRETCH || claw.reachErr > SLIP_REACH);
       this.slipT = over ? this.slipT + dt * (claw.reachErr > SLIP_REACH * 2.5 ? 2 : 1) : Math.max(0, this.slipT - dt * 2);
       if (this.slipT > SLIP_T) this.release('slip');
       // 重くて動かない（ほとんど動かないのに強く引いている）：一度だけ知らせる
@@ -1090,7 +1133,7 @@ export class GrabSystem {
         const reachOver = claw.reachErr > (cr.slipReach ?? SLIP_REACH * 1.6);
         const rJerk = t.over > 1 ? Math.min(1.2, 0.3 + (t.over - 1) * 1.5) : 0;
         const rTug = t.tugOver > 1 ? Math.min(2, 0.5 + (t.tugOver - 1) * 3.5) : 0;
-        const rate = Math.max(rJerk, rTug, reachOver ? 1.5 : 0);
+        const rate = this.feeding ? 0 : Math.max(rJerk, rTug, reachOver ? 1.5 : 0);
         if (rate > 0) this.slipT += dt * rate;
         else this.slipT = Math.max(0, this.slipT - dt * 1.5);
         if (this.slipT > TUG_SLIP_T) this.release('slip');

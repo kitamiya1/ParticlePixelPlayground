@@ -23,6 +23,16 @@ export interface Fish {
   fear: number;
   /** カニが近くに来てからの時間（気づくまでの間。第 5 段階） */
   alertT?: number;
+  /** 食べられている（AquaEat）：動かない・残り（0..1。小さくなる）・食べ終えて消えた */
+  eat?: Eaten;
+}
+
+/** 食べられた生き物の状態（1 口目から動かなくなり、残りに合わせて小さくなる。食べ終えると消える） */
+export interface Eaten {
+  left: number;
+  gone: boolean;
+  /** 底へ沈む速さ（離された食べかけ） */
+  vy: number;
 }
 
 interface School {
@@ -54,6 +64,8 @@ export interface Shrimp {
   airborne: boolean;
   /** カニが近くに来てからの時間（気づくまでの間。第 5 段階） */
   alertT?: number;
+  /** 食べられている（AquaEat） */
+  eat?: Eaten;
 }
 
 /** カニの位置（体の中心） */
@@ -134,11 +146,57 @@ export class AquaLife {
     this.updateShrimp(dt, threat);
   }
 
+  /**
+   * 食べかけ（離された・落ちた）：底まで沈んで止まる（動かない。食べ終えて消えた個体は何もしない）。lift = 底からの高さ
+   */
+  private sinkEaten(dt: number, b: Fish | Shrimp, lift: number) {
+    const e = b.eat!;
+    if (e.gone) return;
+    const floor = this.world.surfaceBelow(b.x, b.y + 0.3, b.z) + lift;
+    if (b.y > floor + 1e-3) {
+      e.vy = Math.max(-0.9, e.vy - 1.6 * dt);
+      b.y = Math.max(floor, b.y + e.vy * dt);
+    } else {
+      b.y = floor;
+      e.vy = 0;
+    }
+    if ('pitch' in b) b.pitch *= Math.exp(-dt * 3);
+  }
+
+  /** 食べられた生き物の一覧（保存用） */
+  eatenList(): AquaLifeEaten[] {
+    const out: AquaLifeEaten[] = [];
+    this.fish.forEach((f, i) => f.eat && out.push({ kind: 'fish', i, left: f.eat.left, gone: f.eat.gone, x: f.x, y: f.y, z: f.z }));
+    this.shrimp.forEach((s, i) => s.eat && out.push({ kind: 'shrimp', i, left: s.eat.left, gone: s.eat.gone, x: s.x, y: s.y, z: s.z }));
+    return out;
+  }
+
+  /** 保存から戻す（番号が範囲外の物は捨てる）。戻した数 */
+  restoreEaten(list: readonly AquaLifeEaten[]): number {
+    let n = 0;
+    for (const e of list) {
+      const b = e.kind === 'fish' ? this.fish[e.i] : this.shrimp[e.i];
+      if (!b) continue;
+      b.eat = { left: clamp(e.left, 0, 1), gone: e.gone || e.left <= 0, vy: 0 };
+      if (!b.eat.gone) {
+        b.x = clamp(e.x, TANK.minX + 0.2, TANK.maxX - 0.2);
+        b.z = clamp(e.z, TANK.minZ + 0.2, TANK.maxZ - 0.2);
+        b.y = clamp(e.y, TANK.floorY, TANK.waterY - 0.15);
+      }
+      n++;
+    }
+    return n;
+  }
+
   private updateFish(dt: number, t: Threat) {
     const w = this.world;
     for (const s of this.schools) s.a += (dt * s.speed * s.dir) / Math.max(1, (s.rx + s.rz) * 0.5);
     for (const f of this.fish) {
       if (this.caught.has(f)) continue;
+      if (f.eat) {
+        this.sinkEaten(dt, f, 0.03);
+        continue;
+      }
       const s = this.schools[f.school];
       // 群れの目標点（輪の上を回る） + 群れの中の位置。輪の進む向きへ並ぶよう、位置は少しずつ揺らす
       const tx = s.c[0] + Math.cos(s.a) * s.rx + f.off[0];
@@ -207,6 +265,10 @@ export class AquaLife {
     const rng = this.rng;
     for (const s of this.shrimp) {
       if (this.caught.has(s)) continue;
+      if (s.eat) {
+        this.sinkEaten(dt, s, 0);
+        continue;
+      }
       s.phase += dt * (s.state === 'walk' ? 9 : s.state === 'dart' ? 18 : 2.5);
       const ex = s.x - t.x, ez = s.z - t.z, ey = s.y - t.y;
       const ed = Math.hypot(ex, ey, ez);
@@ -285,6 +347,16 @@ export class AquaLife {
       s.y = Math.min(s.y, TANK.waterY - 0.15);
     }
   }
+}
+
+export interface AquaLifeEaten {
+  kind: 'fish' | 'shrimp';
+  i: number;
+  left: number;
+  gone: boolean;
+  x: number;
+  y: number;
+  z: number;
 }
 
 function wrap(a: number): number {

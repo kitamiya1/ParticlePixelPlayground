@@ -713,22 +713,26 @@ export class AquariumRenderer {
   private updateCreatures() {
     const L = this.life;
     const fa = this.fishMesh.geometry.getAttribute('iAnim') as THREE.InstancedBufferAttribute;
+    // 食べられている生き物（AquaEat）：残りの体積に合わせて小さく、食べ終えたら消す（大きさ 0）。小魚は横に倒れる
+    const eatScale = (e: { left: number; gone: boolean } | undefined) => (!e ? 1 : e.gone ? 0 : Math.max(0.18, Math.cbrt(e.left)));
     L.fish.forEach((f, i) => {
-      this.e4.set(-f.pitch, f.heading, 0, 'YXZ');
+      this.e4.set(-f.pitch, f.heading, f.eat ? 1.2 : 0, 'YXZ');
       this.q4.setFromEuler(this.e4);
-      this.m4.compose(this.v4.set(f.x, f.y, f.z), this.q4, this.s4);
+      this.m4.compose(this.v4.set(f.x, f.y, f.z), this.q4, this.s4.setScalar(eatScale(f.eat)));
       this.fishMesh.setMatrixAt(i, this.m4);
       fa.setXY(i, f.phase, f.fear);
     });
+    this.s4.setScalar(1);
     this.fishMesh.instanceMatrix.needsUpdate = fa.needsUpdate = true;
     const sa = this.shrimpMesh.geometry.getAttribute('iAnim') as THREE.InstancedBufferAttribute;
     L.shrimp.forEach((s, i) => {
       this.e4.set(0, s.heading, 0, 'YXZ');
       this.q4.setFromEuler(this.e4);
-      this.m4.compose(this.v4.set(s.x, s.y, s.z), this.q4, this.s4);
+      this.m4.compose(this.v4.set(s.x, s.y, s.z), this.q4, this.s4.setScalar(eatScale(s.eat)));
       this.shrimpMesh.setMatrixAt(i, this.m4);
-      sa.setXY(i, s.phase, s.state === 'dart' ? 1 : 0);
+      sa.setXY(i, s.phase, s.state === 'dart' && !s.eat ? 1 : 0);
     });
+    this.s4.setScalar(1);
     this.shrimpMesh.instanceMatrix.needsUpdate = sa.needsUpdate = true;
     const B = this.buddy, bm = this.buddyMesh;
     if (B && bm) {

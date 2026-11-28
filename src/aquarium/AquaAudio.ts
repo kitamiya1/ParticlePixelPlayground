@@ -299,6 +299,103 @@ export class AquaAudio {
     this.noiseBurst(now, 0.025, close ? 3200 : 2200, 4, close ? 0.12 : 0.07);
   }
 
+  /**
+   * 噛み取る（食事の 1 口。顎脚が閉じる瞬間に合わせる）：kind ごとの音色。k = 1 口の大きさ（0..1）。
+   * leaf = 藻・水草（しゃくっ：細かい繊維が切れる高めのノイズ 2 粒）、crunch = エビ（こりっ：殻が割れる鋭い破裂と短い高音）、
+   * soft = 小魚（もぐっ：柔らかい低めのノイズと鈍い音）、squish = ゴカイ（むにゅ：湿った低いノイズと揺れて下がる音）。
+   * どれも最後に口の中の水が動く小さな泡
+   */
+  munch(kind: 'leaf' | 'crunch' | 'soft' | 'squish', k = 0.5) {
+    if (!this.canPlay()) return;
+    const ctx = this.ctx!, now = ctx.currentTime;
+    const v = 0.6 + 0.6 * Math.min(1, k * 4);
+    const jit = 0.9 + Math.random() * 0.2;
+    if (kind === 'leaf') {
+      this.noiseBurst(now, 0.035, 3400 * jit, 2.5, 0.09 * v);
+      this.noiseBurst(now + 0.045, 0.03, 2600 * jit, 3, 0.07 * v);
+    } else if (kind === 'crunch') {
+      this.noiseBurst(now, 0.022, 4200 * jit, 1.4, 0.16 * v);
+      const o = ctx.createOscillator();
+      o.type = 'square';
+      o.frequency.setValueAtTime(1900 * jit, now);
+      o.frequency.exponentialRampToValueAtTime(700, now + 0.03);
+      const f = ctx.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.value = 1800;
+      f.Q.value = 4;
+      const g = this.env(now, 0.002, 0.05, 0.05 * v);
+      o.connect(f).connect(g).connect(this.master!);
+      o.start(now);
+      o.stop(now + 0.07);
+      this.noiseBurst(now + 0.05, 0.03, 3000 * jit, 2, 0.07 * v);
+    } else if (kind === 'soft') {
+      this.noiseBurst(now, 0.07, 800 * jit, 1.1, 0.12 * v);
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(260 * jit, now);
+      o.frequency.exponentialRampToValueAtTime(130, now + 0.09);
+      const g = this.env(now, 0.004, 0.1, 0.08 * v);
+      o.connect(g).connect(this.master!);
+      o.start(now);
+      o.stop(now + 0.12);
+    } else {
+      this.noiseBurst(now, 0.08, 620 * jit, 1.6, 0.12 * v);
+      const o = ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(340 * jit, now);
+      o.frequency.exponentialRampToValueAtTime(150, now + 0.12);
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 28;
+      const lg = ctx.createGain();
+      lg.gain.value = 30;
+      lfo.connect(lg).connect(o.frequency);
+      const g = this.env(now, 0.006, 0.13, 0.07 * v);
+      o.connect(g).connect(this.master!);
+      o.start(now);
+      lfo.start(now);
+      o.stop(now + 0.15);
+      lfo.stop(now + 0.15);
+    }
+    if (Math.random() < 0.6) this.bubble(now + 0.08 + Math.random() * 0.06, 0.04 + Math.random() * 0.03);
+    this.stats.plays++;
+  }
+
+  /** 食べ終えた：ごくん（低く短い音と、口の中の水が動く泡 2 粒） */
+  gulp() {
+    if (!this.canPlay()) return;
+    const ctx = this.ctx!, now = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(220, now);
+    o.frequency.exponentialRampToValueAtTime(95, now + 0.12);
+    const g = this.env(now, 0.008, 0.16, 0.14);
+    o.connect(g).connect(this.master!);
+    o.start(now);
+    o.stop(now + 0.2);
+    this.noiseBurst(now, 0.06, 500, 1.4, 0.05);
+    this.bubble(now + 0.1, 0.07);
+    this.bubble(now + 0.17, 0.05);
+    this.stats.plays++;
+  }
+
+  /** 食べられない物を押し戻した：ぷっ（短い息のようなノイズと泡）。bring = 口元へ運んだ物 */
+  spit(bring: boolean) {
+    if (!this.canPlay()) return;
+    const now = this.ctx!.currentTime;
+    this.noiseBurst(now, 0.05, bring ? 1300 : 1800, 1.2, bring ? 0.08 : 0.04);
+    this.bubble(now + 0.03, 0.06);
+    if (bring) this.bubble(now + 0.09, 0.05);
+    this.stats.plays++;
+  }
+
+  /** 藻をむしり取った：細かく裂ける音 */
+  tear() {
+    if (!this.canPlay()) return;
+    const now = this.ctx!.currentTime;
+    for (let i = 0; i < 3; i++) this.noiseBurst(now + i * 0.03, 0.025, 2200 + i * 500, 2.2, 0.06);
+    this.stats.plays++;
+  }
+
   /** 音量の包絡（立ち上がり a 秒・全体 len 秒、最大 peak） */
   private env(now: number, a: number, len: number, peak: number): GainNode {
     const g = this.ctx!.createGain();

@@ -5,17 +5,22 @@
 // - 眼：前縁の眼柄の先。口器・胸板（腹側）・脚の付け根も胴のボーンに含める。
 // - 鋏脚（左右）：腕節（arm）→ 掌部と不動指（hand）→ 可動指（finger）の 3 ボーン。右（雄の利き手）を大きく。
 // - 歩脚（左右 4 対）：長節（upper）と、腕節〜前節〜指節（lower）の 2 ボーン。指節は下へ曲げる。
+// - 第 3 顎脚（口の前の、扉のような 1 対の板。食事：AquaEat）：左右 1 ボーンずつ。外側の縁を軸に前へ開き、閉じて食べ物を噛み取る。
+//   ふだんも呼吸の水流を起こすように小さく震える（CrabRig）。
 // ローカル座標：+X = カニの左, +Y = 上, +Z = 前（眼の向き）。
 
 import { hex, mixRGB, noise3, type RGB } from '../core/math';
 import { sdCapsule, sdEllipsoid, sdSphere, smin, type Box3Like, type Sdf } from '../visual/sdf/sdf';
 
-export const CRAB_BONE = { body: 0, armL: 1, handL: 2, fingerL: 3, armR: 4, handR: 5, fingerR: 6 } as const;
+export const CRAB_BONE = { body: 0, armL: 1, handL: 2, fingerL: 3, armR: 4, handR: 5, fingerR: 6, mxpL: 23, mxpR: 24 } as const;
 /** 歩脚のボーン番号（side: +1 = 左, -1 = 右、i: 0 = 最前 … 3 = 最後） */
 export function legBone(side: 1 | -1, i: number, lower: boolean): number {
   return 7 + (side === 1 ? 0 : 8) + i * 2 + (lower ? 1 : 0);
 }
-export const CRAB_BONE_COUNT = 23;
+export const CRAB_BONE_COUNT = 25;
+
+/** 第 3 顎脚の付け根（外側の縁。体の座標、左 = +x）。板はここから内側（体の中心）へ広がる */
+export const MXP = { hinge: [0.043, -0.04, 0.198] as [number, number, number], w: 0.042 };
 
 /** 甲羅の中心の高さ（足元からの静止時の高さ） */
 export const BODY_HEIGHT = 0.17;
@@ -219,6 +224,29 @@ function clawParts(): CrabPart[] {
   return parts;
 }
 
+/** 第 3 顎脚（左右の板。付け根 = ボーンの原点 = 外側の縁、内側へ −sx·X に広がる。上の外側に小さな触鬚） */
+function mouthParts(): CrabPart[] {
+  const parts: CrabPart[] = [];
+  for (const [sx, bone] of [[1, CRAB_BONE.mxpL], [-1, CRAB_BONE.mxpR]] as const) {
+    const w = MXP.w;
+    const sdf: Sdf = (x, y, z) => {
+      const plate = sdEllipsoid(x, y, z, -sx * w * 0.5, -0.004, 0.004, w * 0.5, 0.031, 0.0075);
+      const palp = sdCapsule(x, y, z, -sx * 0.008, 0.02, 0.005, -sx * 0.003, 0.038, 0.014, 0.005, 0.0032);
+      return smin(plate, palp, 0.004);
+    };
+    const color = (x: number, y: number, _z: number, _nx: number, _ny: number): RGB => {
+      // 内側の縁の毛（淡い）・外側は甲羅に近い赤橙・付け根は暗い（甲羅の下の影の中でも開閉が見えるよう、明るく縁を暗く）
+      const inner = (-sx * x) / w;
+      if (y > 0.024) return COL.legLight;
+      if (inner > 0.8) return COL.fingerTip;
+      if (inner < 0.14) return COL.legDark;
+      return mixRGB(COL.clawLight, COL.fingerTip, 0.15 + 0.35 * inner);
+    };
+    parts.push({ bone, sdf, box: box(Math.min(0, -sx * (w + 0.012)) - 0.007, -0.042, -0.012, Math.max(0, -sx * (w + 0.012)) + 0.007, 0.046, 0.022), cell: 0.0045, color, grain: 0.15 });
+  }
+  return parts;
+}
+
 export function crabParts(): CrabPart[] {
-  return [...bodyParts(), ...clawParts(), ...legParts()];
+  return [...bodyParts(), ...clawParts(), ...legParts(), ...mouthParts()];
 }

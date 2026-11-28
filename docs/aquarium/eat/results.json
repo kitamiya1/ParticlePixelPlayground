@@ -1,0 +1,56 @@
+{
+  "date": "2026-11-28",
+  "branch": "feat/crab-eat (main = e25be37)",
+  "matrix": {
+    "R:algae": { "held": "流木", "bites": 5, "gain": 1.89, "finished": 1, "reachMax": 0.001, "minFoodMouth": 0.01, "slips": 0, "mouthMax": 0.88, "assistMax": 1 },
+    "R:plant": { "held": "有茎草", "bites": 6, "gain": 3, "finished": 1, "reachMax": 0.001, "minFoodMouth": 0.022, "slips": 0, "mouthMax": 0.9, "assistMax": 1 },
+    "R:shrimp": { "held": "エビ", "bites": 10, "gain": 12, "finished": 1, "reachMax": 0.001, "minFoodMouth": 0.011, "slips": 0, "mouthMax": 0.92, "assistMax": 1 },
+    "R:fish": { "held": "小魚", "bites": 12, "gain": 15, "finished": 1, "reachMax": 0.001, "minFoodMouth": 0.011, "slips": 0, "mouthMax": 0.92, "assistMax": 1 },
+    "R:worm": { "held": "ゴカイ", "bites": 16, "gain": 21.71, "finished": 1, "reachMax": 0.001, "minFoodMouth": 0.009, "slips": 0, "mouthMax": 0.88, "assistMax": 1 },
+    "R:pebble": { "held": "小石", "bites": 0, "gain": 0, "tasted": true, "slips": 0, "mouthMax": 0.6 },
+    "L:algae": { "held": "流木", "bites": 4, "gain": 1.33, "finished": 1, "reachMax": 0.001, "minFoodMouth": 0.01, "slips": 0, "mouthMax": 0.87, "assistMax": 1 },
+    "L:plant": { "held": "有茎草", "bites": 5, "gain": 2.28, "finished": 1, "reachMax": 0.001, "minFoodMouth": 0.106, "slips": 0, "mouthMax": 0.9, "assistMax": 1 },
+    "L:shrimp": { "held": "エビ", "bites": 10, "gain": 12, "finished": 1, "reachMax": 0.001, "minFoodMouth": 0.011, "slips": 0, "mouthMax": 0.92, "assistMax": 1 },
+    "L:fish": { "held": "小魚", "bites": 12, "gain": 15, "finished": 1, "reachMax": 0.001, "minFoodMouth": 0.011, "slips": 0, "mouthMax": 0.92, "assistMax": 1 },
+    "L:worm": { "held": "ゴカイ", "bites": 14, "gain": 17.74, "finished": 1, "reachMax": 0.001, "minFoodMouth": 0.009, "slips": 0, "mouthMax": 0.88, "assistMax": 1 },
+    "L:pebble": { "held": "小石", "bites": 0, "gain": 0, "tasted": true, "slips": 0, "mouthMax": 0.6 }
+  },
+  "resume": { "leftStop": 0.7, "leftWait": 0.7, "stillHeldWhileStopped": true, "resumes": 1, "bites": 10, "gain": 12, "full": 12, "finished": true },
+  "dropPick": [
+    { "firstBites": 4, "left1": 0.657, "aboveFloor": 0.03, "repicked": true, "secondBites": 8, "gone": true },
+    { "held": null, "note": "小魚が逃げて捕まえられなかった" },
+    { "held": null, "note": "同上" },
+    { "firstBites": 4, "left1": 0.657, "aboveFloor": 0.03, "repicked": true, "secondBites": 8, "gone": true }
+  ],
+  "release": { "plain": { "eaten": false, "state": "dart" }, "beforeBite": { "bites": 0, "eaten": false, "state": "dart" } },
+  "companion": {
+    "burrow": { "held": "何かの触角", "bites": 0, "feedMax": 0, "stillHeld": true },
+    "companion": { "target": "companion", "bring": false, "name": "スナモグリ" },
+    "markedWorm": { "target": "companion", "bites": 0, "feedMax": 0, "left": 1, "life": "free" }
+  },
+  "move": { "base": 1.45, "eating": { "walk": 0.81, "ratio": 0.56, "run": 1.54, "jump": 0.97, "slips": 0, "releases": 0, "stillHeld": true, "stillEating": true } },
+  "regrow": { "before": 16, "afterScrape": 4, "afterRegrow": 16 },
+  "realInput": {
+    "pc": { "afterF045s": "chew", "after2s": { "bites": 6, "left": 0.61 }, "stopped": "idle・挟んだまま", "resumed": "bring（残り 0.61 から）", "finished": { "nutrition": 21.71, "claw": "empty" }, "hud": "21", "errors": 0 },
+    "pad": { "grabbedBy": "LT（左）", "eating": { "side": "L", "phase": "chew" }, "stopped": "idle・挟んだまま", "dropped": "左右とも idle" },
+    "sp": { "digBefore": "掘る", "digHolding": "食べる（class eat）", "eating2_5s": { "bites": 4, "left": 0.74 }, "stopped": "idle・挟んだまま", "dropped": "idle", "digAfter": "掘る", "errors": 0 },
+    "saveReload": { "version": 3, "nutrition": [31.943, 31.943], "shrimp": { "left": [0.7, 0.7], "gone": false }, "wormGone": true, "wormHalf": { "left": [0.626, 0.626], "life": "dead", "grabbable": true, "resumeBites": 9, "goneAfter": true } }
+  },
+  "migrate2to3": {
+    "v2": { "version": 2, "prims": 30, "worms": 3 },
+    "idb": { "status": "ok", "version": 3, "fingerprintSame": true, "nutrition": 0, "critters": 0 },
+    "v2File": { "ok": true, "version": 3, "fingerprintSame": true },
+    "v3File": { "nutrition": 25.3106, "critters": ["shrimp0:0.700:false"], "gone": ["gokai-0"], "same": true }
+  },
+  "perf": {
+    "pc": { "idle": { "tickMs": 3.64, "frameAvg": 13.1, "frame95": 13.4 }, "chew": { "tickMs": 3.17, "frameAvg": 13.2, "frame95": 13.4 }, "regrow": { "tickMs": 2.72, "frameAvg": 13.1, "frame95": 13.4 } },
+    "spX4": { "idle": { "tickMs": 14.25, "frameAvg": 14.5, "frame95": 26.7 }, "chew": { "tickMs": 14.41, "frameAvg": 14.7, "frame95": 26.7 }, "regrow": { "tickMs": 10.73, "frameAvg": 15.8, "frame95": 26.7 } }
+  },
+  "regression": {
+    "tug": { "holdOnly": "0/2", "backWalk": "1/2 4.58s", "backRun": "0/2 slips 2", "side": "0/2", "diagonal": "2/2 5.9s", "smart": "2/2 5.88s", "skilled": "2/2 4.97s", "releaseRegrab": "1/2", "crabInside": 0 },
+    "worm": { "branch": { "walk": 5.667, "diag": 4.433, "smart": 7.833, "still": "no pop", "side": "no pop" }, "main": { "walk": 5.483, "diag": 4.483, "smart": 7.25, "still": "no pop", "side": "no pop" }, "insideFrames": 0, "diverge": 0 },
+    "catch": "main と同じ（重い石は跳ぶと落とす・水草は引くだけでは抜けない・めり込み 0）",
+    "padAudio": "pad ok / twoClaws ok / leftTug ok",
+    "sand": "bad 0（光線 8007 本）"
+  }
+}

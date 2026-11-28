@@ -75,26 +75,36 @@ IndexedDB を選んだ理由：掘った空洞は最大 6000 個 × 7 個の数�
 
 どの書き込みも、世代を 1 増やし、新しい識別子を付け、`current` の識別子が「このタブが最後に読んだ / 書いた値」と同じときだけ書く（5 章）。
 
-## 4. 形式（version 2。2026-11-26 の M2 から。version 1 は読み込むときに migrate で 2 へ直す）
+## 4. 形式（version 3。2026-11-28 の食事から。version 1・2 は読み込むときに migrate で 3 へ直す）
 
 ```ts
 interface SaveData {
   format: 'ppp-aquarium-save';
-  version: 2;
+  version: 3;
   created: number;            // 最初に作った時刻（ms）
   savedAt: number;            // 最後に保存した時刻（ms）
   playTime: number;           // 遊んだ秒数
   rev: number;                // 保存の世代（書くたびに 1 増える。無い古いデータは 0）
   saveId: string;             // 更新の識別子（書くたびに新しい値。複数タブの競合の判定）
   player: { tank: 'home'; x; y; z; heading; camera: 'adventure' | 'observe' | 'diorama';
-            sand: number;           // 手持ちの砂（体積。0〜SAND.capacity = 4。画面の 1 杯 = 0.05）
-            tool: 'dig' | 'fill' }; // いまの道具（掘る / 盛る）
+            sand: number;           // 手持ちの砂（体積。画面の 1 杯 = 0.05。第 10 段階から持てる量の上限なし）
+            tool: 'dig' | 'fill';   // いまの道具（掘る / 盛る）
+            nutrition: {            // 栄養（版 3。経験値に相当する蓄積型。時間では減らない）
+              total: number;                  // 合計（0 以上）
+              byKind: Record<string, number>; // 種類ごとに得た量（algae / plant / shrimp / fish / worm）
+              eaten: Record<string, number>;  // 種類ごとの食べ終えた数
+            } };
   progress: {
     visited: string[];        // 訪れた場所の id（AquariumSpots）
     flags: Record<string, boolean>; // イベントの進み（例：'burrow.examined'）
   };
   tanks: {                    // 水槽ごと（将来の隣の水槽は別の鍵）
-    home: { dig: { prims: Float64Array } };  // 編集 1 個 = [ax, ay, az, bx, by, bz, r, 種類]。種類 0 = 掘った空洞・1 = 盛った砂。編集した順
+    home: {
+      dig: { prims: Float64Array };  // 編集 1 個 = [ax, ay, az, bx, by, bz, r, 種類]。種類 0 = 掘った空洞・1 = 盛った砂。編集した順
+      food: {                        // 版 3：食べられたエビ・小魚（AquaLife の番号。食べかけは底に横たわった位置）
+        critters: { kind: 'fish' | 'shrimp'; i: number; left: number; gone: boolean; x; y; z }[];
+      };
+    };
   };
   buddies: {
     id: string; species: string;
@@ -116,7 +126,7 @@ interface SaveData {
 | `mode` | 使わない（いつも `'free'`） |
 | `x, y, z` | 石の隙間の中なら隙間の口、外なら頭の位置 |
 | `home` | 最初の隙間の口（戻れないときの戻り先） |
-| `traits` | `len`（体長 m）・`thick`（太さの倍率）・`tone`（体色 0 = 赤褐色〜1 = 淡いピンク）・`seed`（模様）・`state`（`'buried'` = 石の隙間の中 / `'free'`）・`yaw`（頭の向き） |
+| `traits` | `len`（体長 m）・`thick`（太さの倍率）・`tone`（体色 0 = 赤褐色〜1 = 淡いピンク）・`seed`（模様）・`state`（`'buried'` = 石の隙間の中 / `'free'`）・`yaw`（頭の向き）。食べられた個体（2026-11-28）は `eat`（`'dead'` = 食べかけ・`'gone'` = 食べ終えて消えた）と `left`（残り 0..1） |
 
 読み込みでは地形（掘った穴・盛った砂）を戻した後に置き直す。隙間の中だった個体は同じ口から石の隙間を作り直し（作れなければ住みか）、
 外だった個体は同じ位置・向きで地面に置く（固体の中・水の外なら住みか）。個体差が保存と違えば、保存の値で作り直す。
@@ -143,6 +153,8 @@ interface SaveData {
 | 追加するもの | 置き場所 |
 | --- | --- |
 | 盛った砂（M2・済み） | `tanks[id].dig.prims` の 8 個目の数（種類）。空洞と同じ並びに編集した順で入れる（下の「版 2」） |
+| 栄養・食べられた生き物（済み・版 3） | `player.nutrition`・`tanks[id].food`（下の「版 3」） |
+| 脱皮・世代交代（将来） | 栄養の合計（`player.nutrition.total`）を `AquaEat.GROWTH` の段階と比べる。操作キャラの個体・身体的特徴は `buddies[].traits` か新しい枠 |
 | 植物（M3） | `tanks[id].plants` |
 | 生き物の個体・繁殖（M4） | `buddies[].traits`、または `tanks[id].creatures` |
 | 隣の水槽（M5） | `tanks` の別の鍵、`player.tank` |
@@ -164,6 +176,17 @@ interface SaveData {
   （`current` が正常な版 1 なら、それが `backup` へ回る）。
 - 版 1 のページ（古いタブ）が版 2 のデータを読むと「新しい版（2）の保存データです。ページを更新してください」で拒否する（上書きしない）。
 - 盛った・掘った砂の量（手持ちの砂の増減）はフレームに分けて測るので、保存の直前に測り終えてから集める（`gather`）。
+
+### 版 3（2026-11-28：食事・栄養。詳細は [eat/report.md](eat/report.md)）
+
+- `player.nutrition`（栄養の合計・種類ごとの量・食べ終えた数）と `tanks[id].food.critters`（食べられたエビ・小魚）を足した。
+  ゴカイの食べかけ・消えた個体は `buddies[].traits` の `eat`・`left`（形は版 2 と同じ枠）。
+- 検証：栄養の合計は 0〜10⁹ の数（負・数でない → 拒否）、種類ごとの項目は 16 個・名前 32 文字まで。食べられた生き物は種類が
+  fish / shrimp、番号は 0〜9999 の整数、残り 0..1、`gone` は真偽値、位置は水槽の外接箱 + 1.5 の中、同じ個体の重複 → 拒否。
+  ゲームにいない番号は読み込みで捨てる。
+- **版 2 → 3 の移行（`migrate`）**：`player.nutrition = { total: 0, byKind: {}, eaten: {} }`、水槽ごとに `food: { critters: [] }` を足す。ほかは変えない。
+- 版 2 のページ（古いタブ・古いアプリ）が版 3 のデータを読むと「新しい版（3）の保存データです。ページを更新してください」で拒否する（上書きしない）。
+- 保存しない物（いままでどおり）：ちぎった水草・むしった藻のかけら（食べかけを含む）と、水草・藻の減り。読み込み直すと水草・藻は元に戻る。
 
 ## 5. 複数のタブ（競合）
 
@@ -236,3 +259,13 @@ IndexedDB を開けない起動は、init script で `window.indexedDB` を消�
 | F6：引き継ぐ読みと書きの間にほかのタブが `current` を書いた | 引き継がず（比べて書くで止まる）、localStorage の分は残る |
 
 あわせて `save_conflict_test.js` の A〜H（複数タブ・控え・失敗）が従来と同じ結果であることを確かめた。
+## 11. 版 3 の確認（2026-11-28、開発サーバー、`docs/aquarium/tools/save_migrate3_run.js`・`eat_shots.js`）
+
+版 2 のページは main（`e25be37`）を別の作業フォルダで 5174 番に立て、このブランチ（版 3）は 5173 番。
+
+| 場面 | 結果 |
+| --- | --- |
+| 版 2 で掘る・訪れる・仲間を同行（ゴカイ 3 匹の traits を含む）→ その保存データを IndexedDB の `current` に置いて版 3 で読み込み | `ok`・版 3。空洞 30 個・区画 41・三角形の数と頂点・当たり判定の値・仲間・訪れた場所・カニの位置が版 2 の指紋と完全に一致。栄養 0・食べられた生き物なし |
+| 版 2 の書き出しファイル → 初期状態から読み込み → 読み込み直し | 完全に一致 |
+| 版 3 でエビを途中まで食べて落とす・ゴカイを 1 匹食べ切る → 書き出し → 初期状態から読み込み → 読み込み直し | 栄養（25.3106）・エビの食べかけ（`shrimp0` 残り 0.700）・消えたゴカイ（`gokai-0`）が一致 |
+| 本物の保存（`?nosave` なし）→ 開き直す | 栄養 31.943・食べ終えた数・エビの食べかけ（残り 0.7、底に横たわったまま）・消えたゴカイ・食べかけのゴカイ（残り 0.626・動かない・挟める）が戻り、続きを食べ切れた |

@@ -4,7 +4,7 @@
 
 import '../style.css';
 import './aquarium.css';
-import { clamp } from '../core/math';
+import { clamp, hex } from '../core/math';
 import { Input } from '../game/Input';
 import { DEFAULT_SETTINGS, type RenderSettings } from '../settings';
 import { isTouchDevice, TouchControls, touchIcon } from '../ui/TouchControls';
@@ -13,7 +13,9 @@ import { nextView, VIEW_ICON, VIEW_LABEL, ViewPicker, ViewToast } from './AquaCa
 import { AquaLife } from './AquaLife';
 import { buildAquariumMeshes, buildAquariumSurfels, buildBuddyMesh, buildBurrowMesh, buildCrabMesh, buildFindsMesh, buildFishMesh, buildGlowMesh, buildPropMeshes, buildShrimpMesh } from './AquariumBuild';
 import { BUDDY_DESC, BUDDY_ID, BUDDY_NAME, BuddySystem, type BuddyPrompt } from './AquaBuddy';
-import { ARM_REACH, GrabSystem, PROP_KIND, PropSystem, type GrabSystem as GS, type PropKind, type Tow } from './AquaGrab';
+import { ARM_REACH, GrabSystem, PROP_KIND, PropSystem, type GrabCreature, type GrabSystem as GS, type Prop, type PropKind, type Tow } from './AquaGrab';
+import { EatSystem, FOOD_KIND, foodNutrition, GROWTH, type EatClaw, type EatTarget, type Food } from './AquaEat';
+import type { Fish, Shrimp } from './AquaLife';
 import { AquaAudio, AudioMenu } from './AquaAudio';
 import { AquaGamepad } from './AquaGamepad';
 import { CLAWS } from './crabModel';
@@ -37,7 +39,7 @@ import { AquaHud } from './AquaHud';
 import { mountUiPrefs, UiPrefStore } from './AquaUiPrefs';
 import { PlantField, type Pusher } from './AquaPlants';
 import { FootDiag } from './AquaFootDiag';
-import { LifeGrab, PlantGrab, WeedPieces, type Detach, type TwistResult } from './AquaCatch';
+import { AlgaeBeds, LifeGrab, PlantGrab, WeedPieces, type Detach, type TwistResult } from './AquaCatch';
 import { diag, diagLog, IS_APP, selftestMode } from './AquaPlatform';
 import { GpuGuard } from './AquaGpuGuard';
 import { WORM_DESC, WORM_NAME, WormSystem, type Worm } from './AquaWorm';
@@ -259,6 +261,122 @@ async function boot() {
       if (k >= 0) G.creatures[k] = to;
     }
   };
+  // ---------------- 食事（AquaEat）：挟んだ物を口元へ運んで食べる・栄養 ----------------
+  // 岩・流木の水中の苔（藻）は、岩をつかんだまま「食べる」でむしり取れる（むしった跡はしばらくして生え戻る）
+  const algae = new AlgaeBeds(view.surfel, plants.set.pos, plants.tag, weeds);
+  const eat = new EatSystem();
+  /** 物・生き物ごとの食べ物の窓口（同じ物には同じ窓口） */
+  const foodOf = new WeakMap<object, Food>();
+  const cachedFood = (key: object, make: () => Food): Food => {
+    let f = foodOf.get(key);
+    if (!f) foodOf.set(key, (f = make()));
+    return f;
+  };
+  /** いま物・生き物を挟んでいる鋏（食べ終えたときに空にする） */
+  const clawHolding = (o: unknown): GS | null => [grab, grabL].find((G) => G.holding === o || G.holdingCreature === o) ?? null;
+  /** 水草のかけら・むしった藻（物） */
+  const propFood = (pr: Prop): Food =>
+    cachedFood(pr, () => ({
+      id: pr.id,
+      kind: pr.food!.kind,
+      name: pr.food!.kind === 'algae' ? '藻' : pr.name,
+      size: pr.food!.size,
+      get left() {
+        return pr.left;
+      },
+      begin() {},
+      setLeft(v: number) {
+        pr.left = v;
+      },
+      finish() {
+        clawHolding(pr)?.consume();
+        weeds.remove(pr);
+      },
+      at: () => pr.p,
+    }));
+  /** 捕まえたエビ・小魚（1 口目から動かなくなり、残りに合わせて小さくなる。食べ終えると消える） */
+  const critterFood = (kind: 'fish' | 'shrimp', b: Fish | Shrimp, LG: LifeGrab): Food =>
+    cachedFood(b, () => ({
+      id: `${kind}${kind === 'fish' ? life.fish.indexOf(b as Fish) : life.shrimp.indexOf(b as Shrimp)}`,
+      kind,
+      name: FOOD_KIND[kind].name,
+      size: 1,
+      get left() {
+        return b.eat?.left ?? 1;
+      },
+      begin() {
+        b.eat ??= { left: 1, gone: false, vy: 0 };
+        // 動かなくなった：しっかり持てる
+        LG.grip = Math.max(LG.grip, 12);
+      },
+      setLeft(v: number) {
+        b.eat ??= { left: 1, gone: false, vy: 0 };
+        b.eat.left = v;
+      },
+      finish() {
+        b.eat ??= { left: 0, gone: true, vy: 0 };
+        b.eat.left = 0;
+        b.eat.gone = true;
+        clawHolding(LG)?.consume();
+      },
+      at: () => [b.x, b.y + (kind === 'shrimp' ? 0.04 : 0), b.z],
+    }));
+  /** 引き抜いたゴカイ（1 口目から動かなくなり、残りに合わせて体が短くなる。食べ終えると消える） */
+  const wormFood = (w: Worm): Food =>
+    cachedFood(w, () => ({
+      id: w.id,
+      kind: 'worm',
+      name: WORM_NAME,
+      size: (w.traits.len / 0.87) * w.traits.thick,
+      get left() {
+        return w.left;
+      },
+      begin() {
+        w.kill();
+      },
+      setLeft(v: number) {
+        w.left = v;
+      },
+      finish() {
+        clawHolding(w)?.consume();
+        w.vanish();
+      },
+      at: () => w.gripPoint(),
+    }));
+  /**
+   * 仲間は食べない（いまはスナモグリ。将来の仲間は GrabCreature の companion で宣言する）。仲間になる前の巣穴の個体も
+   * 巣穴に踏ん張っているので食べない
+   */
+  const isCompanion = (cr: GrabCreature): boolean => (cr === buddy.tug && buddy.found) || (cr as { companion?: boolean }).companion === true;
+  /** 鋏 G が挟んでいる物から、食べる対象を決める（null = 食べる操作の対象外：何も挟んでいない・根の付いた水草） */
+  const eatTarget = (G: GS, LG: LifeGrab, PG: PlantGrab): EatTarget | null => {
+    if (G.state !== 'holding') return null;
+    const pr = G.holding;
+    if (pr) return pr.food ? { kind: 'food', food: propFood(pr) } : { kind: 'refuse', why: 'inedible', bring: pr.mass < 0.5, name: pr.name };
+    const cr = G.holdingCreature;
+    if (!cr || cr === PG) return null;
+    if (isCompanion(cr)) return { kind: 'refuse', why: 'companion', bring: false, name: cr === buddy.tug ? BUDDY_NAME : cr.name };
+    if (cr === buddy.tug) return { kind: 'refuse', why: 'anchored', bring: false, name: '巣穴の生き物' };
+    if (cr === G.fixed) {
+      return {
+        kind: 'scrape',
+        scrape: () => {
+          const p = algae.scrape(G.fixed.p, G);
+          return p ? propFood(p) : null;
+        },
+      };
+    }
+    if (cr === LG && LG.held) return { kind: 'food', food: critterFood(LG.held.kind, LG.held.c, LG) };
+    const w = worms.worms.find((x) => x === cr);
+    if (w) return w.anchored ? { kind: 'refuse', why: 'anchored', bring: false, name: w.name } : { kind: 'food', food: wormFood(w) };
+    return null;
+  };
+  const eatClaws = (): EatClaw[] => [
+    { side: 'R', target: eatTarget(grab, lifeGrabR, plantGrabR) },
+    { side: 'L', target: eatTarget(grabL, lifeGrabL, plantGrabL) },
+  ];
+  /** 食べている鋏・手伝う鋏（右 / 左の GrabSystem） */
+  const eatG = () => (eat.side === 'R' ? grab : eat.side === 'L' ? grabL : null);
   // 効果音（最初に画面に触れた・キーを押したときに鳴らせるようになる）
   const audio = new AquaAudio();
   view.digFx.pebbleLost = (k) => decor.pebbleLost(k);
@@ -278,11 +396,11 @@ async function boot() {
   };
   // 操作の説明（右上の「？」で開く。初回だけ自動で出し、「×」で閉じたら次からは出さない）。欄は右上のメニューを作った後に作る
   const helpBrief = touch
-    ? `<p>左のスティックで歩く。右のボタンは絵のとおり：跳ぶ・ダッシュ・掘る（切り替えで盛る）・ハサミ（たたくと閉じる / もう一度で開く）・視点（長押しで一覧）。画面をドラッグで見回す。</p><p class="hint">詳しい操作は、右上の「？」でいつでも見られます。</p>`
-    : `<p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 歩く・<kbd>Shift</kbd> 走る・<kbd>Space</kbd> 跳ぶ・<kbd>F</kbd> 掘る・<kbd>E</kbd> 押している間 挟む・<kbd>V</kbd> 視点（長押しで一覧）。ドラッグで見回し、ホイールでズーム。</p><p class="hint">詳しい操作は、右上の「？」でいつでも見られます。</p>`;
+    ? `<p>左のスティックで歩く。右のボタンは絵のとおり：跳ぶ・ダッシュ・掘る（切り替えで盛る。何かを挟んでいる間は 食べる）・ハサミ（たたくと閉じる / もう一度で開く）・視点（長押しで一覧）。画面をドラッグで見回す。</p><p class="hint">詳しい操作は、右上の「？」でいつでも見られます。</p>`
+    : `<p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 歩く・<kbd>Shift</kbd> 走る・<kbd>Space</kbd> 跳ぶ・<kbd>F</kbd> 掘る・<kbd>E</kbd> 押している間 挟む（挟んだまま <kbd>F</kbd> 食べる）・<kbd>V</kbd> 視点（長押しで一覧）。ドラッグで見回し、ホイールでズーム。</p><p class="hint">詳しい操作は、右上の「？」でいつでも見られます。</p>`;
   const helpFull = touch
-    ? `<ul><li>ボタンの絵：地面から上への矢印 ジャンプ、流れる線と » ダッシュ、くぼみへ↓と砂粒 掘る（砂山へ↓ は盛る。水草を挟んでいる間は 切れ目 = ちぎる・根と↑ = 抜く）、カニのハサミ 挟む（閉じた絵 = 挟んでいる）、いまの視点の絵 視点の切り替え、小さな横長 掘る ↔ 盛る。「🔊」の欄の「ボタンの名前を表示」で名前も出せる</li><li>左スティック：移動。ダッシュ：押している間</li><li>ジャンプ：跳ぶ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へスティックを倒し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（張り出しへはその向きへ押し続けると回り込む。跳んで天井に触れるとつかまる。ジャンプで離れる。「案内を出す」にすると、逆さの間はカニの横の矢印がスティック↑の向き）</li><li>掘る：押している間 前の砂を掘る。押したまま指をずらすと、その向き（上・下・左右・斜め）を掘る。掘りながらスティックで好きな向きへ動ける</li><li>盛る：「掘る」ボタンの上の切り替えで「盛る」にすると、同じボタンで手持ちの砂を置ける（押している間 少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>画面ドラッグ：視点の回転。2 本指：カメラのズーム</li><li>視点：短く押すと 三人称 → 肩越し → 自由追従 → ガラス越し（水槽の外から地下の穴を観察）→ 箱庭 → 三人称 の順に切り替わり、切り替えた視点の名前が少しだけ出る。長押しで視点の一覧（いまの視点に印。押したまま指を滑らせて離すか、たたいて選ぶ。「従来」も一覧から）</li><li>挟む：1 回たたくと右の大きなハサミを閉じ（ボタンが明るく「離す」になる）、もう一度たたくと開く。閉じたままジャンプ・ダッシュ・移動・視点の操作ができる。景色の小石・貝殻はどれでも挟める。水草の茎・葉も挟める（引っ張るほど大きくしなって抵抗し、カニが引き戻される。離すとビヨーンと戻る。引くだけでは抜けない：引っ張りすぎるとハサミが滑る。挟んだまま「掘る」ボタン（ちぎる / 抜くの絵になる）を押すと、高い所を挟んだテープ状の葉・有茎草はちぎれ、それ以外は引っ張っている間だけ根元から抜ける。抜いた・ちぎった草は運べる）。エビ・小魚も、ゆっくり近づいて素早く挟めば捕まえられる（暴れて逃げることもある）。挟んだまま歩く・泳ぐと引っ張られてついてくる。重い石は持ち上がらず引きずる（大きな石・岩・流木は動かず、カニの方が引き戻される）。閉じたまま近くの物へ寄ると、ハサミがそちらを向いて挟む。ふだんは輪や名前を出さない（触れて・挟んでみると、動き・重さ・音で分かる。「🔊」の欄の「案内を出す」で、挟める所の輪・物の名前を出せる）</li><li>引っこ抜く：巣穴から見えている触角を「挟む」で挟み（閉じたまま穴へ近づくと、ハサミが触角を向く）、スティックで後ろへ下がって引っ張る（押しているだけでは抜けない）。暴れているときに引きすぎるとハサミが滑る（震えたら少しゆるめる）。力が抜けた隙に引くと出てくる。離すと穴へ戻っていく</li><li>仲間：右上のボタンで「呼ぶ（同行）/ 自由に暮らす」を切り替え</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li>右上の「？」：この説明</li><li>ゲームパッド：左スティック 移動、右スティック 腕（両ハサミ）の向き、LT / L2 左ハサミ・RT / R2 右ハサミ（押している間）、A / × ジャンプ、B / ○ ダッシュ、X / □ 掘る・盛る（押している間は右スティックで掘る向き）、Y / △ 掘る ↔ 盛る、RB / R1 次の視点、左スティック押し込み 肩越し ↔ 三人称、水草を挟んだまま X / □ ちぎる・抜く、LB / L1 を押したまま右スティック・十字キーでカメラ、Back 仲間、Start 説明</li><li>右上の「🔊」：音と設定（消音・音量、操作ボタンの大きさ・濃さ、カメラの方式、歩き方（接地 IK / 従来）と接地の診断、水草のかき分け、案内の表示。最初に画面に触れると音が出せるようになる）</li><li>左上の「詳細」：区画・発見の数・FPS・画面の倍率の記録など（× で閉じる）</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`
-    : `<ul><li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る</li><li><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へ押し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（跳んで・泳いで天井に触れても張り付く。<kbd>Space</kbd> で離れる）</li><li><kbd>F</kbd> 長押し：掘る（押したままマウスを動かすと上下左右・斜めを狙う。掘りながら <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で好きな向きへ動ける）</li><li>右ボタンを押したままドラッグ：その向きを掘る</li><li><kbd>G</kbd> 掘る ↔ 盛る の切り替え。盛るのときは <kbd>F</kbd> 長押しで手持ちの砂を置く（少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>ドラッグ：視点回転　ホイール：ズーム</li><li><kbd>V</kbd> 次の視点（三人称 → 肩越し → 自由追従 → ガラス越し → 箱庭。ガラス越しはガラス際まで掘った穴を外から観察）。<kbd>V</kbd> 長押しで視点の一覧（<kbd>1</kbd>〜<kbd>6</kbd> かクリックで選ぶ・<kbd>Esc</kbd> で閉じる）　<kbd>C</kbd> 肩越し ↔ 三人称　<kbd>R</kbd> スタート地点へ</li><li><kbd>E</kbd> 押している間：右の大きなハサミを閉じて、届く所の小石・貝殻を挟む（離すと放す）。景色の小石・貝殻はどれでも挟める。水草の茎・葉も挟める（引っ張るほどしなって抵抗し、離すとビヨーンと戻る。引くだけでは抜けない。挟んだまま <kbd>F</kbd> で、高い所を挟んだ葉はちぎれ、それ以外は引っ張りながらなら根元から抜ける。抜いた草は運べる）。エビ・小魚も、ゆっくり近づいて素早く挟めば捕まえられる。押したままマウスを動かすと腕（ハサミ）の向きを右・左・上・下へ変えられる。挟んだまま歩く・泳ぐと引っ張られてついてくる。重い石は持ち上がらず引きずる（大きな石・岩・流木は動かず、カニの方が引き戻される）。ふだんは輪や名前を出さない（触れて・挟んでみると、動き・重さ・音で分かる。「🔊」の欄の「案内を出す」で、挟める所の輪・物の名前を出せる）</li><li>引っこ抜く：巣穴から見えている触角を <kbd>E</kbd> で挟み、押したまま <kbd>S</kbd> などで後ろへ下がって引っ張る（押しているだけでは抜けない）。暴れているときに引きすぎる（<kbd>Shift</kbd> で急に引く等）とハサミが滑る（震えたら少しゆるめる）。力が抜けた隙に引くと出てくる。離すと穴へ戻っていく　<kbd>Q</kbd> 仲間を呼ぶ / 自由に暮らす（右上のボタンでも）</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li><kbd>H</kbd> または右上の「？」：この説明の表示 / 非表示</li><li>ゲームパッド：左スティック 移動、右スティック 腕（両ハサミ）の向き、LT / L2 左ハサミ・RT / R2 右ハサミ（押している間）、A / × ジャンプ、B / ○ ダッシュ、X / □ 掘る・盛る（押している間は右スティックで掘る向き）、Y / △ 掘る ↔ 盛る、RB / R1 次の視点、左スティック押し込み 肩越し ↔ 三人称、水草を挟んだまま X / □ ちぎる・抜く、LB / L1 を押したまま右スティック・十字キーでカメラ、Back 仲間、Start 説明</li><li>右上の「🔊」：音と設定（消音・音量、操作ボタンの大きさ・濃さ、カメラの方式、歩き方（接地 IK / 従来）と接地の診断、水草のかき分け、案内の表示。最初に画面に触れると音が出せるようになる）</li><li><kbd>I</kbd> または左上の「詳細」：区画・発見の数・FPS・画面の倍率の記録などの表示 / 非表示</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`;
+    ? `<ul><li>ボタンの絵：地面から上への矢印 ジャンプ、流れる線と » ダッシュ、くぼみへ↓と砂粒 掘る（砂山へ↓ は盛る。水草を挟んでいる間は 切れ目 = ちぎる・根と↑ = 抜く）、カニのハサミ 挟む（閉じた絵 = 挟んでいる）、いまの視点の絵 視点の切り替え、小さな横長 掘る ↔ 盛る。「🔊」の欄の「ボタンの名前を表示」で名前も出せる</li><li>左スティック：移動。ダッシュ：押している間</li><li>ジャンプ：跳ぶ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へスティックを倒し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（張り出しへはその向きへ押し続けると回り込む。跳んで天井に触れるとつかまる。ジャンプで離れる。「案内を出す」にすると、逆さの間はカニの横の矢印がスティック↑の向き）</li><li>掘る：押している間 前の砂を掘る。押したまま指をずらすと、その向き（上・下・左右・斜め）を掘る。掘りながらスティックで好きな向きへ動ける</li><li>盛る：「掘る」ボタンの上の切り替えで「盛る」にすると、同じボタンで手持ちの砂を置ける（押している間 少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>画面ドラッグ：視点の回転。2 本指：カメラのズーム</li><li>視点：短く押すと 三人称 → 肩越し → 自由追従 → ガラス越し（水槽の外から地下の穴を観察）→ 箱庭 → 三人称 の順に切り替わり、切り替えた視点の名前が少しだけ出る。長押しで視点の一覧（いまの視点に印。押したまま指を滑らせて離すか、たたいて選ぶ。「従来」も一覧から）</li><li>挟む：1 回たたくと右の大きなハサミを閉じ（ボタンが明るく「離す」になる）、もう一度たたくと開く。閉じたままジャンプ・ダッシュ・移動・視点の操作ができる。景色の小石・貝殻はどれでも挟める。水草の茎・葉も挟める（引っ張るほど大きくしなって抵抗し、カニが引き戻される。離すとビヨーンと戻る。引くだけでは抜けない：引っ張りすぎるとハサミが滑る。挟んだまま「掘る」ボタン（ちぎる / 抜くの絵になる）を押すと、高い所を挟んだテープ状の葉・有茎草はちぎれ、それ以外は引っ張っている間だけ根元から抜ける。抜いた・ちぎった草は運べる）。エビ・小魚も、ゆっくり近づいて素早く挟めば捕まえられる（暴れて逃げることもある）。挟んだまま歩く・泳ぐと引っ張られてついてくる。重い石は持ち上がらず引きずる（大きな石・岩・流木は動かず、カニの方が引き戻される）。閉じたまま近くの物へ寄ると、ハサミがそちらを向いて挟む。ふだんは輪や名前を出さない（触れて・挟んでみると、動き・重さ・音で分かる。「🔊」の欄の「案内を出す」で、挟める所の輪・物の名前を出せる）</li><li>引っこ抜く：巣穴から見えている触角を「挟む」で挟み（閉じたまま穴へ近づくと、ハサミが触角を向く）、スティックで後ろへ下がって引っ張る（押しているだけでは抜けない）。暴れているときに引きすぎるとハサミが滑る（震えたら少しゆるめる）。力が抜けた隙に引くと出てくる。離すと穴へ戻っていく</li><li>食べる：ハサミで挟んだまま「掘る」ボタン（食べるの絵になる）を押している間、口元へ運んで少しずつ食べる（離すと中断。もう一度押すと続きから。「挟む」を開くと食べかけを落とす）。藻（岩・流木をつかんだまま押すと、そこの苔をむしる）・ちぎった水草・捕まえたエビ / 小魚・引き抜いたゴカイを食べられる。捕まえた生き物は、食べずに「挟む」を開けば逃がせる。小石・貝殻は口元で確かめて押し戻す。仲間は食べない。食べると左上の「栄養」が増える（減らない）</li><li>仲間：右上のボタンで「呼ぶ（同行）/ 自由に暮らす」を切り替え</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li>右上の「？」：この説明</li><li>ゲームパッド：左スティック 移動、右スティック 腕（両ハサミ）の向き、LT / L2 左ハサミ・RT / R2 右ハサミ（押している間）、A / × ジャンプ、B / ○ ダッシュ、X / □ 掘る・盛る（押している間は右スティックで掘る向き）、Y / △ 掘る ↔ 盛る、RB / R1 次の視点、左スティック押し込み 肩越し ↔ 三人称、水草を挟んだまま X / □ ちぎる・抜く、ほかの物を挟んだまま X / □ 押している間 食べる、LB / L1 を押したまま右スティック・十字キーでカメラ、Back 仲間、Start 説明</li><li>右上の「🔊」：音と設定（消音・音量、操作ボタンの大きさ・濃さ、カメラの方式、歩き方（接地 IK / 従来）と接地の診断、水草のかき分け、案内の表示。最初に画面に触れると音が出せるようになる）</li><li>左上の「詳細」：区画・発見の数・FPS・画面の倍率の記録など（× で閉じる）</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`
+    : `<ul><li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動　<kbd>Shift</kbd> 走る</li><li><kbd>Space</kbd> ジャンプ（水中で長押し＝遊泳。壁では離れる）</li><li>壁登り：岩・流木・土の壁へ押し続けると張り付く（壁へ＝上、手前＝下、左右＝横。離すとその場で止まる）。そのまま張り出し・岩や流木の裏・トンネルの天井まで逆さで歩ける（跳んで・泳いで天井に触れても張り付く。<kbd>Space</kbd> で離れる）</li><li><kbd>F</kbd> 長押し：掘る（押したままマウスを動かすと上下左右・斜めを狙う。掘りながら <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> で好きな向きへ動ける）</li><li>右ボタンを押したままドラッグ：その向きを掘る</li><li><kbd>G</kbd> 掘る ↔ 盛る の切り替え。盛るのときは <kbd>F</kbd> 長押しで手持ちの砂を置く（少しずつ積もる。黄緑の輪 = 置ける所、赤 = 置けない）。砂は掘ると集まる（左上の「砂」。上限あり）</li><li>ドラッグ：視点回転　ホイール：ズーム</li><li><kbd>V</kbd> 次の視点（三人称 → 肩越し → 自由追従 → ガラス越し → 箱庭。ガラス越しはガラス際まで掘った穴を外から観察）。<kbd>V</kbd> 長押しで視点の一覧（<kbd>1</kbd>〜<kbd>6</kbd> かクリックで選ぶ・<kbd>Esc</kbd> で閉じる）　<kbd>C</kbd> 肩越し ↔ 三人称　<kbd>R</kbd> スタート地点へ</li><li><kbd>E</kbd> 押している間：右の大きなハサミを閉じて、届く所の小石・貝殻を挟む（離すと放す）。景色の小石・貝殻はどれでも挟める。水草の茎・葉も挟める（引っ張るほどしなって抵抗し、離すとビヨーンと戻る。引くだけでは抜けない。挟んだまま <kbd>F</kbd> で、高い所を挟んだ葉はちぎれ、それ以外は引っ張りながらなら根元から抜ける。抜いた草は運べる）。エビ・小魚も、ゆっくり近づいて素早く挟めば捕まえられる。押したままマウスを動かすと腕（ハサミ）の向きを右・左・上・下へ変えられる。挟んだまま歩く・泳ぐと引っ張られてついてくる。重い石は持ち上がらず引きずる（大きな石・岩・流木は動かず、カニの方が引き戻される）。ふだんは輪や名前を出さない（触れて・挟んでみると、動き・重さ・音で分かる。「🔊」の欄の「案内を出す」で、挟める所の輪・物の名前を出せる）</li><li>引っこ抜く：巣穴から見えている触角を <kbd>E</kbd> で挟み、押したまま <kbd>S</kbd> などで後ろへ下がって引っ張る（押しているだけでは抜けない）。暴れているときに引きすぎる（<kbd>Shift</kbd> で急に引く等）とハサミが滑る（震えたら少しゆるめる）。力が抜けた隙に引くと出てくる。離すと穴へ戻っていく　<kbd>Q</kbd> 仲間を呼ぶ / 自由に暮らす（右上のボタンでも）</li><li>食べる：<kbd>E</kbd> で挟んだまま <kbd>F</kbd>（またはマウスの右ボタン）を押している間、口元へ運んで少しずつ食べる（離すと中断。もう一度押すと続きから。<kbd>E</kbd> を離すと食べかけを落とす）。藻（岩・流木をつかんだまま押すと、そこの苔をむしる）・ちぎった水草・捕まえたエビ / 小魚・引き抜いたゴカイを食べられる。捕まえた生き物は、食べずに <kbd>E</kbd> を離せば逃がせる。小石・貝殻は口元で確かめて押し戻す。仲間は食べない。食べると左上の「栄養」が増える（減らない）</li><li>右上の「セーブ」：進捗は自動で保存（書き出し・読み込み・初期状態に戻す）</li><li><kbd>H</kbd> または右上の「？」：この説明の表示 / 非表示</li><li>ゲームパッド：左スティック 移動、右スティック 腕（両ハサミ）の向き、LT / L2 左ハサミ・RT / R2 右ハサミ（押している間）、A / × ジャンプ、B / ○ ダッシュ、X / □ 掘る・盛る（押している間は右スティックで掘る向き）、Y / △ 掘る ↔ 盛る、RB / R1 次の視点、左スティック押し込み 肩越し ↔ 三人称、水草を挟んだまま X / □ ちぎる・抜く、ほかの物を挟んだまま X / □ 押している間 食べる、LB / L1 を押したまま右スティック・十字キーでカメラ、Back 仲間、Start 説明</li><li>右上の「🔊」：音と設定（消音・音量、操作ボタンの大きさ・濃さ、カメラの方式、歩き方（接地 IK / 従来）と接地の診断、水草のかき分け、案内の表示。最初に画面に触れると音が出せるようになる）</li><li><kbd>I</kbd> または左上の「詳細」：区画・発見の数・FPS・画面の倍率の記録などの表示 / 非表示</li></ul><p class="hint">光る石・湧く泡をたよりに、隠れた場所を探そう。見晴らしの良い所で立ち止まると景色を眺めます。水面の丸い穴は、水槽の下へ続いている。岸辺の斜面の砂は深く、トンネルを掘れる</p>`;
   let help: HelpPanel | null = null;
   const marker = document.createElement('div');
   marker.id = 'crab-marker';
@@ -359,6 +477,7 @@ async function boot() {
   input.onPress('KeyH', () => help?.toggle());
   input.onPress('KeyI', () => hud.toggle());
   input.onPress('KeyR', () => {
+    eat.reset();
     grab.release();
     grabL.release();
     touchUi?.setGrabLatched(false);
@@ -389,6 +508,7 @@ async function boot() {
   const goto = (name: string) => {
     const p = places[name];
     if (p) {
+      eat.reset();
       grab.release();
       grabL.release();
       // スマホの「挟む」スイッチも開く（瞬間移動の後に閉じたままにしない）
@@ -537,6 +657,9 @@ async function boot() {
     else buddy.examined = !!flags[FLAG_EXAMINED];
     // ゴカイ：見つけたか・砂の中なら巣穴の口・外なら頭の位置と向き・個体差（地形を戻した後なので、掘った穴・盛った砂に合わせて置く）
     swapWorms(worms.restore(d.buddies));
+    // 栄養（版 3）と、食べられたエビ・小魚（食べかけは底に横たわったまま・食べ終えた個体は消えたまま）
+    eat.nutrition.restore(d.player.nutrition);
+    if (tank) life.restoreEaten(tank.food.critters);
     // プレイヤー：保存した位置が固体の中なら（あり得ないが）スタート地点へ
     const P = d.player;
     if (world.contactSolid(P.x, P.y + crab.radius, P.z) > crab.radius * 0.5) {
@@ -584,9 +707,9 @@ async function boot() {
     // 世代と識別子は SaveStore が書くときに付ける
     rev: 0,
     saveId: '',
-    player: { tank: HOME_TANK, x: crab.x, y: crab.y, z: crab.z, heading: crab.heading, camera: camera.mode, sand: Math.max(0, crab.sandHeld), tool: crab.tool },
+    player: { tank: HOME_TANK, x: crab.x, y: crab.y, z: crab.z, heading: crab.heading, camera: camera.mode, sand: Math.max(0, crab.sandHeld), tool: crab.tool, nutrition: eat.nutrition.toSave() },
     progress: { visited: [...tracker.visited], flags: { ...flags, [FLAG_EXAMINED]: buddy.examined } },
-    tanks: { [HOME_TANK]: { dig: { prims: world.dig.exportPrims() } } },
+    tanks: { [HOME_TANK]: { dig: { prims: world.dig.exportPrims() }, food: { critters: life.eatenList() } } },
     buddies: [buddy.toSave(), ...worms.toSave()],
   });
   const saver = new AutoSaver(store, gather);
@@ -724,19 +847,120 @@ async function boot() {
       guideToast(`${pg.name}の根が強い。もっと引っ張りながら${touch ? '「抜く」' : ' F '}を押すと抜ける`);
     }
   };
-  /** スマホの「掘る」ボタン：水草を挟んでいる間は「ちぎる」「抜く」の印にする */
+  /** スマホの「掘る」ボタン：水草を挟んでいる間は「ちぎる」「抜く」、ほかの物を挟んでいる間は「食べる」の印にする */
   let digMode = '';
   const showDigMode = () => {
     const pg = plantGrabR.holding ? plantGrabR : plantGrabL.holding ? plantGrabL : null;
-    const m = pg ? (pg.cutsHere ? 'snip' : 'uproot') : crab.tool === 'fill' ? 'fill' : 'dig';
+    const holding = grab.state === 'holding' || grabL.state === 'holding' || eat.phase !== 'idle';
+    const m = pg ? (pg.cutsHere ? 'snip' : 'uproot') : holding ? 'eat' : crab.tool === 'fill' ? 'fill' : 'dig';
     if (m === digMode) return;
     digMode = m;
     const dg = touchUi?.root.querySelector<HTMLElement>('.dig');
     if (!dg) return;
     dg.classList.toggle('snip', m === 'snip');
     dg.classList.toggle('uproot', m === 'uproot');
-    touchUi!.setButton('dig', null, m === 'snip' ? 'ちぎる' : m === 'uproot' ? '抜く' : m === 'fill' ? '盛る' : '掘る');
+    dg.classList.toggle('eat', m === 'eat');
+    touchUi!.setButton('dig', null, m === 'snip' ? 'ちぎる' : m === 'uproot' ? '抜く' : m === 'eat' ? '食べる' : m === 'fill' ? '盛る' : '掘る');
   };
+  // ---------------- 食事の見た目と出来事 ----------------
+  /** 食べる動きを、姿勢（口元へ運ぶ・顎脚）・鋏（滑らない）・物（口に入っている）へ写す（前のフレームの値。体の更新より前） */
+  const syncFeed = () => {
+    const s = eat.side;
+    const F = rig.feed;
+    F.side = s === 'R' ? -1 : s === 'L' ? 1 : 0;
+    F.w = eat.feedW;
+    F.push = eat.push;
+    F.twist = eat.twist;
+    F.mouth = eat.mouth;
+    F.palp = eat.palp;
+    grab.feeding = s === 'R' && eat.feedW > 0.02;
+    grabL.feeding = s === 'L' && eat.feedW > 0.02;
+    lifeGrabR.subdued = grab.feeding;
+    lifeGrabL.subdued = grabL.feeding;
+    for (const [G, sd] of [[grab, 'R'], [grabL, 'L']] as const) if (G.holding) G.holding.eating = eat.side === sd && eat.feedW > 0.3;
+  };
+  const assistAt: [number, number, number] = [0, 0, 0], mouthAt: [number, number, number] = [0, 0, 0];
+  /**
+   * 空いている方の鋏の手伝い（噛んでいる間）：食べ物の横をつまむ → 口元へ運ぶ → 口の前で開く → 食べ物へ戻る、を 1 口と半周ずらして
+   * 繰り返す（その鋏が何も挟んでいない・押していないときだけ。姿勢の更新の前と、物を進めた後の 2 回書く）
+   */
+  const applyAssist = () => {
+    const k = eat.assist;
+    if (k < 0.02 || !eat.food) return;
+    const free = eat.side === 'R' ? { G: grabL, rg: rig.gripL, sx: 1 } : { G: grab, rg: rig.grip, sx: -1 };
+    if (free.G.state !== 'idle') return;
+    const fp = eat.food.at();
+    rig.mouthPoint(mouthAt, 0.01);
+    const ph = eat.assistPh;
+    const close = ph < 0.15 ? ph / 0.15 : ph < 0.5 ? 1 : ph < 0.65 ? 1 - (ph - 0.5) / 0.15 : 0;
+    const u = ph < 0.15 ? 0 : ph < 0.5 ? smooth(0.15, 0.5, ph) : ph < 0.65 ? 1 : 1 - smooth(0.65, 1, ph);
+    // 食べ物の、手伝う鋏の側を少し外した所
+    const hx = Math.cos(crab.heading), hz = -Math.sin(crab.heading);
+    for (let i = 0; i < 3; i++) assistAt[i] = fp[i] + (mouthAt[i] - fp[i]) * u * 0.85;
+    assistAt[0] += hx * free.sx * 0.025;
+    assistAt[2] += hz * free.sx * 0.025;
+    free.rg.on = true;
+    free.rg.close = close * k;
+    free.rg.hold = false;
+    free.rg.target = [assistAt[0], assistAt[1], assistAt[2]];
+    free.rg.shake = 0;
+  };
+  const smooth = (a: number, b: number, x: number) => {
+    const t = clamp((x - a) / (b - a), 0, 1);
+    return t * t * (3 - 2 * t);
+  };
+  /** 食べかすの色（種類ごと） */
+  const crumbRGB = Object.fromEntries(Object.entries(FOOD_KIND).map(([k, s]) => [k, s.crumbs.map((c) => hex(c))]));
+  /** 運んでいる途中の食べ物のある所（口の手前）。かけら・泡を出す */
+  const eatFx = (n: number, kind: string) => {
+    rig.mouthPoint(mouthAt, 0.02);
+    const fx = Math.sin(crab.heading), fz = Math.cos(crab.heading);
+    view.digFx.crumbs(mouthAt[0], mouthAt[1], mouthAt[2], n, crumbRGB[kind] ?? crumbRGB.plant, [fx, fz]);
+  };
+  const REFUSE_SAY: Record<string, (n: string) => string> = {
+    companion: (n) => `${n}は仲間なので食べない`,
+    inedible: (n) => `${n}は食べられない（口元で確かめて押し戻した）`,
+    anchored: (n) => `${n}はまだ隙間に踏ん張っている（引き抜いてから）`,
+    rooted: (n) => `${n}は根が付いている（ちぎる・抜くと食べられる）`,
+    nothing: () => 'ここには食べられる藻が無い（苔の付いた水中の岩・流木をつかむ）',
+  };
+  const onEatEvents = () => {
+    for (const e of eat.drainEvents()) {
+      if (e.kind === 'start') {
+        if (e.food.kind === 'algae' && !e.resume) {
+          audio.tear();
+          const p = e.food.at();
+          view.tugFx('bubble', p[0], p[1], p[2], 2);
+        }
+      } else if (e.kind === 'bite') {
+        audio.munch(FOOD_KIND[e.food.kind].sound, e.amount);
+        eatFx(2 + Math.round(e.amount * 14), e.food.kind);
+        if (Math.random() < 0.5) view.tugFx('bubble', mouthAt[0], mouthAt[1], mouthAt[2], 1);
+        if (e.first && (e.food.kind === 'shrimp' || e.food.kind === 'fish' || e.food.kind === 'worm')) saver.markImportant();
+        else saver.markDirty();
+      } else if (e.kind === 'finish') {
+        audio.gulp();
+        eatFx(5, e.food.kind);
+        view.tugFx('bubble', mouthAt[0], mouthAt[1], mouthAt[2], 3);
+        vibrate(12);
+        guideToast(`${e.food.name}を食べた（栄養 +${foodNutrition(e.food.kind, e.food.size).toFixed(0)}）`);
+        saver.markImportant();
+      } else if (e.kind === 'stop') {
+        if (e.why === 'release' && e.left > 0) guideToast(`食べるのをやめた：${e.food.name}（残り ${Math.round(e.left * 100)}%。もう一度押すと続き）`);
+        saver.markDirty();
+      } else if (e.kind === 'refuse') guideToast(REFUSE_SAY[e.why](e.name));
+      else if (e.kind === 'spit') {
+        audio.spit(e.bring);
+        rig.mouthPoint(mouthAt, 0.03);
+        view.tugFx('bubble', mouthAt[0], mouthAt[1], mouthAt[2], e.bring ? 3 : 1);
+      }
+    }
+  };
+  /** 食べている間の注視点（冒険カメラ：口元を少し上から見る。null = 食べていない） */
+  const eatFocus = (): [number, number, number] | null =>
+    eat.eating && eat.feedW > 0.5 && camera.mode === 'adventure' ? rig.mouthPoint([0, 0, 0], 0.02) : null;
+  /** 水草を抜いた・ちぎった「掘る」の押し下げは、離すまで食べるに使わない（引き抜いた草をすぐ食べ始めない） */
+  let twistLatch = false;
   const onGrabEvents = () => {
     for (const G of [grab, grabL]) {
       for (const e of G.drainEvents()) {
@@ -809,9 +1033,12 @@ async function boot() {
     rig.tugShake = held ? T.env : 0;
     // ゴカイ：つかみ点と口の中ほどを、より上から見下ろす（体が鋏から口へ視線に沿って伸び、後ろからでは縮んで見えるので）
     const wm = tw ? tw.w.mouth : null;
-    camera.focus = !held ? null : wm ? [(T.p[0] + wm[0]) / 2, (T.p[1] + wm[1]) / 2, (T.p[2] + wm[2]) / 2] : [T.p[0], T.p[1], T.p[2]];
+    // 食べている間は口元を少し上から（食べ物の減り方・顎脚が見えるように）
+    const ef = held ? null : eatFocus();
+    camera.focus = !held ? ef : wm ? [(T.p[0] + wm[0]) / 2, (T.p[1] + wm[1]) / 2, (T.p[2] + wm[2]) / 2] : [T.p[0], T.p[1], T.p[2]];
     // （離した・抜けた後は値を変えない：寄せ具合 focusW と一緒になめらかに戻る）
     if (held) camera.focusPitch = wm ? 0.6 : 0.22;
+    else if (ef) camera.focusPitch = 0.16;
     // 音：砂のこすれ・踏ん張り（張力で大きく・高く）
     audio.setTug(held ? { load: T.load, rub: T.rub, extV: T.extV, env: T.env } : null);
     if (!held) {
@@ -1060,18 +1287,25 @@ async function boot() {
       // 水草を挟んでいる間の「掘る」ボタン：抜く・ちぎる（第 6 段階。引くだけでは抜けない。押した瞬間だけ）
       const digNow = input.isDigHeld() || debug.dig;
       const pg = plantGrabR.holding ? plantGrabR : plantGrabL.holding ? plantGrabL : null;
-      if (digNow && !digWas && pg) onTwist(pg.twist(), pg);
+      if (digNow && !digWas && pg) {
+        onTwist(pg.twist(), pg);
+        twistLatch = true;
+      }
+      if (!digNow) twistLatch = false;
       digWas = digNow;
+      // 食事（前のフレームの食べる動き）を姿勢・鋏へ
+      syncFeed();
       // （水草を挟んでいる間は、正面（鋏の側）を挟んだ所へ向けたまま下がる・回り込む：背を向けて鋏が届かなくならない）
       // 切り替えた直後の移動の基準：倒したままなら前の視点の向き（離す・大きく倒し直すまで）
       const mv = input.moveAxis();
       if (moveLatch && (Math.hypot(mv.x, mv.y) < 0.2 || Math.abs(Math.atan2(Math.sin(Math.atan2(mv.x, mv.y) - moveLatch.ang), Math.cos(Math.atan2(mv.x, mv.y) - moveLatch.ang))) > 1.0)) moveLatch = null;
       // 鋏が挟む方に使われている間は掘れない（掘るのも鋏を使うので）
-      crab.update(dt, { move: mv, run: input.isRunning(), jumpHeld: input.isJumpHeld(), cameraYaw: moveLatch?.yaw ?? camera.yaw, dig: digNow && !grab.busy && !grabL.busy, digAim: debug.digAim ?? input.digAim(), pull, face: pg ? { x: pg.p[0], z: pg.p[2] } : face, tow: mergeTow(grab.tow, grabL.tow), support: rig.gait !== 'cycle' && rig.feet && rig.ikW > 0.5 ? rig.feet.support : null, lead: rig.gait === 'lead' || rig.gait === 'hybrid' });
+      crab.update(dt, { move: mv, run: input.isRunning(), jumpHeld: input.isJumpHeld(), cameraYaw: moveLatch?.yaw ?? camera.yaw, dig: digNow && !grab.busy && !grabL.busy, digAim: debug.digAim ?? input.digAim(), pull, face: pg ? { x: pg.p[0], z: pg.p[2] } : face, tow: mergeTow(mergeTow(grab.tow, grabL.tow), eat.feedW > 0 ? { ax: 0, ay: 0, az: 0, slow: eat.slow } : null), support: rig.gait !== 'cycle' && rig.feet && rig.ikW > 0.5 ? rig.feet.support : null, lead: rig.gait === 'lead' || rig.gait === 'hybrid' });
       camera.update(dt, input, crab);
       // 挟む：鋏の構え → 体と鋏の姿勢 → 左右の鋏の状態 → 物・生き物を進める（ばね。2 本で 1 回）→ 動いた物へ鋏を伸ばし直す・生き物の体を置き直す
       Object.assign(rig.grip, grab.rigGrip());
       Object.assign(rig.gripL, grabL.rigGrip());
+      applyAssist();
       rig.update(dt, crab);
       const reqR = grab.pre(dt, grabHeld, crab, rig);
       const reqL = grabL.pre(dt, grabHeldL, crab, rig.left);
@@ -1083,8 +1317,16 @@ async function boot() {
       // 抜けた・ちぎれた水草のかけらを、その鋏に挟ませる
       plantGrabR.flush();
       plantGrabL.flush();
+      // 食べる：挟んだまま「掘る」を押している間（根の付いた水草を挟んでいる・抜いた直後の押し下げを除く）。
+      // 口元へ運ぶ・噛み取る・ちぎる・確かめて押し戻す（AquaEat）。食べ終えた物は鋏を空にして世界から消える
+      // （押しているかだけを渡す：食べ終えた後は、押したままでは次の物を食べ始めない＝一度離すまで待つ）
+      const pgNow = plantGrabR.holding || plantGrabL.holding;
+      eat.update(dt, digNow && !pgNow && !twistLatch, eatClaws());
+      onEatEvents();
+      algae.update(dt);
       Object.assign(rig.grip, grab.rigGrip());
       Object.assign(rig.gripL, grabL.rigGrip());
+      applyAssist();
       rig.reaimGrip();
       buddy.placeInBurrow();
       // 物理の物になった景色の小石・貝殻の頂点を動かす・遠くで止まった物を景色へ戻す
@@ -1192,9 +1434,18 @@ async function boot() {
         return held ? `${held.name}${strain > 0.8 ? '（重い！）' : strain > 0.45 ? '（ずっしり）' : ''}` : G.state === 'closing' ? '…' : '空振り';
       };
       const both = grabL.state !== 'idle';
-      const grabChip = grab.state === 'idle' && !both ? null : {
-        text: both ? `右：${grab.state === 'idle' ? '—' : clawText(grab)} / 左：${clawText(grabL)}` : `挟む：${clawText(grab)}`,
-        heavy: (!!grab.held && grab.strain > 0.45) || (!!grabL.held && grabL.strain > 0.45),
+      const eatingText = eat.eating && eat.food ? `食べている：${eat.food.name}（残り ${Math.round(eat.food.left * 100)}%）` : null;
+      const grabChip = grab.state === 'idle' && !both && !eatingText ? null : {
+        text: eatingText ?? (both ? `右：${grab.state === 'idle' ? '—' : clawText(grab)} / 左：${clawText(grabL)}` : `挟む：${clawText(grab)}`),
+        heavy: !eatingText && ((!!grab.held && grab.strain > 0.45) || (!!grabL.held && grabL.strain > 0.45)),
+      };
+      // 栄養（一度でも食べたら出す）。詳細の欄：合計・次の脱皮の目安・種類ごと
+      const NU = eat.nutrition;
+      const nutrition = {
+        total: NU.total,
+        bar: NU.progress,
+        show: NU.total > 0 || eat.stats.starts > 0,
+        detail: `${NU.total.toFixed(1)}（脱皮の目安 ${NU.next ?? GROWTH.moltAt[GROWTH.moltAt.length - 1]} まで ${Math.round(NU.progress * 100)}%・段階 ${NU.stage}）　${(['algae', 'plant', 'shrimp', 'fish', 'worm'] as const).map((k) => `${FOOD_KIND[k].name} ${NU.byKind[k].toFixed(1)}（${NU.eaten[k]}）`).join('・')}`,
       };
       // 手持ちの砂（1 杯 = SAND.unit）
       // （第 10 段階：持てる量の上限なし。帯は持っている量の目安＝多いほど満ちる）
@@ -1209,6 +1460,7 @@ async function boot() {
         cups,
         capCups,
         fill: crab.tool === 'fill',
+        nutrition,
         swim: crab.swimStamina,
         // 遊泳の体力は、泳いでいる・減っている間だけ小さな表示に出す
         swimShow: crab.state === 'swim' || crab.swimStamina < 0.98,
@@ -1320,7 +1572,7 @@ async function boot() {
       }, 2500);
     }, 4000);
   }
-  (window as unknown as Record<string, unknown>).__aqua = Object.assign(debug, { world, crab, rig, camera, view, settings, input, spots, finds, tracker, life, resetDiscovery, goto, places, sump: SUMP, save: { store, saver, menu: saveMenu, ctx: saveCtx, gather, restore: restoreInfo, loaded }, help, viewport, buddy, toggleBuddy, worms, grab, grabL, plantField, pushers, plantSet: plants.set, weeds, plantGrabR, plantGrabL, lifeGrabR, lifeGrabL, props, decor, touchUi, setView, cycleView, toggleClose, picker, viewToast, moveLatch: () => moveLatch, uiPrefs, audio, audioMenu, pad, buildMs, bootMs, gpu, diagLog, buildPhases: built.ms, plantMs: plants.ms, plantCounts: plants.counts, plantTimes: plants.times });
+  (window as unknown as Record<string, unknown>).__aqua = Object.assign(debug, { world, crab, rig, camera, view, settings, input, spots, finds, tracker, life, resetDiscovery, goto, places, sump: SUMP, save: { store, saver, menu: saveMenu, ctx: saveCtx, gather, restore: restoreInfo, loaded }, help, viewport, buddy, toggleBuddy, worms, grab, grabL, eat, algae, eatClaws, plantField, pushers, plantSet: plants.set, weeds, plantGrabR, plantGrabL, lifeGrabR, lifeGrabL, props, decor, touchUi, setView, cycleView, toggleClose, picker, viewToast, moveLatch: () => moveLatch, uiPrefs, audio, audioMenu, pad, buildMs, bootMs, gpu, diagLog, buildPhases: built.ms, plantMs: plants.ms, plantCounts: plants.counts, plantTimes: plants.times });
 }
 
 // 読み込み表示を先に描画させてから重い生成処理に入る

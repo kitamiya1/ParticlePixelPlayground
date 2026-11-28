@@ -377,6 +377,19 @@ export class AquariumDigFx {
     if (under && n > 3) this.add(x + rs(0.08), y + 0.06, z + rs(0.08), rs(0.2), 0.12 + Math.random() * 0.15, rs(0.2), 1.0 + Math.random() * 0.5, 0.07 + Math.random() * 0.04, 1, mixRGB(SANDS[1], hex('#9fb8a0'), 0.35));
   }
 
+  /**
+   * 食べかす（食事の 1 口。AquaEat）：口元から n 粒が前・横へこぼれ、水中ではゆっくり沈む（色 = 食べ物の色）。
+   * fwd = カニの前の向き（水平の単位）
+   */
+  crumbs(x: number, y: number, z: number, n: number, colors: readonly RGB[], fwd: readonly number[]) {
+    const under = y < TANK.waterY;
+    for (let i = 0; i < n; i++) {
+      const c = colors[Math.floor(Math.random() * colors.length)];
+      const sp = 0.12 + Math.random() * 0.25;
+      this.add(x + rs(0.03), y + rs(0.02), z + rs(0.03), fwd[0] * sp + rs(0.22), 0.05 + Math.random() * 0.25, fwd[1] * sp + rs(0.22), under ? 1.2 + Math.random() * 0.8 : 0.5, 0.012 + Math.random() * 0.014, 0, c);
+    }
+  }
+
   private add(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, size: number, kind: 0 | 1 | 2, c: RGB) {
     if (this.grains.length >= this.maxGrains) this.grains.shift();
     this.grains.push({ x, y, z, vx, vy, vz, life, max: life, size, kind, c, rest: false });

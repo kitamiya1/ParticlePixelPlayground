@@ -379,6 +379,20 @@ export class SurfelRenderer {
     return n;
   }
 
+  /** 世界の円盤の直径（0 = 隠れている）。水槽ゲーム：食べた藻を隠す前に覚えて、あとで生え戻す */
+  worldSizes(indices: readonly number[]): Float32Array {
+    const a = (this.worldGeo.getAttribute('iMisc') as THREE.InstancedBufferAttribute).array as Float32Array;
+    return Float32Array.from(indices, (i) => a[i * 3]);
+  }
+
+  /** 世界の円盤の直径を sizes × k にする（隠した円盤を戻す・少しずつ育てる） */
+  setWorldSizes(indices: readonly number[], sizes: ArrayLike<number>, k = 1) {
+    const attr = this.worldGeo.getAttribute('iMisc') as THREE.InstancedBufferAttribute;
+    const a = attr.array as Float32Array;
+    indices.forEach((i, o) => (a[i * 3] = sizes[o] * k));
+    attr.needsUpdate = true;
+  }
+
   /** 設定・キャラクターの姿勢を反映する（countScale：密度にさらに掛ける割合。方式 F の草の層の密度） */
   update(s: RenderSettings, rig: CharacterRig, densityComp: number, lowW: number, lowH: number, countScale = 1) {
     const frac = Math.max(0, Math.min(1, s.density * countScale));
