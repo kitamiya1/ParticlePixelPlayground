@@ -80,6 +80,7 @@
     const onSlab = Math.abs(c.y - (T + 2 * s.semi[1])) < 0.03;
     return { onSlab, crabY: r3(c.y - T), slabMoved: r3(Math.hypot(s.p[0] - F.p[0], s.p[2] - (F.p[2] - 0.6))) };
   };
-  const all = () => ({ settle: settle(), towers: [3, 4, 5, 6].map((n) => tower(n)), towersYaw: [3, 5].map((n) => tower(n, { yaw: 0.25, dx: 0.008 })), overhang: [0.03, 0.07].map(overhang), bridge: bridge(), footing: footing() });
+  // （towers・towersYaw = 全部の段を同時に置く（いちばん厳しい）。seq = 1 段ずつ（ハサミで積むときと同じ）。同時に 6 段・ずらして 5 段は崩れることがある＝報告書の既知の限界）
+  const all = () => ({ settle: settle(), towers: [3, 4, 5, 6].map((n) => tower(n)), towersYaw: [3, 5].map((n) => tower(n, { yaw: 0.25, dx: 0.008 })), seq: [tower(6, { seq: true }), tower(5, { yaw: 0.25, dx: 0.008, seq: true })], overhang: [0.03, 0.07].map(overhang), bridge: bridge(), footing: footing() });
   window.__blocks = { settle, tower, overhang, bridge, footing, all, run, reset };
 })();

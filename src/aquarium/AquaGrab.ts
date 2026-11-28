@@ -588,7 +588,9 @@ export class PropSystem {
     for (const pr of this.props) {
       if (pr.awake) continue;
       const d = Math.hypot(pr.p[0] - crab.x, pr.p[1] - cy, pr.p[2] - crab.z);
-      if (d < crab.radius + pr.rb + 0.12) pr.wake();
+      // （箱は面までの距離で：体が押すのは面から 1.2 cm の所から。外接球で測ると、平たい石の横に立っているだけで毎フレーム起きて
+      //   重かった（検証エリアの出発点で 2 枚 × 約 1.8 ms））
+      if (pr.box ? d < crab.radius + pr.rb + 0.12 && surfaceDist(pr, crab.x, cy, crab.z) < crab.radius + 0.05 : d < crab.radius + pr.rb + 0.12) pr.wake();
       // 開いた鋏の先が触れそう
       else for (const t of tips) if (t.skip !== pr && Math.hypot(pr.p[0] - t.p[0], pr.p[1] - t.p[1], pr.p[2] - t.p[2]) < pr.rb + t.r + 0.03) pr.wake();
     }

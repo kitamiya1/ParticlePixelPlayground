@@ -160,6 +160,20 @@
       return { ok: held && away1 < freeAway * 0.5, site: site.p.map(r3), name, held, away1s: r3(away1), freeAway1s: r3(freeAway), walkSlipFrame: slipAt, runSlipFrame: runSlip, slips: ev.slips };
     },
     assist() {
+      // 検証エリア（石の床・積み木。id が area-）を一時的に地面の下へ退ける：2026-11-28 にこのエリアができ、それまでこの検証が
+      // 使っていた平らな砂（-11.38, 3.36）がその床になった。終わったら戻す
+      const aside = a.props.props.filter((q) => q.id.startsWith('area-')).map((q) => [q, [...q.p]]);
+      for (const [q] of aside) q.p[1] -= 60;
+      a.props.boxBounds?.();
+      try {
+        return ca.assist0();
+      } finally {
+        for (const [q, p] of aside) q.p.splice(0, 3, ...p);
+        a.props.boxBounds?.();
+        a.resetBlocks?.();
+      }
+    },
+    assist0() {
       const pr = a.props.props.find((p) => p.id === 'pebble2');
       // 景色の小石・ほかの物から 1.2 以上離れた砂の上へ置き直す（いちばん近い物を取り違えない）
       let spot = null;
