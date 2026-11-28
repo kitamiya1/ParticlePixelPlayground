@@ -47,7 +47,7 @@
 //   比べた方式（tunnelCam）：'orbit' = 従来の三人称のまま、'shoulder' = 腕を 1.1 に縮めた肩越し、'near' = 頭の上の近い視点。
 //   既定は 'near'（docs/aquarium/free-dig-tunnel-cam/report.md の比較）。
 
-import { clamp, smoothstep } from '../core/math';
+import { clamp, lerp, smoothstep } from '../core/math';
 import type { Input } from '../game/Input';
 import { TANK, type AquariumWorld } from './AquariumWorld';
 import { DECK, ROOM, SUMP_IN, type Region } from './AquariumStand';
@@ -255,6 +255,13 @@ export class AquaCamera {
   /** 引っこ抜きの間に見下ろす角を足す量（ゴカイは細長い体が鋏から穴へ視線に沿って伸び、後ろからでは縮んで見えるので大きく） */
   focusPitch = 0.22;
   private focusW = 0;
+  /**
+   * ハサミ集中モード：作業している所（両方の鋏の間。AquaClawFocus が書く。null = ふだん）。注視点をカニからそこへ寄せる
+   * （寄せ具合は平滑化。戻すときも最後の位置からなめらかに）
+   */
+  work: V3 | null = null;
+  private workW = 0;
+  private readonly workLast: V3 = [0, 0, 0];
 
   constructor(private readonly world: AquariumWorld) {}
 
@@ -425,7 +432,16 @@ export class AquaCamera {
     // 引っこ抜き：注視点をカニと巣穴の間へ寄せて少し上げる（後ろから見てもカニの体の向こうの生き物が見える）
     this.focusW += ((this.focus ? 1 : 0) - this.focusW) * (1 - Math.exp(-dt * 3));
     const F = this.focus, fw = F ? this.focusW : 0;
-    const fx = F ? (F[0] - c.x) * 0.55 * fw : 0, fz = F ? (F[2] - c.z) * 0.55 * fw : 0, fy = 0.22 * fw;
+    let fx = F ? (F[0] - c.x) * 0.55 * fw : 0, fz = F ? (F[2] - c.z) * 0.55 * fw : 0, fy = 0.22 * fw;
+    // ハサミ集中モード：作業している所へ注視点を寄せる（高さも作業の高さへ）
+    this.workW += ((this.work ? 1 : 0) - this.workW) * (1 - Math.exp(-dt * 3));
+    if (this.work) this.workLast.splice(0, 3, this.work[0], this.work[1], this.work[2]);
+    if (this.workW > 1e-3) {
+      const ww = this.workW * 0.85, Wk = this.workLast;
+      fx = lerp(fx, Wk[0] - c.x, ww);
+      fz = lerp(fz, Wk[2] - c.z, ww);
+      fy = lerp(fy, Wk[1] - (c.y + 0.3), ww);
+    }
     this.target.x += (c.x + n[0] * lift + fx - this.target.x) * kf;
     this.target.y += (c.y + 0.3 + n[1] * lift + fy - this.target.y) * kf;
     this.target.z += (c.z + n[2] * lift + fz - this.target.z) * kf;

@@ -591,6 +591,18 @@ export class AquariumWorld {
    * solid は水槽の中身だけ（植物の配置・日照の焼き込み・生き物が使う）で、こちらはカニの移動用。
    */
   contactSolid(x: number, y: number, z: number): number {
+    const d = this.staticContactSolid(x, y, z);
+    return this.dyn ? Math.min(d, this.dyn.dist(x, y, z)) : d;
+  }
+
+  /**
+   * 動く固体（積み木の検証エリアの箱。AquaGrab の PropSystem）：contactSolid に足す（カニ・小石・生き物が箱に乗る・ぶつかる）。
+   * 掘る（solid）・登れる面（climbSolid）・カメラには入れない
+   */
+  dyn: { dist(x: number, y: number, z: number): number } | null = null;
+
+  /** contactSolid のうち動かない物だけ（箱は含めない） */
+  staticContactSolid(x: number, y: number, z: number): number {
     const S = this.stand;
     let d = Math.min(S.deck(x, y, z), S.glassSolid(x, y, z), S.acrylicSolid(x, y, z), S.opaqueSolid(x, y, z), S.pipeWalls(x, y, z));
     if (x > TANK.minX && x < TANK.maxX && z > TANK.minZ && z < TANK.maxZ && y > DECK.top - 0.5) d = Math.min(d, this.solid(x, y, z));

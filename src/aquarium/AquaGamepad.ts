@@ -27,12 +27,40 @@ export interface PadActions {
   toggleBuddy: () => void;
   toggleHelp: () => void;
   toast: (msg: string) => void;
+  /** 通常 ↔ ハサミ集中モード（左右のスティックの押し込みを同時に） */
+  toggleFocus?: () => void;
+  /** 集中モード：腕の動かし方を次へ（Y / △） */
+  cycleScheme?: () => void;
+}
+
+/** ハサミ集中モードでのパッドの値（AquaClawFocus が読む） */
+export interface PadFocus {
+  /** 左右のスティック（x = 右, y = 上。遊びを除いた値） */
+  l: { x: number; y: number };
+  r: { x: number; y: number };
+  /** 左右のトリガーの押し込み（0..1） */
+  lt: number;
+  rt: number;
+  /** 左右のバンパー（押している間、そちらのスティックは高さ・手首のひねり） */
+  lb: boolean;
+  rb: boolean;
 }
 
 export class AquaGamepad {
   /** 左右のハサミを閉じている（トリガー） */
   clawL = false;
   clawR = false;
+  /** 左右のトリガーの押し込み（0..1。アナログでないパッドは 0 か 1） */
+  clawLv = 0;
+  clawRv = 0;
+  /** トリガーが途中の値を返した（アナログのトリガー） */
+  analog = false;
+  /** ハサミ集中モード：スティック・バンパーを集中モードの割り当てで読む（main が書く） */
+  focus = false;
+  readonly pf: PadFocus = { l: { x: 0, y: 0 }, r: { x: 0, y: 0 }, lt: 0, rt: 0, lb: false, rb: false };
+  /** スティックの押し込み：同時に押した（集中モードの切り替え）・押してから離すまでにもう片方を押したか */
+  private l3Combo = false;
+  private r3Combo = false;
   /** 使っているパッドの番号・名前・配列 */
   index = -1;
   id = '';
@@ -72,6 +100,12 @@ export class AquaGamepad {
     I.padDigAim = { x: 0, y: 0 };
     I.armAimExtra = null;
     this.clawL = this.clawR = false;
+    this.clawLv = this.clawRv = 0;
+    const F = this.pf;
+    F.l = { x: 0, y: 0 };
+    F.r = { x: 0, y: 0 };
+    F.lt = F.rt = 0;
+    F.lb = F.rb = false;
     this.prev = [];
   }
 
@@ -109,15 +143,67 @@ export class AquaGamepad {
     const pressed = (i: number) => B(i) && !this.prev[i];
     const ax = (i: number) => pad!.axes[i] ?? 0;
     const L = radial(ax(0), ax(1)), R = radial(ax(2), ax(3));
+    // トリガー（ヒステリシス付き）。押し込みの量（アナログ）：ボタンの value。押しているだけの値（0 / 1）しか返さないパッドは
+    // pressed を 1 として読む
+    const tv = (i: number) => {
+      const b = pad!.buttons[i];
+      if (!b) return 0;
+      const v = Number.isFinite(b.value) ? b.value : 0;
+      if (v > 0.02 && v < 0.98) this.analog = true;
+      return b.pressed ? Math.max(v, this.analog ? v : 1) : v;
+    };
+    const lt = tv(6), rt = tv(7);
+    this.clawLv = lt;
+    this.clawRv = rt;
+    this.clawL = this.clawL ? lt > TRIGGER_OFF : lt > TRIGGER_ON;
+    this.clawR = this.clawR ? rt > TRIGGER_OFF : rt > TRIGGER_ON;
+    // 左右のスティックの押し込み：同時に押したら集中モードの切り替え。1 本だけなら離したときに従来の操作
+    // （肩越し ↔ 三人称・カメラを後ろへ。同時押しの途中で従来の操作が動かないように、離したときにする）
+    const l3 = B(10), r3 = B(11);
+    if (l3 && r3 && !(this.prev[10] && this.prev[11])) {
+      if (!this.l3Combo && !this.r3Combo) this.act.toggleFocus?.();
+      this.l3Combo = this.r3Combo = true;
+    }
+    if (!l3 && this.prev[10]) {
+      if (!this.l3Combo) this.act.toggleClose?.();
+      this.l3Combo = false;
+    }
+    if (!r3 && this.prev[11]) {
+      if (!this.r3Combo) this.act.cameraBehind();
+      this.r3Combo = false;
+    }
+    if (this.focus) {
+      // ハサミ集中モード：左スティック = 左の鋏・右スティック = 右の鋏（x = 右, y = 上）・トリガー = 開閉・バンパー = 高さとひねり。
+      // カニは歩かない（移動・ジャンプ・ダッシュ・掘る向き・腕の向きは使わない）。十字キーはカメラのまま。X / □ は食べる
+      const F = this.pf;
+      F.l = { x: L.x, y: -L.y };
+      F.r = { x: R.x, y: -R.y };
+      F.lt = lt;
+      F.rt = rt;
+      F.lb = B(4);
+      F.rb = B(5);
+      I.padMove = { x: 0, y: 0 };
+      I.padJump = I.padRun = false;
+      I.padDig = B(2);
+      I.padDigAim = { x: 0, y: 0 };
+      I.armAimExtra = null;
+      if (B(14)) I.dragDX -= 600 * dt;
+      if (B(15)) I.dragDX += 600 * dt;
+      if (B(12)) I.wheel -= 4 * dt;
+      if (B(13)) I.wheel += 4 * dt;
+      // B / ○ で通常へ戻る・Y / △ で腕の動かし方を次へ
+      if (pressed(1)) this.act.toggleFocus?.();
+      if (pressed(3)) this.act.cycleScheme?.();
+      if (pressed(8)) this.act.toggleBuddy();
+      if (pressed(9)) this.act.toggleHelp();
+      this.prev = pad.buttons.map((b) => b.pressed);
+      return;
+    }
     // 左スティック：移動（上 = 前。Gamepad の y は下が +）
     I.padMove = { x: L.x, y: -L.y };
     I.padJump = B(0);
     I.padRun = B(1);
     I.padDig = B(2);
-    // トリガー（ヒステリシス付き）
-    const lt = V(6), rt = V(7);
-    this.clawL = this.clawL ? lt > TRIGGER_OFF : lt > TRIGGER_ON;
-    this.clawR = this.clawR ? rt > TRIGGER_OFF : rt > TRIGGER_ON;
     // 右スティック：LB を押している間はカメラ、掘っている間は掘る向き、それ以外は腕の向き
     const camMode = B(4);
     if (camMode) {
@@ -139,8 +225,6 @@ export class AquaGamepad {
     if (B(13)) I.wheel += 4 * dt;
     if (pressed(3)) this.act.toggleTool();
     if (pressed(5)) this.act.toggleCamera();
-    if (pressed(11)) this.act.cameraBehind();
-    if (pressed(10)) this.act.toggleClose?.();
     if (pressed(8)) this.act.toggleBuddy();
     if (pressed(9)) this.act.toggleHelp();
     this.prev = pad.buttons.map((b) => b.pressed);

@@ -83,8 +83,22 @@ export class Input {
   padJump = false;
   padDig = false;
   padDigAim = { x: 0, y: 0 };
-  /** E を押したときのマウスの位置（腕の向きの基準） */
+  /** E を押したときのマウスの位置（腕の向きの基準）。Q = 左の鋏（水槽ゲーム） */
   private eOrigin: { x: number; y: number } | null = null;
+  private qOrigin: { x: number; y: number } | null = null;
+  /**
+   * ハサミ集中モード（水槽ゲーム）：マウスの左ボタン = 右の鋏を閉じる（押している間 mouseL）、中ボタンのドラッグ = 視点を回す、
+   * 右ボタンのドラッグ = 右の鋏の高さ（mouseR・mouseRDX/DY）。マウスの動き（mouseDX/DY）は毎フレームの差
+   */
+  focusMouse = false;
+  /** Tab をページのフォーカス移動に使わない（水槽ゲーム：集中モードの切り替え） */
+  trapTab = false;
+  mouseL = false;
+  mouseR = false;
+  mouseRDX = 0;
+  mouseRDY = 0;
+  mouseDX = 0;
+  mouseDY = 0;
   /** 画面の掘るボタンを押したままずらした照準（x = 右, y = 上、長さ 0〜1） */
   touchDigAim = { x: 0, y: 0 };
   /** マウスの右ボタンで掘る（水槽ゲームだけ true。false なら右ドラッグは従来どおり平行移動） */
@@ -121,16 +135,24 @@ export class Input {
       // F を押したときのマウスの位置を、照準の基準にする
       if (e.code === 'KeyF' && !this.fOrigin) this.fOrigin = { ...this.mouse };
       if (e.code === 'KeyE' && !this.eOrigin) this.eOrigin = { ...this.mouse };
-      if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
+      if (e.code === 'KeyQ' && !this.qOrigin) this.qOrigin = { ...this.mouse };
+      if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code) || (e.code === 'Tab' && this.trapTab)) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
       if (e.code === 'KeyF') this.fOrigin = null;
       if (e.code === 'KeyE') this.eOrigin = null;
+      if (e.code === 'KeyQ') this.qOrigin = null;
     });
-    // マウスの位置（ボタンを押していなくても追う。F の照準に使う）
+    // マウスの位置（ボタンを押していなくても追う。F の照準に使う）と動き（集中モードの右の鋏。ポインターを固定している間も届く）
     window.addEventListener('pointermove', (e) => {
       if (e.pointerType !== 'mouse') return;
+      const locked = !!document.pointerLockElement;
+      const dx = locked ? e.movementX : e.clientX - this.mouse.x, dy = locked ? e.movementY : e.clientY - this.mouse.y;
+      if (Number.isFinite(dx) && Number.isFinite(dy) && Math.abs(dx) < 400 && Math.abs(dy) < 400) {
+        this.mouseDX += dx * this.pointerScale;
+        this.mouseDY += dy * this.pointerScale;
+      }
       this.mouse.x = e.clientX;
       this.mouse.y = e.clientY;
     }, true);
@@ -171,6 +193,33 @@ export class Input {
         });
         this.touches.set(id, { x: e.clientX, y: e.clientY });
         if (this.touches.size >= 2) this.resetPinch();
+        return;
+      }
+      // ハサミ集中モード：左 = 右の鋏を閉じる、中 = 視点を回す、右 = 右の鋏の高さ（ドラッグ）
+      if (this.focusMouse) {
+        let lastX = e.clientX, lastY = e.clientY;
+        const b = e.button;
+        if (b === 0) this.mouseL = true;
+        if (b === 2) this.mouseR = true;
+        this.claim(e, {
+          move: (ev) => {
+            const dx = (ev.clientX - lastX) * this.pointerScale, dy = (ev.clientY - lastY) * this.pointerScale;
+            lastX = ev.clientX;
+            lastY = ev.clientY;
+            if (b === 1) {
+              this.dragDX += dx;
+              this.dragDY += dy;
+            } else if (b === 2) {
+              this.mouseRDX += dx;
+              this.mouseRDY += dy;
+            }
+          },
+          end: () => {
+            if (b === 0) this.mouseL = false;
+            if (b === 2) this.mouseR = false;
+          },
+        });
+        if (b === 1) e.preventDefault();
         return;
       }
       // 右ボタンで掘る（押したままずらすと照準。指で掘るボタンを押したときと同じ）
@@ -251,6 +300,8 @@ export class Input {
     this.mouseDigAim = { x: 0, y: 0 };
     this.fOrigin = null;
     this.eOrigin = null;
+    this.qOrigin = null;
+    this.mouseL = this.mouseR = false;
     this.pinchDist = 0;
     for (const f of this.resetHooks) f();
   }
@@ -387,6 +438,12 @@ export class Input {
     return { x: 0, y: 0 };
   }
 
+  /** 左の鋏の腕の向き（Q を押したままのマウスのずれ。無ければ null = 右と同じ向き） */
+  armAimL(): { x: number; y: number } | null {
+    if (this.qOrigin && this.isDown('KeyQ')) return digAimFromOffset(this.mouse.x - this.qOrigin.x, this.mouse.y - this.qOrigin.y, DIG_AIM.mouseRadius);
+    return null;
+  }
+
   /** 移動入力（x: 右, y: 前）。キーが押されていなければ仮想スティックの値 */
   moveAxis(): { x: number; y: number } {
     let x = 0, y = 0;
@@ -409,6 +466,7 @@ export class Input {
 
   consume() {
     this.dragDX = this.dragDY = this.panDX = this.panDY = this.wheel = 0;
+    this.mouseDX = this.mouseDY = this.mouseRDX = this.mouseRDY = 0;
   }
 }
 
