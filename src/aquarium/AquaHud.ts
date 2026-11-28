@@ -19,6 +19,11 @@ export interface HudInfo {
   capCups: number;
   /** 盛るのとき true（ふだんの「掘る」は小さな表示に出さない） */
   fill: boolean;
+  /**
+   * 栄養（AquaEat。経験値に相当する蓄積型）：合計・次の脱皮の目安までの割合（0..1）・詳細の欄の文字。
+   * 一度も食べていない間は出さない
+   */
+  nutrition: { total: number; bar: number; detail: string; show: boolean };
   /** 遊泳の体力（0..1）。泳いでいる・減っているときだけ小さな表示に出す */
   swim: number;
   swimShow: boolean;
@@ -57,7 +62,7 @@ export class AquaHud {
     const root = document.createElement('div');
     root.id = 'hud';
     root.innerHTML = `
-      <div class="line"><span class="place" id="h-place">—</span><span class="sandc" title="手持ちの砂"><span class="lbl">砂</span><span class="bar sand"><i id="h-sand"></i></span><span class="sandn" id="h-sandn"></span></span><span class="tag tool off" id="h-tool"></span><button type="button" class="hud-more" aria-expanded="false" aria-controls="hud-detail" title="詳しい表示（I）">詳細</button></div>
+      <div class="line"><span class="place" id="h-place">—</span><span class="sandc" title="手持ちの砂"><span class="lbl">砂</span><span class="bar sand"><i id="h-sand"></i></span><span class="sandn" id="h-sandn"></span></span><span class="nutc off" id="h-nutc" title="栄養（食べると増える。減らない）"><span class="lbl">栄養</span><span class="bar nut"><i id="h-nut"></i></span><span class="nutn" id="h-nutn"></span></span><span class="tag tool off" id="h-tool"></span><button type="button" class="hud-more" aria-expanded="false" aria-controls="hud-detail" title="詳しい表示（I）">詳細</button></div>
       <div class="line st"><span class="tag swim off" id="h-swimc"><span class="lbl">遊泳</span><span class="bar"><i id="h-swim"></i></span></span><span class="tag dig off" id="h-dig"></span><span class="tag grab off" id="h-grab"></span><span class="tag warn off" id="h-warn"></span></div>`;
     document.body.appendChild(root);
     this.root = root;
@@ -73,6 +78,7 @@ export class AquaHud {
         <div class="row"><span class="k">発見</span><span id="h-found"></span></div>
         <div class="row"><span class="k">照準</span><span id="h-digd">—</span></div>
         <div class="row"><span class="k">ハサミ</span><span id="h-grabd">—</span></div>
+        <div class="row"><span class="k">栄養</span><span id="h-nutd">—</span></div>
         <div class="row"><span class="k">遊泳</span><span class="bar"><i id="h-swimd"></i></span></div>
         <div class="sec">性能</div>
         <div class="sub" id="h-perf"></div>
@@ -88,7 +94,7 @@ export class AquaHud {
       </div>`;
     document.body.appendChild(d);
     this.detail = d;
-    for (const id of ['h-place', 'h-sand', 'h-sandn', 'h-tool', 'h-swimc', 'h-swim', 'h-dig', 'h-grab', 'h-warn', 'h-zone', 'h-cam', 'h-state', 'h-found', 'h-digd', 'h-grabd', 'h-swimd', 'h-perf', 'h-frame', 'h-digperf', 'h-dev', 'h-vp', 'h-vplog']) {
+    for (const id of ['h-place', 'h-sand', 'h-sandn', 'h-nutc', 'h-nut', 'h-nutn', 'h-nutd', 'h-tool', 'h-swimc', 'h-swim', 'h-dig', 'h-grab', 'h-warn', 'h-zone', 'h-cam', 'h-state', 'h-found', 'h-digd', 'h-grabd', 'h-swimd', 'h-perf', 'h-frame', 'h-digperf', 'h-dev', 'h-vp', 'h-vplog']) {
       this.el[id] = document.getElementById(id)!;
     }
     // 欄・ボタンの上の指・ホイールはゲームに渡さない
@@ -140,6 +146,19 @@ export class AquaHud {
     e['h-sand'].style.width = `${Math.round(h.sand * 100)}%`;
     // （capCups ≤ 0 = 持てる量の上限なし（第 10 段階）：杯数だけ）
     setText(e['h-sandn'], h.capCups > 0 ? `${h.cups}/${h.capCups}${h.cups >= h.capCups ? ' 満杯' : ''}` : `${h.cups}`);
+    // 栄養：増えたら数字が少し光る
+    const N = h.nutrition, nTxt = `${Math.floor(N.total)}`;
+    e['h-nutc'].classList.toggle('off', !N.show);
+    e['h-nut'].style.width = `${Math.round(N.bar * 100)}%`;
+    if (e['h-nutn'].textContent !== nTxt) {
+      const grew = e['h-nutn'].textContent !== '';
+      setText(e['h-nutn'], nTxt);
+      if (grew) {
+        e['h-nutc'].classList.remove('gain');
+        void e['h-nutc'].offsetWidth;
+        e['h-nutc'].classList.add('gain');
+      }
+    }
     e['h-tool'].classList.toggle('off', !h.fill);
     setText(e['h-tool'], h.fill ? '盛る' : '');
     e['h-tool'].classList.toggle('fill', h.fill);
@@ -160,6 +179,7 @@ export class AquaHud {
     setText(e['h-found'], h.found);
     setText(e['h-digd'], h.dig?.text ?? '—');
     setText(e['h-grabd'], h.grab?.text ?? '—');
+    setText(e['h-nutd'], N.detail);
     e['h-swimd'].style.width = `${Math.round(h.swim * 100)}%`;
     setText(e['h-perf'], h.perf);
     setText(e['h-frame'], h.frame);

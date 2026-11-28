@@ -124,9 +124,9 @@ export class WormView {
   private write(s: Slot, time: number) {
     const w = s.worm, N = w.N, X = w.x, P = this.pos, Nr = this.nrm, Cl = this.col;
     let o = s.v0;
-    // 全身が砂の中：見えないので 1 点に潰す
-    if (w.nb >= N) {
-      const m = w.mouth;
+    // 全身が砂の中・食べ終えて消えた：見えないので 1 点に潰す
+    if (w.nb >= N || w.gone) {
+      const m = w.gone ? [X[0], X[1] - 50, X[2]] : w.mouth;
       for (let i = 0; i < s.nv; i++) {
         P[(o + i) * 3] = m[0];
         P[(o + i) * 3 + 1] = m[1] - 0.2;
@@ -179,7 +179,8 @@ export class WormView {
       Sd[i * 3 + 2] = sz;
       // 半径：伸びた所は細く（体積を保つ）、縮んだ所は太く
       const st = (i > 0 ? w.strain[i - 1] : w.strain[0]) * 0.5 + (i < N - 1 ? w.strain[i] : w.strain[N - 2]) * 0.5;
-      R[i] = w.rad[i] / Math.sqrt(clamp(st, 0.6, 2.4));
+      // （食べられている間は少し細く）
+      R[i] = (w.rad[i] / Math.sqrt(clamp(st, 0.6, 2.4))) * (w.life === 'dead' ? 0.78 + 0.22 * w.left : 1);
     }
     const put = (px: number, py: number, pz: number, nx: number, ny: number, nz: number, c: C3, k = 1) => {
       P[o * 3] = px;

@@ -447,6 +447,21 @@ body.aqua #touch-ui .tb .i-snip, body.aqua #touch-ui .tb .i-uproot { display: no
 body.aqua #touch-ui .dig.snip .i-dig, body.aqua #touch-ui .dig.snip .i-fill, body.aqua #touch-ui .dig.uproot .i-dig, body.aqua #touch-ui .dig.uproot .i-fill { display: none; }
 body.aqua #touch-ui .dig.snip .i-snip, body.aqua #touch-ui .dig.uproot .i-uproot { display: block; }
 body.aqua #touch-ui .dig.snip, body.aqua #touch-ui .dig.uproot { --c: 70, 128, 72; }
+/* 掘るボタン：何かを挟んでいる間は「食べる」の絵（押している間 口元へ運んで食べる。AquaEat） */
+body.aqua #touch-ui .tb .i-eat { display: none; }
+body.aqua #touch-ui .dig.eat .i-dig, body.aqua #touch-ui .dig.eat .i-fill { display: none; }
+body.aqua #touch-ui .dig.eat .i-eat { display: block; }
+body.aqua #touch-ui .dig.eat { --c: 150, 104, 52; }
+
+/* 栄養（左上の表示。食べると少し光る） */
+#hud .nutc { display: inline-flex; align-items: center; gap: 0; margin-left: 8px; white-space: nowrap; }
+#hud .nutc.off { display: none; }
+#hud .nutc .nutn { margin-left: 4px; }
+#hud .nutc .bar.nut { width: 34px; }
+#hud .nutc .bar.nut i { background: linear-gradient(90deg, #e2734a, #ffb27a); }
+#hud .nutc .nutn { font-size: 11px; color: #ffd9c2; font-variant-numeric: tabular-nums; min-width: 1.6em; }
+#hud .nutc.gain .nutn { animation: nut-gain 0.6s ease-out; }
+@keyframes nut-gain { from { color: #ffe9a8; text-shadow: 0 0 6px #ffcf5a; } to { color: inherit; text-shadow: none; } }
 /* ボタンの名前（設定の「ボタンの名前を表示」・初回）：円の下に小さく */
 body.aqua #touch-ui .tb::after { content: attr(data-label); position: absolute; left: 50%; top: calc(100% - var(--pad) + 1px); transform: translateX(-50%);
   font-size: 11px; line-height: 1.2; font-weight: 700; color: #fff; white-space: nowrap; pointer-events: none; display: none;

@@ -293,12 +293,15 @@ export class WeedPieces {
   private readonly s = new THREE.Vector3(1, 1, 1);
   /** 一度に残すかけらの数（越えたら古いもの（挟んでいない）から、小さくしてから片づける） */
   max = 12;
-  readonly stats = { spawned: 0, drifting: 0, faded: 0 };
+  readonly stats = { spawned: 0, drifting: 0, faded: 0, eaten: 0 };
 
   constructor(private readonly field: PlantField, private readonly surfel: SurfelRenderer, private readonly props: PropSystem, private readonly pos: ArrayLike<number>) {}
 
-  /** 円盤 idx のかけら（pivot = かけらの原点、at = 置く所。円盤は pos − pivot + at に見える） */
-  private make(idx: number[], pivot: readonly number[], at: readonly number[], mass: number, name: string): Prop {
+  /**
+   * 円盤 idx のかけら（pivot = かけらの原点、at = 置く所。円盤は pos − pivot + at に見える）。food = 食べ物の種類と大きさ
+   * （AquaEat。水草のかけら・むしった藻）
+   */
+  make(idx: number[], pivot: readonly number[], at: readonly number[], mass: number, name: string, food: Prop['food'] = null): Prop {
     const mesh = this.surfel.addPiece(idx, pivot);
     // 当たりの楕円体：かけらの広がり（原点まわり）の半分。細長い葉でも大きくしすぎない
     let ex = 0.03, ey = 0.03, ez = 0.03;
@@ -309,6 +312,8 @@ export class WeedPieces {
     }
     const semi: V3 = [Math.min(0.14, ex * 0.5), Math.min(0.14, ey * 0.35), Math.min(0.14, ez * 0.5)];
     const prop = new Prop(`weed${this.n++}`, 'weed', 1, [at[0], at[1], at[2]], 0, { semi, mass, name });
+    // 食べ物：水草のかけらは重さで大きさを決める（有茎草の 1 本分 0.05 = 1）
+    prop.food = food ?? { kind: 'plant', size: Math.min(2.5, Math.max(0.4, mass / 0.05)) };
     this.list.push({ prop, mesh, die: -1 });
     this.stats.spawned++;
     return prop;
@@ -354,12 +359,22 @@ export class WeedPieces {
     return held;
   }
 
-  /** 多すぎるかけらを、古いもの（挟んでいない）から小さくして片づけ始める */
+  /** 食べ終えたかけらを取り除く（物・円盤） */
+  remove(prop: Prop) {
+    const j = this.list.findIndex((w) => w.prop === prop);
+    if (j < 0) return;
+    this.surfel.removePiece(this.list[j].mesh);
+    this.list.splice(j, 1);
+    this.props.remove(prop);
+    this.stats.eaten++;
+  }
+
+  /** 多すぎるかけらを、古いもの（挟んでいない）から小さくして片づけ始める（食べかけは片づけない） */
   private trim() {
     let alive = this.list.filter((w) => w.die < 0).length;
     for (const w of this.list) {
       if (alive <= this.max) break;
-      if (w.die >= 0 || w.prop.held) continue;
+      if (w.die >= 0 || w.prop.held || w.prop.left < 0.999) continue;
       w.die = 0;
       alive--;
     }
@@ -386,12 +401,121 @@ export class WeedPieces {
           sc = Math.max(0.02, 1 - w.die / FADE_T);
         }
       }
+      // 食べかけ：残りの体積に合わせて小さく
+      if (prop.left < 1) sc *= Math.max(0.15, Math.cbrt(prop.left));
       this.q.set(prop.q[0], prop.q[1], prop.q[2], prop.q[3]);
       this.v.set(prop.p[0], prop.p[1], prop.p[2]);
       this.s.set(sc, sc, sc);
       mesh.matrix.compose(this.v, this.q, this.s);
       mesh.matrixWorld.copy(mesh.matrix);
     }
+  }
+}
+
+/** 藻をむしる範囲（つかんだ所から）・1 回にむしる円盤の上限・むしれる最小の数・生え戻るまでの時間と、生え戻るのにかかる時間 */
+const ALGAE_R = 0.14;
+const ALGAE_MAX = 36;
+const ALGAE_MIN = 4;
+const ALGAE_REGROW: [number, number] = [90, 150];
+const ALGAE_GROW_T = 20;
+/** 探す格子の一辺 */
+const ALGAE_CELL = 0.25;
+
+/**
+ * 食べられる藻（水中の岩・流木の苔の円盤。AquariumBuild の SURFEL_TAG.algae）。岩・流木をハサミでつかんだまま「食べる」と、
+ * つかんだ所のまわりの藻をむしり取り、そのまま挟んだ「藻のかけら」（WeedPieces の物）にする。むしった跡は隠し、しばらくすると
+ * 少しずつ生え戻る（保存はしない：水草と同じく、読み込み直すと元どおり）
+ */
+export class AlgaeBeds {
+  private readonly cells = new Map<string, number[]>();
+  private readonly regrow: { idx: number[]; size: Float32Array; wait: number; grow: number }[] = [];
+  private stepT = 0;
+  readonly count: number;
+  readonly stats = { scrapes: 0, empty: 0, taken: 0, regrown: 0 };
+
+  constructor(private readonly surfel: SurfelRenderer, private readonly pos: ArrayLike<number>, tag: ArrayLike<number>, private readonly weeds: WeedPieces, private readonly rng: () => number = Math.random) {
+    let n = 0;
+    for (let i = 0; i < tag.length; i++) {
+      if (tag[i] !== 1) continue;
+      const k = this.key(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
+      let c = this.cells.get(k);
+      if (!c) this.cells.set(k, (c = []));
+      c.push(i);
+      n++;
+    }
+    this.count = n;
+  }
+
+  private key(x: number, y: number, z: number): string {
+    return `${Math.floor(x / ALGAE_CELL)},${Math.floor(y / ALGAE_CELL)},${Math.floor(z / ALGAE_CELL)}`;
+  }
+
+  /** p のまわり r の、いま見えている藻の円盤（近い順） */
+  near(p: readonly number[], r = ALGAE_R): number[] {
+    const out: { i: number; d: number }[] = [];
+    const cx = Math.floor(p[0] / ALGAE_CELL), cy = Math.floor(p[1] / ALGAE_CELL), cz = Math.floor(p[2] / ALGAE_CELL);
+    const idx: number[] = [];
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+      const c = this.cells.get(`${cx + dx},${cy + dy},${cz + dz}`);
+      if (c) for (const i of c) idx.push(i);
+    }
+    if (!idx.length) return [];
+    const size = this.surfel.worldSizes(idx);
+    idx.forEach((i, o) => {
+      if (size[o] <= 0) return;
+      const d = Math.hypot(this.pos[i * 3] - p[0], this.pos[i * 3 + 1] - p[1], this.pos[i * 3 + 2] - p[2]);
+      if (d <= r) out.push({ i, d });
+    });
+    out.sort((a, b) => a.d - b.d);
+    return out.map((o) => o.i);
+  }
+
+  /** つかんだ所 at のまわりの藻をむしって、鋏 claw に挟ませる（無ければ null） */
+  scrape(at: readonly number[], claw: GrabSystem): Prop | null {
+    this.stats.scrapes++;
+    const idx = this.near(at).slice(0, ALGAE_MAX);
+    if (idx.length < ALGAE_MIN) {
+      this.stats.empty++;
+      return null;
+    }
+    const c: V3 = [0, 0, 0];
+    for (const i of idx) for (let k = 0; k < 3; k++) c[k] += this.pos[i * 3 + k] / idx.length;
+    // 隠す前の大きさ（生え戻す）
+    const size = this.surfel.worldSizes(idx);
+    this.surfel.hideWorldPoints(idx);
+    this.regrow.push({ idx, size, wait: ALGAE_REGROW[0] + this.rng() * (ALGAE_REGROW[1] - ALGAE_REGROW[0]), grow: 0 });
+    this.stats.taken += idx.length;
+    // かけら：原点 = 藻の重心。鋏は藻の重心を挟む（岩の面から少し離れた所）
+    const n = idx.length;
+    const pr = this.weeds.make(idx, c, c, 0.015 + n * 0.0006, '藻', { kind: 'algae', size: Math.min(2, Math.max(0.5, n / 18)) });
+    claw.forceHold(pr, c);
+    return pr;
+  }
+
+  /** むしった跡を、しばらくしてから少しずつ生え戻す（1 秒ごとにまとめて書く） */
+  update(dt: number) {
+    this.stepT += dt;
+    if (this.stepT < 1 || !this.regrow.length) return;
+    const h = this.stepT;
+    this.stepT = 0;
+    for (let j = this.regrow.length - 1; j >= 0; j--) {
+      const g = this.regrow[j];
+      if (g.wait > 0) {
+        g.wait -= h;
+        continue;
+      }
+      g.grow = Math.min(1, g.grow + h / ALGAE_GROW_T);
+      this.surfel.setWorldSizes(g.idx, g.size, g.grow);
+      if (g.grow >= 1) {
+        this.regrow.splice(j, 1);
+        this.stats.regrown++;
+      }
+    }
+  }
+
+  /** 生え戻りを待っている所の数（検証用） */
+  get pending(): number {
+    return this.regrow.length;
   }
 }
 
@@ -418,6 +542,10 @@ export class LifeGrab implements GrabCreature {
   private readonly kd: V3 = [0, 0, 0];
   private t = 0;
   readonly stats = { grabs: 0, escapes: 0, releases: 0, kicks: 0 };
+  /**
+   * 口元へ運ばれている（AquaEat。main が毎フレーム書く）：暴れない（1 口目の前にやめれば、離すと生きたまま逃げる）
+   */
+  subdued = false;
 
   constructor(private readonly life: AquaLife, private readonly world: AquariumWorld) {}
 
@@ -429,8 +557,8 @@ export class LifeGrab implements GrabCreature {
     let best: { p: V3; d: number; c: Critter } | null = null;
     const L = this.life;
     const test = (c: Critter) => {
-      const b = c.c, r = CRITTER[c.kind].r;
-      if (L.caught.has(b)) return;
+      const b = c.c, r = CRITTER[c.kind].r * (b.eat ? Math.cbrt(Math.max(0.05, b.eat.left)) : 1);
+      if (L.caught.has(b) || b.eat?.gone) return;
       const y = c.kind === 'shrimp' ? b.y + 0.04 : b.y;
       const d = Math.hypot(b.x - from[0], y - from[1], b.z - from[2]) - r;
       if (d > 0.35 || (best && d >= best.d)) return;
@@ -465,7 +593,8 @@ export class LifeGrab implements GrabCreature {
     this.held = c;
     this.life.caught.add(c.c);
     const C = CRITTER[c.kind];
-    this.grip = C.grip;
+    // 食べかけ（動かない）はしっかり持てる
+    this.grip = c.c.eat ? GRIP_FORCE * 1.5 : C.grip;
     this.name = C.name;
     this.v[0] = this.v[1] = this.v[2] = 0;
     this.kickT = 0;
@@ -480,8 +609,13 @@ export class LifeGrab implements GrabCreature {
     this.life.caught.delete(c.c);
     if (kind === 'slip') this.stats.escapes++;
     else this.stats.releases++;
-    // 離れた：勢いのまま逃げる（エビは後ろへ跳ねる・小魚は怖がって速く泳ぐ）
     const b = c.c;
+    // 食べかけ：逃げない（その場から底へ沈む。食べ終えて消えた個体は何もしない）
+    if (b.eat) {
+      b.eat.vy = this.v[1] * 0.3;
+      return;
+    }
+    // 離れた：勢いのまま逃げる（エビは後ろへ跳ねる・小魚は怖がって速く泳ぐ）
     if (c.kind === 'shrimp') {
       const s = b as Shrimp;
       s.vx = this.v[0] * 0.5 + this.kd[0] * 2.5;
@@ -503,7 +637,13 @@ export class LifeGrab implements GrabCreature {
     const c = this.held!, C = CRITTER[c.kind], b = c.c;
     this.t += dt;
     // 暴れる：エビは間をおいて尾で強く跳ね（後ろ・上へ）、小魚は尾を左右に振り続けて、ときどき強く身をよじる
+    // （食べられ始めた個体・口元へ運ばれている間は動かない）
+    const dead = !!b.eat || this.subdued;
     this.nextT -= dt;
+    if (dead) {
+      this.nextT = 1;
+      this.kickT = 0;
+    }
     if (this.nextT <= 0) {
       this.nextT = C.every[0] + Math.random() * (C.every[1] - C.every[0]);
       this.kickT = C.kickT;
@@ -522,7 +662,7 @@ export class LifeGrab implements GrabCreature {
       this.kickT -= dt;
       kick = C.kick;
     }
-    const wig = c.kind === 'fish' ? Math.sin(this.t * 55) * 1.6 : Math.sin(this.t * 30) * 0.6;
+    const wig = dead ? 0 : c.kind === 'fish' ? Math.sin(this.t * 55) * 1.6 : Math.sin(this.t * 30) * 0.6;
     const gp = this.gripPoint();
     const kv = dt > 0 ? 1 / dt : 0;
     const out: V3 = [0, 0, 0];
@@ -548,7 +688,9 @@ export class LifeGrab implements GrabCreature {
     b.y = ny;
     b.z = nz;
     // 体の向き：暴れる向きへ少しずつ（小魚は頭を振る）
-    if (c.kind === 'fish') {
+    if (dead) {
+      // 動かない
+    } else if (c.kind === 'fish') {
       const f = b as Fish;
       f.heading += Math.sin(this.t * 22) * 0.25;
       f.phase += dt * 30;

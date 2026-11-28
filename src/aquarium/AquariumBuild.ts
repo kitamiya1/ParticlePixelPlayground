@@ -670,6 +670,9 @@ class PointsOut {
   anc: number[] = [];
   /** 円盤が属する植物の番号（−1 = 曲がらない：苔・絨毯）。植物ごとの根元・高さ・種類（第 3 段階：かき分ける） */
   plantOf: number[] = [];
+  /** 円盤の印（SURFEL_TAG。食べられる藻 = 水中の岩・流木の苔）と、これから足す円盤の印 */
+  tagOf: number[] = [];
+  tag = 0;
   readonly plants = { root: [] as number[], top: [] as number[], kind: [] as number[] };
   private ax = NaN;
   private ay = NaN;
@@ -700,6 +703,7 @@ class PointsOut {
     const l = Math.hypot(nx, ny, nz) || 1;
     this.anc.push(this.ax, this.ay, this.az);
     this.plantOf.push(this.pid);
+    this.tagOf.push(this.tag);
     if (this.pid >= 0) this.plants.top[this.pid] = Math.max(this.plants.top[this.pid], y);
     this.pos.push(x, y, z);
     this.col.push(u8(c[0]), u8(c[1]), u8(c[2]));
@@ -711,7 +715,7 @@ class PointsOut {
   get count() {
     return this.size.length;
   }
-  toSet(rng: Rng): { set: SplatPointSet; anchors: Float32Array; plants: PlantTable } {
+  toSet(rng: Rng): { set: SplatPointSet; anchors: Float32Array; plants: PlantTable; tag: Uint8Array } {
     // シャッフル（先頭から N 個描けば全体から均一に間引ける。SurfelRenderer の密度と同じ前提）
     const n = this.count;
     const order = Array.from({ length: n }, (_, i) => i);
@@ -722,8 +726,10 @@ class PointsOut {
     const out: SplatPointSet = { count: n, pos: new Float32Array(n * 3), col: new Uint8Array(n * 3), nrm: new Float32Array(n * 3), size: new Float32Array(n), wind: new Float32Array(n), sun: new Float32Array(n) };
     const anchors = new Float32Array(n * 3);
     const plantId = new Float32Array(n);
+    const tag = new Uint8Array(n);
     order.forEach((i, o) => {
       plantId[o] = this.plantOf[i];
+      tag[o] = this.tagOf[i];
       for (let k = 0; k < 3; k++) {
         anchors[o * 3 + k] = this.anc[i * 3 + k];
         out.pos[o * 3 + k] = this.pos[i * 3 + k];
@@ -737,9 +743,12 @@ class PointsOut {
     const np = this.plants.kind.length;
     const H = new Float32Array(np);
     for (let i = 0; i < np; i++) H[i] = Math.max(0.05, this.plants.top[i] - this.plants.root[i * 3 + 1]);
-    return { set: out, anchors, plants: { count: np, root: new Float32Array(this.plants.root), height: H, kind: new Uint8Array(this.plants.kind), plantId } };
+    return { set: out, anchors, plants: { count: np, root: new Float32Array(this.plants.root), height: H, kind: new Uint8Array(this.plants.kind), plantId }, tag };
   }
 }
+
+/** 円盤の印（PointsOut.tag）：0 = ふつう、1 = 食べられる藻（水中の岩・流木の苔。AquaCatch.AlgaeBeds） */
+export const SURFEL_TAG = { none: 0, algae: 1 } as const;
 
 /** 植物の種類（かき分けたときの硬さ・しなり方。AquaPlants.ts の PLANT_PARAMS と同じ順） */
 export const PLANT_KIND = { tape: 0, stem: 1, fern: 2, broad: 3, hair: 4 } as const;
@@ -974,7 +983,7 @@ function hairGrass(P: PointsOut, world: AquariumWorld, rng: Rng) {
   }
 }
 
-export function buildAquariumSurfels(world: AquariumWorld, light: LightGrid): { set: SplatPointSet; anchors: Float32Array; plants: PlantTable; ms: number; counts: Record<string, number>; times: Record<string, number> } {
+export function buildAquariumSurfels(world: AquariumWorld, light: LightGrid): { set: SplatPointSet; anchors: Float32Array; plants: PlantTable; tag: Uint8Array; ms: number; counts: Record<string, number>; times: Record<string, number> } {
   const t0 = performance.now();
   const rng = mulberry32(9);
   const P = new PointsOut(light);
@@ -1026,8 +1035,11 @@ export function buildAquariumSurfels(world: AquariumWorld, light: LightGrid): { 
   mark('絨毯状の水草');
   // 流木・水中の岩の苔
   const javaC = [hex('#2f5a2a'), hex('#3d6b30'), hex('#4f7d38'), hex('#26492a')];
+  // （食べられる藻の印：カニがハサミでむしって食べる）
+  P.tag = SURFEL_TAG.algae;
   for (const w of world.woods) mossOnSurface(P, w.sdf, w.box, rng, 0.055, { minNy: 0.05, colors: javaC, size: 0.075, under: true, mask: -0.25, seed: w.seed + 40 });
   for (const r of world.rocks.filter((q) => q.zone === 'water')) mossOnSurface(P, r.sdf, r.box, rng, 0.07, { minNy: 0.45, colors: javaC, size: 0.08, under: true, mask: 0.05, seed: r.seed + 40 });
+  P.tag = SURFEL_TAG.none;
   mark('水中の苔');
   // 陸地
   landMoss(P, world, rng);
@@ -1048,9 +1060,9 @@ export function buildAquariumSurfels(world: AquariumWorld, light: LightGrid): { 
   const tin = world.landmarks.tunnelIn;
   for (const [x, z, s] of [[tin[0] - 0.4, tin[2] + 1.6, 0.85], [tin[0] + 1.3, tin[2] + 1.9, 0.7], [tin[0] - 1.6, tin[2] + 1.0, 0.6]] as const) fern(P, world, frng, x, z, s);
   mark('抜け道のシダ');
-  const { set, anchors, plants } = P.toSet(rng);
+  const { set, anchors, plants, tag } = P.toSet(rng);
   times['並べ替え'] = Math.round(performance.now() - lastT);
-  return { set, anchors, plants, ms: performance.now() - t0, counts, times };
+  return { set, anchors, plants, tag, ms: performance.now() - t0, counts, times };
 }
 
 /** 照明の向き（描画側の太陽の向きと同じ） */

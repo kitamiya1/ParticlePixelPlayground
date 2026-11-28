@@ -197,7 +197,8 @@ export interface WormTraits {
   seed: number;
 }
 
-export type WormLife = 'hidden' | 'peek' | 'alert' | 'hide' | 'forage' | 'free' | 'writhe' | 'seek' | 'dig';
+/** dead = 食べられ始めた（AquaEat。動かない・暮らしを止める。残りに合わせて体が短くなる） */
+export type WormLife = 'hidden' | 'peek' | 'alert' | 'hide' | 'forage' | 'free' | 'writhe' | 'seek' | 'dig' | 'dead';
 
 export type WormEvent =
   | { kind: 'grab' }
@@ -362,6 +363,10 @@ export class Worm implements GrabCreature {
   private checkT = 0;
   /** 離された直後の残り時間（この間はゆっくり引き込む） */
   private afterT = 0;
+  // ---- 食べられる（AquaEat） ----
+  /** 残り（0..1。体が短く・少し細くなる）・食べ終えて消えた */
+  left = 1;
+  gone = false;
   readonly events: WormEvent[] = [];
   readonly stats = { grabs: 0, pops: 0, tugs: 0, rests: 0, heldT: 0, maxExt: 0, maxStrain: 0, maxTension: 0, digs: 0, diverge: 0, maxV: 0, pushMax: 0, stepMs: 0, steps: 0, hides: 0 };
 
@@ -784,6 +789,13 @@ export class Worm implements GrabCreature {
   private struggle(dt: number) {
     const S = this.spec, st = this.stageSpec();
     this.clock += dt;
+    // 食べられ始めた：暴れない
+    if (this.life === 'dead') {
+      this.tugT = 0;
+      this.env *= Math.exp(-dt * 7);
+      this.restT = 0;
+      return;
+    }
     const g = this.give();
     const stage: TugStage = this.ext >= g ? 'give' : this.ext >= S.stages[1].until ? 'late' : this.ext >= S.stages[0].until ? 'mid' : 'early';
     if (stage !== this.stage) {
@@ -837,7 +849,7 @@ export class Worm implements GrabCreature {
    */
   simulate(dt: number, a0: readonly number[] | null, a1: readonly number[] | null): { force: V3; over: number; tugOver: number; stretch: number; done: boolean } {
     const out = { force: [0, 0, 0] as V3, over: 0, tugOver: 0, stretch: 0, done: false };
-    if (dt <= 0) return out;
+    if (dt <= 0 || this.gone) return out;
     const t0 = performance.now();
     this.struggle(dt);
     if (this.nb > 0) this.checkSand(dt);
@@ -899,13 +911,15 @@ export class Worm implements GrabCreature {
     const crawl = this.nb === 0 && !this.held && (this.life === 'free' || this.life === 'seek') ? 1 : this.life === 'forage' && !this.held ? 1 : 0;
     const peek = this.nb > 0 && !this.held && (this.life === 'peek' || this.life === 'alert');
     // 暴れる強さ：挟まれている・離された直後
-    const wrT = this.held ? (this.nb > 0 ? 0.25 + 0.75 * this.env : 0.35 + 0.65 * this.env) : this.life === 'writhe' ? 0.5 + 0.5 * clamp(this.lifeT, 0, 1) : this.life === 'hide' && this.nb < N ? 0.35 : 0;
+    const dead = this.life === 'dead';
+    const wrT = dead ? 0 : this.held ? (this.nb > 0 ? 0.25 + 0.75 * this.env : 0.35 + 0.65 * this.env) : this.life === 'writhe' ? 0.5 + 0.5 * clamp(this.lifeT, 0, 1) : this.life === 'hide' && this.nb < N ? 0.35 : 0;
     this.wr += (wrT - this.wr) * (1 - Math.exp(-h * 6));
-    // 節ごとの伸び縮み（蠕動）と、暴れている間は縮む
+    // 節ごとの伸び縮み（蠕動）と、暴れている間は縮む。食べられている間は、残りに合わせて体全体が短くなる（蠕動しない）
+    const lk = this.lenK;
     for (let i = 0; i < N - 1; i++) {
-      const per = S.peristalsis * (crawl ? 1 : this.held ? 0.6 : 0.35);
+      const per = dead ? 0 : S.peristalsis * (crawl ? 1 : this.held ? 0.6 : 0.35);
       const c = this.held && this.nb > 0 ? 1 - S.contract * this.env : 1;
-      this.Lr[i] = this.Lb * c * (1 + per * Math.sin(this.phase * 1.3 - i * 0.9));
+      this.Lr[i] = this.Lb * lk * c * (1 + per * Math.sin(this.phase * 1.3 - i * 0.9));
     }
     for (let i = 0; i < N; i++) {
       if (W[i] === 0) continue;
@@ -950,7 +964,7 @@ export class Worm implements GrabCreature {
       const o = i * 3;
       const l = Math.hypot(X[o + 3] - X[o], X[o + 4] - X[o + 1], X[o + 5] - X[o + 2]);
       this.tension[i] = Math.max(0, -this.lam[i] / (h * h));
-      this.strain[i] = l / this.Lb;
+      this.strain[i] = l / (this.Lb * lk);
       if (!this.isBuried(i) || !this.isBuried(i + 1)) this.stats.maxStrain = Math.max(this.stats.maxStrain, this.strain[i]);
     }
     if (this.nb > 0 && this.nb < N) {
@@ -1376,7 +1390,7 @@ export class Worm implements GrabCreature {
       // 折れ曲がりの限界：両隣の距離の下限
       const dx = X[b] - X[a], dy = X[b + 1] - X[a + 1], dz = X[b + 2] - X[a + 2];
       const l = Math.hypot(dx, dy, dz);
-      const lmin = 2 * this.Lb * S.bendMin;
+      const lmin = 2 * this.Lb * this.lenK * S.bendMin;
       const w2 = wa + wb;
       if (l < lmin && l > 1e-7 && w2 > 0) {
         const d = (lmin - l) / (l * w2);
@@ -1558,9 +1572,35 @@ export class Worm implements GrabCreature {
   private prevGrounded = true;
   private prevVy = 0;
 
+  /** 体の長さの倍率（食べられている間：残りに合わせて短く。それ以外は 1） */
+  get lenK(): number {
+    return this.life === 'dead' ? 0.16 + 0.84 * this.left : 1;
+  }
+
+  /** 食べられ始めた（1 口目）：動かなくなる。暮らし・巣穴へ戻る動きを止める */
+  kill() {
+    if (this.life === 'dead') return;
+    this.life = 'dead';
+    this.goal = null;
+    this.crevice = null;
+    this.wr = 0;
+    this.env = 0;
+    this.tugT = 0;
+    this.found = true;
+    this.name = WORM_NAME;
+  }
+
+  /** 食べ終えた：消える（見えない・挟めない・進めない） */
+  vanish() {
+    this.gone = true;
+    this.held = false;
+    this.left = 0;
+    this.life = 'dead';
+  }
+
   /** 挟まれていない間の 1 フレーム（暮らしを決めてから体を進める） */
   update(dt: number, s: WormSense) {
-    if (dt <= 0 || this.held) return;
+    if (dt <= 0 || this.held || this.gone) return;
     this.life_(dt, s);
     this.simulate(dt, null, null);
   }
@@ -1662,6 +1702,10 @@ export class Worm implements GrabCreature {
         break;
       }
       case 'dig':
+        break;
+      case 'dead':
+        // 食べかけ：その場で動かない（沈んで底に横たわる）
+        this.outTarget = 99;
         break;
     }
   }
@@ -1765,7 +1809,7 @@ export class Worm implements GrabCreature {
   // ---------------- 挟む（GrabCreature） ----------------
 
   grabbable(): boolean {
-    if (this.held) return false;
+    if (this.held || this.gone) return false;
     if (this.nb === 0) return true;
     // 口より上に体が見えている
     if (this.nb >= this.N) return false;
@@ -1835,7 +1879,9 @@ export class Worm implements GrabCreature {
     this.held = false;
     this.tugT = 0;
     this.gForce.fill(0);
-    if (this.nb > 0) {
+    if (this.life === 'dead') {
+      // 食べかけ：動かない（沈んで横たわる）
+    } else if (this.nb > 0) {
       this.hide(3 + this.rng() * 2.5);
       this.afterT = 2.0;
     }
@@ -1887,7 +1933,8 @@ export class Worm implements GrabCreature {
       y: py,
       z: pz,
       home: [this.home[0], this.home[2]],
-      traits: { len: this.traits.len, thick: this.traits.thick, tone: this.traits.tone, seed: this.traits.seed, state: m ? 'buried' : 'free', yaw },
+      // （食べられた個体：eat = 'dead'（食べかけ。left = 残り）/ 'gone'（食べ終えて消えた）。AquaEat）
+      traits: { len: this.traits.len, thick: this.traits.thick, tone: this.traits.tone, seed: this.traits.seed, state: m ? 'buried' : 'free', yaw, ...(this.gone ? { eat: 'gone', left: 0 } : this.life === 'dead' ? { eat: 'dead', left: this.left } : {}) },
     };
   }
 
@@ -1897,6 +1944,24 @@ export class Worm implements GrabCreature {
     this.name = s.found ? WORM_NAME : WORM_UNKNOWN;
     const yaw = typeof s.traits.yaw === 'number' ? s.traits.yaw : 0;
     const W = this.world;
+    // 食べられた個体：消えた / 食べかけ（その場に横たわったまま）
+    if (s.traits.eat === 'gone') {
+      this.vanish();
+      return;
+    }
+    if (s.traits.eat === 'dead') {
+      const left = typeof s.traits.left === 'number' && Number.isFinite(s.traits.left) ? clamp(s.traits.left, 0, 1) : 1;
+      if (left <= 0) {
+        this.vanish();
+        return;
+      }
+      // （置けない所なら住みかの口の横に）
+      if (W.insideTank(s.x, s.z, 0.4) && s.y < TANK.waterY - 0.2 && W.contactSolid(s.x, s.y + 0.05, s.z) > -0.02) this.layFree(s.x, s.y, s.z, yaw);
+      else this.layFree(this.home[0] + 0.3, this.home[1] + 0.2, this.home[2], yaw);
+      this.kill();
+      this.left = left;
+      return;
+    }
     if (s.traits.state === 'buried') {
       const sy = this.sandSurface(s.x, s.y + 0.2, s.z);
       // 同じ口から石の隙間を作り直す（岩・流木の方へ）
