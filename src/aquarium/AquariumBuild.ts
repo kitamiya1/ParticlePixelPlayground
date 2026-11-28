@@ -1302,7 +1302,7 @@ export function buildPropMeshes(): Record<PropKind, TriMesh> {
         rod: [hex('#a88a4e'), hex('#d8c07c')],
         pillar: [hex('#4c5258'), hex('#6e767c')],
         // 石の床：砂に近い明るい板石（継ぎ目の線で格子に見せる：積んだ物の位置・傾きが分かりやすい）
-        floor: [hex('#9c9480'), hex('#c6bda4')],
+        floor: [hex('#6a6456'), hex('#8a8270')],
       };
       const [c0, c1] = pal[kind];
       color = (x, y, z, ny) => {

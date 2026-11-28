@@ -528,7 +528,7 @@ async function boot() {
     // 水草の森の中（第 3 段階の検証）
     forest: [-11.0, -6.6, 6],
     // 積み木・物理パズルの検証エリアの手前
-    blocks: [BLOCKS_XZ[0], BLOCKS_XZ[1] - 1.5, 6],
+    blocks: [BLOCKS_XZ[0], BLOCKS_XZ[1] - 0.4, 6],
   };
   const goto = (name: string) => {
     const p = places[name];
@@ -1498,10 +1498,18 @@ async function boot() {
       // （水草を挟んでいる間は、正面（鋏の側）を挟んだ所へ向けたまま下がる・回り込む：背を向けて鋏が届かなくならない）
       // 切り替えた直後の移動の基準：倒したままなら前の視点の向き（離す・大きく倒し直すまで）
       // 集中モード：カニはその場に留まる（移動・走る・跳ぶ・掘るは使わない。物の反作用・水流では少し動く）
-      const mv = inFocus ? { x: 0, y: 0 } : input.moveAxis();
+      // （腕を伸ばしきっても届かない向きへは、ゆっくり寄る：AquaClawFocus.bodyMove。世界の向き → スティックの向き）
+      const bm = focus.bodyMove, bml = Math.hypot(bm[0], bm[1]), cyaw = camera.yaw;
+      // （寄る先に物・箱・岩があれば寄らない：積んだ物へ体をぶつけて崩さない）
+      const ahead = bml > 1e-4 ? world.contactSolid(crab.x + (bm[0] / bml) * 0.14, crab.y + crab.radius, crab.z + (bm[1] / bml) * 0.14) : 1;
+      const shuffle = inFocus && bml > 0.03 && ahead > crab.radius + 0.03;
+      const mv = !inFocus ? input.moveAxis() : shuffle ? { x: bm[0] * Math.cos(cyaw) - bm[1] * Math.sin(cyaw), y: -bm[0] * Math.sin(cyaw) - bm[1] * Math.cos(cyaw) } : { x: 0, y: 0 };
       if (moveLatch && (Math.hypot(mv.x, mv.y) < 0.2 || Math.abs(Math.atan2(Math.sin(Math.atan2(mv.x, mv.y) - moveLatch.ang), Math.cos(Math.atan2(mv.x, mv.y) - moveLatch.ang))) > 1.0)) moveLatch = null;
       // 鋏が挟む方に使われている間は掘れない（掘るのも鋏を使うので）
-      crab.update(dt, { move: mv, run: !inFocus && input.isRunning(), jumpHeld: !inFocus && input.isJumpHeld(), cameraYaw: moveLatch?.yaw ?? camera.yaw, dig: !inFocus && digNow && !grab.busy && !grabL.busy, digAim: debug.digAim ?? input.digAim(), pull, face: inFocus ? null : pg ? { x: pg.p[0], z: pg.p[2] } : face, tow: mergeTow(mergeTow(grab.tow, grabL.tow), eat.feedW > 0 ? { ax: 0, ay: 0, az: 0, slow: eat.slow } : null), support: rig.gait !== 'cycle' && rig.feet && rig.ikW > 0.5 ? rig.feet.support : null, lead: rig.gait === 'lead' || rig.gait === 'hybrid' });
+      // （集中モード：脚を踏ん張ってその場に留まる。挟んだ物の反作用で体が横へ流されない）
+      const towAll = mergeTow(mergeTow(grab.tow, grabL.tow), eat.feedW > 0 ? { ax: 0, ay: 0, az: 0, slow: eat.slow } : null);
+      const tow = inFocus && towAll ? { ax: 0, ay: towAll.ay, az: 0, slow: towAll.slow } : towAll;
+      crab.update(dt, { move: mv, run: !inFocus && input.isRunning(), jumpHeld: !inFocus && input.isJumpHeld(), cameraYaw: moveLatch?.yaw ?? camera.yaw, dig: !inFocus && digNow && !grab.busy && !grabL.busy, digAim: debug.digAim ?? input.digAim(), pull: inFocus ? null : pull, face: inFocus ? { x: crab.x + Math.sin(crab.heading), z: crab.z + Math.cos(crab.heading) } : pg ? { x: pg.p[0], z: pg.p[2] } : face, tow, support: rig.gait !== 'cycle' && rig.feet && rig.ikW > 0.5 ? rig.feet.support : null, lead: rig.gait === 'lead' || rig.gait === 'hybrid' });
       camera.update(dt, input, crab);
       // 挟む：鋏の構え → 体と鋏の姿勢 → 左右の鋏の状態 → 物・生き物を進める（ばね。2 本で 1 回）→ 動いた物へ鋏を伸ばし直す・生き物の体を置き直す
       Object.assign(rig.grip, grab.rigGrip());
@@ -1513,8 +1521,10 @@ async function boot() {
       const reqs = [reqR, reqL].filter((r) => r !== null);
       // 集中モード：開いている鋏の先で物を押せる（挟んでいる物は押さない）
       const tips = focus.w > 0.5 ? [
-        { p: rig.pinch, r: 0.028, skip: grab.holding },
-        { p: rig.pinchL, r: 0.024, skip: grabL.holding },
+        // （鋏の先の小さな球：挟める距離 FOCUS_REACH よりずっと小さく。近づくだけで物を押しのけて挟めない、を防ぐ）
+        // （閉じていく途中の物・離した直後の物は押さない）
+        { p: rig.pinch, r: 0.012, skip: grab.holding ?? (grab.state === 'closing' ? grab.target : null) ?? grab.justReleased },
+        { p: rig.pinchL, r: 0.01, skip: grabL.holding ?? (grabL.state === 'closing' ? grabL.target : null) ?? grabL.justReleased },
       ].filter((t, i) => (i === 0 ? grab : grabL).state !== 'holding') : [];
       const res = props.updateMany(dt, crab, reqs, tips);
       const none = { force: [0, 0, 0] as [number, number, number], stretch: 0, slide: 0 };

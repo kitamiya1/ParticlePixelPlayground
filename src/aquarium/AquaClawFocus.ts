@@ -60,8 +60,8 @@ const HOVER = 0.025;
 const LEAD = 0.07;
 const CLAW_GAP = 0.075;
 /** 集中モードのカメラ（触っていなければ寄せる距離・仰角） */
-const CAM_ZOOM = 1.75;
-const CAM_PITCH = 0.62;
+const CAM_ZOOM = 2.0;
+const CAM_PITCH = 0.85;
 
 interface Side {
   key: 'R' | 'L';
@@ -85,7 +85,15 @@ export class ClawFocus {
   private camT = 0;
   private camTouched = false;
   private restore: { zoom: number; pitch: number } | null = null;
-  readonly stats = { enters: 0, exits: 0, clampReach: 0, clampSolid: 0, clampLead: 0, pushApart: 0 };
+  private readonly wasHold = { R: false, L: false };
+  /** 前のフレームのカニの位置と向き（空いた鋏の目標を体に付けて動かす） */
+  private last: { x: number; y: number; z: number; h: number } | null = null;
+  /** いま動かしている鋏を操作しているか（move の中） */
+  private pushing = false;
+  /** 腕を伸ばしきってもまだ届かない量（水平。このフレーム）と、カニが寄る向き（世界の x, z。長さ = 寄る強さ 0..1。平滑化） */
+  private readonly reachPush: [number, number] = [0, 0];
+  readonly bodyMove: [number, number] = [0, 0];
+  readonly stats = { enters: 0, exits: 0, clampReach: 0, clampSolid: 0, clampLead: 0, clampIk: 0, pushApart: 0 };
 
   constructor(
     private readonly world: AquariumWorld,
@@ -104,6 +112,8 @@ export class ClawFocus {
     this.grabR.setMode(on);
     this.grabL.setMode(on);
     const A = this.camera.adventure;
+    this.last = null;
+    this.bodyMove[0] = this.bodyMove[1] = 0;
     if (on) {
       this.stats.enters++;
       // 目標はいまの構え（挟んでいればつかみ点）から始める
@@ -116,7 +126,8 @@ export class ClawFocus {
         S.roll = 0;
         S.lift = 0;
         S.floor = this.floorBelow(S.p, [G.holding]);
-        if (this.scheme === 'surface') S.lift = Math.max(0, S.p[1] - (S.floor + this.hover(G)));
+        // 面に沿う：作業の高さ（面から 6 cm まで）へ、なめらかに下りる（move の高さの追従。挟んでいる物はそのままの高さ）
+        if (this.scheme === 'surface') S.lift = Math.min(G.holding || G.holdingCreature ? 0.35 : 0.06, Math.max(0, S.p[1] - (S.floor + this.hover(G))));
         if (this.scheme === 'screen') S.lift = 0;
       }
       this.saved = this.restore ?? { zoom: A.zoom, pitch: A.pitch };
@@ -182,13 +193,40 @@ export class ClawFocus {
       this.camera.work = null;
       return;
     }
+    this.reachPush[0] = this.reachPush[1] = 0;
+    // カニが動いた・向きを変えた分だけ、何も挟んでいない鋏の目標も一緒に動かす（体に付いてくる。寄ったときに空いた鋏が
+    // 置いた物を引っかけて倒さない）。挟んでいる鋏は物の所のまま
+    const c = this.crab;
+    if (this.last) {
+      const dh = c.heading - this.last.h, ch = Math.cos(dh), sh = Math.sin(dh);
+      for (const S of [this.R, this.L]) {
+        const G = S.key === 'R' ? this.grabR : this.grabL;
+        if (G.state === 'holding') continue;
+        const rx = S.p[0] - this.last.x, rz = S.p[2] - this.last.z;
+        // （heading は +z から +x へ：回転は y 軸まわり）
+        S.p[0] = c.x + rx * ch + rz * sh;
+        S.p[2] = c.z - rx * sh + rz * ch;
+        S.p[1] += c.y - this.last.y;
+      }
+    }
+    this.last = { x: c.x, y: c.y, z: c.z, h: c.heading };
     if (this.on) {
       this.grabR.squeeze = clamp(cR.close, 0, 1);
       this.grabL.squeeze = clamp(cL.close, 0, 1);
+      this.grabR.twist = this.R.roll;
+      this.grabL.twist = this.L.roll;
       this.move(this.R, cR, dt);
       this.move(this.L, cL, dt);
       this.separate();
     }
+    // 届かない向きへ押し続けている（このフレームに動かそうとした量のうち、届かずに止めた分の割合）：ゆっくり寄る
+    // （半分以上を止めたときだけ。最大でふだんの歩きの約 3 割）
+    const pl = Math.hypot(this.reachPush[0], this.reachPush[1]);
+    const push = pl / Math.max(SPEED * dt, 1e-4);
+    const want = push > 0.5 && this.on ? (Math.min(1, push - 0.5) * 0.32) / pl : 0;
+    const kb = 1 - Math.exp(-dt * 6);
+    this.bodyMove[0] += (this.reachPush[0] * want - this.bodyMove[0]) * kb;
+    this.bodyMove[1] += (this.reachPush[1] * want - this.bodyMove[1]) * kb;
     for (const S of [this.R, this.L]) {
       const F = S.key === 'R' ? this.rig.focusR : this.rig.focusL;
       F.w = this.w;
@@ -203,10 +241,16 @@ export class ClawFocus {
   /** 方式ごとに目標を動かし、届く範囲・体・地形・挟んだ物で止める */
   private move(S: Side, c: ClawCtl, dt: number) {
     const G = S.key === 'R' ? this.grabR : this.grabL;
+    // 挟んだ瞬間：手で足した高さを 0 に（物の下の端が面のすぐ上＝少し持ち上がるだけ。挟む前の高さの分まで急に上がらない）
+    const holding = G.state === 'holding';
+    if (holding && !this.wasHold[S.key] && this.scheme === 'surface') S.lift = 0;
+    this.wasHold[S.key] = holding;
     const yaw = this.camera.yaw;
     // カメラから見た床の右・前（AquaCamera の向き。入力 (x, y) → 世界は右 = (cos, 0, −sin)、前 = (−sin, 0, −cos)）
     const rx = Math.cos(yaw), rz = -Math.sin(yaw), fx = -Math.sin(yaw), fz = -Math.cos(yaw);
     const p = S.p;
+    // （操作して動かしている鋏だけが、届かないときにカニを寄せる）
+    this.pushing = Math.abs(c.mx) + Math.abs(c.my) + Math.abs(c.lift) > 0.05 || Math.abs(c.dx) + Math.abs(c.dy) + Math.abs(c.liftD) > 0.5;
     const sx = c.mx * SPEED * dt + c.dx * MOUSE_K, sy = c.my * SPEED * dt - c.dy * MOUSE_K;
     const lift = c.lift * SPEED * 0.8 * dt - c.liftD * MOUSE_K;
     S.roll = clamp(S.roll + c.roll * ROLL_SPEED * dt, -1.3, 1.3);
@@ -227,11 +271,20 @@ export class ClawFocus {
     } else {
       p[0] += rx * sx + fx * sy;
       p[2] += rz * sx + fz * sy;
+      // （面に沿う：自動の高さより下へも少し押し下げられる＝挟んだ物を面に押し当てて置く）
       if (this.scheme === 'ground') p[1] += lift;
-      else S.lift = clamp(S.lift + lift, 0, 0.35);
+      else S.lift = clamp(S.lift + lift, -0.06, 0.35);
     }
-    // 鋏の下の面（挟んでいる物は除く）
-    const floor = this.floorBelow(p, [G.holding, (S.key === 'R' ? this.grabL : this.grabR).holding === G.holding ? G.holding : null]);
+    // 鋏の下の面（挟んでいる物は除く）。挟んでいる物があれば、その物の下の広がり（中心と縁の 4 点）でいちばん高い面
+    // （物の端が先に積んだ物へ引っかからない：鋏の真下だけを見ると、横から近づいたときに物の端が積み木の角に当たった）
+    const skip = [G.holding, (S.key === 'R' ? this.grabL : this.grabR).holding];
+    let floor = this.floorBelow(p, skip);
+    const hp = G.holding;
+    if (hp) {
+      const g = G.gripAt();
+      const ox = g ? hp.p[0] - g[0] : 0, oz = g ? hp.p[2] - g[2] : 0, r = Math.max(hp.semi[0], hp.semi[2]) + 0.02;
+      for (const [ax, az] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) floor = Math.max(floor, this.floorBelow([p[0] + ox + ax * r, p[1], p[2] + oz + az * r], skip));
+    }
     S.floor = floor;
     const hov = this.hover(G);
     if (this.scheme === 'surface') {
@@ -240,8 +293,9 @@ export class ClawFocus {
       const k = 1 - Math.exp(-dt * (want > p[1] ? 16 : 7));
       p[1] += (want - p[1]) * k;
     }
-    // 面より下へは行かない（ground・screen も）
-    if (p[1] < floor + hov * 0.6) p[1] = floor + hov * 0.6;
+    // 面より大きく下へは行かない（ground・screen も。挟んだ物を押し当てる分 6 cm までは下げられる：物は面で止まり、
+    // ばねの伸びは挟んでいる間の目標の上限 LEAD で頭打ち）
+    if (p[1] < floor + hov - 0.06) p[1] = floor + hov - 0.06;
     this.clamp(S, G);
   }
 
@@ -251,16 +305,37 @@ export class ClawFocus {
     const sh = S.key === 'R' ? rig.shoulder : rig.shoulderL;
     const k = S.key === 'R' ? CLAWS.scale.R : CLAWS.scale.L;
     const reach = (ARM_REACH / CLAWS.scale.R) * k * 0.97;
+    // 腕の関節で届かない所（届く球の中でも、腕の角の範囲で届かない向きがある）：前のフレームに鋏が目標へ届かなかった分だけ、
+    // 目標を鋏の先の方へ戻す（腕の届く所に目標が留まる。届かない向きへ押していれば、カニがそちらへ寄る）
+    const err = S.key === 'R' ? rig.reachErr : rig.reachErrL;
+    if (err > 0.012 && this.w > 0.9) {
+      const pin = S.key === 'R' ? rig.pinch : rig.pinchL;
+      const ex = pin[0] - p[0], ey = pin[1] - p[1], ez = pin[2] - p[2], el = Math.hypot(ex, ey, ez);
+      if (el > 1e-4) {
+        const k = Math.min(1, (err - 0.012) / el) * 0.6;
+        p[0] += ex * k; p[1] += ey * k; p[2] += ez * k;
+        if (this.pushing) {
+          this.reachPush[0] -= ex * k;
+          this.reachPush[1] -= ez * k;
+        }
+        this.stats.clampIk++;
+      }
+    }
     // 体の座標で、前の半分・体の横の範囲に留める（腕が体の後ろ・反対側へ回り込まない）
     const b = rig.worldToBody(p, [0, 0, 0]);
     const sx = S.key === 'R' ? -1 : 1;
-    b[0] = sx < 0 ? Math.min(b[0], 0.1) : Math.max(b[0], -0.1);
+    b[0] = sx < 0 ? Math.min(b[0], 0.16) : Math.max(b[0], -0.16);
     b[2] = Math.max(b[2], 0.12);
     rig.bodyToWorld(b, p);
     // 付け根から腕の長さまで
     let dx = p[0] - sh[0], dy = p[1] - sh[1], dz = p[2] - sh[2], dl = Math.hypot(dx, dy, dz);
     if (dl > reach) {
       const kk = reach / dl;
+      // 届かない分（水平）：カニが少しずつそちらへ寄る（bodyPush。その場に留まるのが基本で、腕を伸ばしきったときだけ）
+      if (this.pushing) {
+        this.reachPush[0] += dx * (1 - kk);
+        this.reachPush[1] += dz * (1 - kk);
+      }
       p[0] = sh[0] + dx * kk; p[1] = sh[1] + dy * kk; p[2] = sh[2] + dz * kk;
       this.stats.clampReach++;
     }
@@ -290,8 +365,10 @@ export class ClawFocus {
     const g = G.gripAt();
     if (g && G.state === 'holding') {
       dx = p[0] - g[0]; dy = p[1] - g[1]; dz = p[2] - g[2]; dl = Math.hypot(dx, dy, dz);
-      if (dl > LEAD) {
-        const kk = LEAD / dl;
+      // （挟んだ物が面に触れている間は 2 cm まで：置くときに強く押し付けて、縁で転がしてしまわない）
+      const lead = G.holding?.contact ? 0.02 : LEAD;
+      if (dl > lead) {
+        const kk = lead / dl;
         p[0] = g[0] + dx * kk; p[1] = g[1] + dy * kk; p[2] = g[2] + dz * kk;
         this.stats.clampLead++;
       }

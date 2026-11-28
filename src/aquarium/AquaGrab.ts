@@ -690,12 +690,14 @@ export class PropSystem {
     const qc = h.req.qc, rel = h.req.rel;
     if (!qc || !rel) return 0;
     const g = clamp(h.req.grip ?? 1, 0, 1);
-    const k = smoothstep(0.2, 0.85, g) * clamp(1.45 - pr.mass / 0.55, 0, 1);
+    // （面に触れている間は弱める：置いた物が面に沿って平らに落ち着く）
+    const k = smoothstep(0.2, 0.85, g) * clamp(1.45 - pr.mass / 0.55, 0, 1) * (pr.contact ? 0.6 : 1);
     if (k <= 0) return 0;
     const tq = qmul(qc, rel);
     const e = qmul(tq, qconj(pr.q));
     const sg = e[3] < 0 ? -1 : 1;
-    const kr = 12;
+    // （箱は慣性で回るので強め：片側の面を挟んで持った積み木が、重さで 5° ほどしか傾かない）
+    const kr = pr.box ? 30 : 12;
     wt[0] = 2 * sg * e[0] * kr;
     wt[1] = 2 * sg * e[1] * kr;
     wt[2] = 2 * sg * e[2] * kr;
@@ -815,7 +817,7 @@ export class PropSystem {
       if (t.skip === pr) continue;
       const tx = p[0] - t.p[0], ty = p[1] - t.p[1], tz = p[2] - t.p[2], tl = Math.hypot(tx, ty, tz), md = t.r + pr.rm;
       if (tl >= md || tl < 1e-5) continue;
-      const nx = tx / tl, ny = ty / tl, nz = tz / tl, push = md - tl;
+      const nx = tx / tl, ny = ty / tl, nz = tz / tl, push = Math.min(md - tl, 0.004);
       p[0] += nx * push; p[1] += ny * push; p[2] += nz * push;
       const vn = v[0] * nx + v[1] * ny + v[2] * nz;
       if (vn < 0) {
@@ -951,10 +953,15 @@ export class PropSystem {
     const db = this.boxAt(x, y, z);
     const ds = this.staticAt(x, y, z, Math.min(db, only === Infinity ? 0.02 : only));
     this.fromBox = false;
+    this.fromAbove = false;
     if (!n || Math.min(ds, db) >= only) return Math.min(ds, db);
     if (db < ds) {
-      if (!this.nearestBox(x, y, z, n)) n.splice(0, 3, 0, 1, 0);
+      const b = this.nearestBox(x, y, z, n);
+      if (!b) n.splice(0, 3, 0, 1, 0);
       this.fromBox = true;
+      // 中心が自分より上の箱（上に載る・上から下ろされてくる）には押されない：上の箱が自分で押し戻る
+      // （斜めの縁の向きで、下の箱が横へ押し出されないように）
+      this.fromAbove = !!b && !!this.exclude && b.p[1] > this.exclude.p[1] + this.exclude.semi[1] * 0.4;
       return db;
     }
     const e = 0.02;
@@ -1047,8 +1054,9 @@ export class PropSystem {
   }
 
   private readonly tmpC: V3 = [0, 0, 0];
-  /** 最後の contact（法線つき）の面が箱だったか */
+  /** 最後の contact（法線つき）の面が箱だったか・その箱の中心が上か */
   private fromBox = false;
+  private fromAbove = false;
   private readonly boxPrevP: V3 = [0, 0, 0];
   private readonly boxPrevQ: Q4 = [0, 0, 0, 1];
   private readonly boxPrevV: V3 = [0, 0, 0];
@@ -1107,7 +1115,7 @@ export class PropSystem {
           const wt: V3 = [0, 0, 0];
           const k = this.holdSpin(pr, hs[0], wt);
           if (k > 0) {
-            const kw = 1 - Math.exp(-h * 14 * k);
+            const kw = 1 - Math.exp(-h * 40 * k);
             for (let i = 0; i < 3; i++) wv[i] += (wt[i] - wv[i]) * kw;
           }
         }
@@ -1153,7 +1161,7 @@ export class PropSystem {
             if (d >= SKIN) continue;
             // 上に載っている箱には押されない（積み重ねは下から順に支える：上の箱は自分で下の箱の上へ押し戻る。
             // 下の箱まで上の箱から逃げると、床との間で挟まれて弾き出される）
-            if (this.fromBox && n[1] < -0.55) continue;
+            if (this.fromBox && (n[1] < -0.55 || this.fromAbove)) continue;
             if (m >= this.jac.length) break;
             const J = this.jac[m++];
             J.r[0] = r[0]; J.r[1] = r[1]; J.r[2] = r[2];
@@ -1164,7 +1172,7 @@ export class PropSystem {
           // 近くの（動く）箱の表面の点が、この箱に入っていれば、その点でも押し戻す（支えの縁＝下の箱の角・辺を接点にする：
           // 自分の点だけでは、ずらして積んだときに支えの範囲が点の間隔の分だけ狭く見え、重心が支えの内でも倒れた）
           for (const C of this.fastS.cand) {
-            if (C.fixed) continue;
+            if (C.fixed || C.p[1] > p[1] + pr.semi[1] * 0.4) continue;
             const CS = C.samples;
             for (let k = 0; k < CS.length; k += 3) {
               if (m >= this.jac.length) break;
@@ -1254,7 +1262,8 @@ export class PropSystem {
         qrot(q, tmp[0], tmp[1], tmp[2], n);
         const sl = surfaceLocal(pr, t.p[0], t.p[1], t.p[2]);
         qrot(q, sl[0], sl[1], sl[2], r);
-        this.correct(pr, r, -n[0], -n[1], -n[2], t.r - d);
+        // （1 小刻みに 3 mm まで：鋏の先が深く入っていても弾き飛ばさない。押し続ければ少しずつ動く）
+        this.correct(pr, r, -n[0], -n[1], -n[2], Math.min(t.r - d, 0.003));
       }
       // 速さと角速度：前の刻みとの差
       v[0] = (p[0] - this.boxPrevP[0]) / h;
@@ -1614,6 +1623,12 @@ export class GrabSystem {
   /** モードを切り替えた直後：押し直すまで挟んだまま（setCarry） */
   carry = false;
 
+  /** 離して 0.5 秒以内の物（開いた鋏の先で押さない：離した瞬間に鋏の先が物の中にあり、弾き飛ばしていた） */
+  get justReleased(): Prop | null {
+    const L = this.lastRel;
+    return L && L.t > 0.7 && L.target instanceof Prop ? L.target : null;
+  }
+
   /**
    * モードの切り替え（通常 ↔ ハサミ集中）：挟んでいる物は、新しいモードで一度押し直すまで手放さない。開閉の状態も引き継ぐ
    * （閉じている鋏が切り替えた瞬間に開かない）
@@ -1713,7 +1728,8 @@ export class GrabSystem {
       t = [g[0], g[1], g[2]];
     }
     return {
-      on: this.state !== 'idle' || this.aiming || (this.focus && this.close > 0.01), close: this.close, hold: this.state === 'holding', target: t, shake: this.warn,
+      // （集中モードでは開いていても鋏の先をいつも目標へ：操作した所に鋏がある）
+      on: this.state !== 'idle' || this.aiming || this.focus, close: this.close, hold: this.state === 'holding', target: t, shake: this.warn,
       width: this.width, pre: this.preOpen, analog: this.focus, grip: this.state === 'holding' ? this.gripNow : 0, c0: this.c0,
     };
   }
@@ -1742,6 +1758,8 @@ export class GrabSystem {
     this.holdProp(pr);
     this.fitWidth(pr, null);
     this.rel = null;
+    this.qGrab = [pr.q[0], pr.q[1], pr.q[2], pr.q[3]];
+    this.twistAtGrab = this.twist;
     if (this.focus) this.sq = Math.max(this.sq, this.c0 + 0.1);
     this.slipT = this.heavyT = 0;
     this.events.push({ kind: 'grab', prop: pr });
@@ -1888,7 +1906,8 @@ export class GrabSystem {
 
   /** 腕を伸ばして届く（付け根から ARM_REACH 以内）・付け根からつかみ点までの間に固体が無い（away = その点が挟む物から離れている） */
   private reachable(claw: ClawView, gp: readonly number[], away: (x: number, y: number, z: number) => boolean, extra = 0): boolean {
-    if (Math.hypot(gp[0] - claw.shoulder[0], gp[1] - claw.shoulder[1], gp[2] - claw.shoulder[2]) > this.armReach + extra) return false;
+    // （集中モード：鋏の口の前の物を挟むので、腕を伸ばしきるところ（+2 cm）まで）
+    if (Math.hypot(gp[0] - claw.shoulder[0], gp[1] - claw.shoulder[1], gp[2] - claw.shoulder[2]) > this.armReach + extra + (this.focus ? 0.02 : 0)) return false;
     for (let i = 1; i <= 4; i++) {
       const f = i / 5;
       const x = lerp(claw.shoulder[0], gp[0], f), y = lerp(claw.shoulder[1], gp[1], f), z = lerp(claw.shoulder[2], gp[2], f);
@@ -1939,6 +1958,8 @@ export class GrabSystem {
     if (pr) {
       this.holdProp(pr);
       this.rel = claw.handQ ? qmul(qconj(claw.handQ), pr.q) : null;
+      this.qGrab = [pr.q[0], pr.q[1], pr.q[2], pr.q[3]];
+      this.twistAtGrab = this.twist;
     } else if (cr) {
       cr.onGrab();
       this.stats.creatureGrabs++;
@@ -2046,8 +2067,19 @@ export class GrabSystem {
   private holdReq(anchor: V3, claw: ClawView): HoldReq | null {
     const pr = this.holding;
     const a0 = this.prevAnchor ?? anchor;
-    return pr ? { prop: pr, local: this.local, a0, a1: anchor, grip: this.gripNow, qc: claw.handQ ?? null, rel: this.rel } : null;
+    if (!pr) return null;
+    // 集中モード：挟んだ物は挟んだときの世界の向きのまま（積む・並べるときに傾かない）。手首のひねり（twist）で縦の軸まわりに回す
+    if (this.focus && this.qGrab) {
+      const t = (this.twist - this.twistAtGrab) * 0.5;
+      return { prop: pr, local: this.local, a0, a1: anchor, grip: this.gripNow, qc: [0, Math.sin(t), 0, Math.cos(t)], rel: this.qGrab };
+    }
+    return { prop: pr, local: this.local, a0, a1: anchor, grip: this.gripNow, qc: claw.handQ ?? null, rel: this.rel };
   }
+
+  /** 手首のひねり（集中モード。AquaClawFocus が書く。rad）と、挟んだときの値・物の世界の向き */
+  twist = 0;
+  private twistAtGrab = 0;
+  private qGrab: Q4 | null = null;
 
   /**
    * ハサミ集中モードの 1 フレームの前半：開閉は握る強さ（squeeze）に従う（閉じる速さの上限 CLOSE_T で追う。ボタンでも同じ動き）。
