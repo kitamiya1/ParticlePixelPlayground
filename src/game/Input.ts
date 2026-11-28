@@ -72,6 +72,8 @@ export class Input {
    * releaseAll（回転・アプリの切り替え・指の取り消し）では変えない（ボタンの見た目とハサミの状態がずれない）
    */
   touchGrabLatch = false;
+  /** 左のハサミの「挟む」スイッチ（水槽ゲーム。touchGrabLatch と同じ扱い） */
+  touchGrabLatchL = false;
   /** 腕の向き（水槽ゲーム用。x = 右, y = 上、長さ 0〜1。0 = ふだんの構え）。PC は E を押したままマウスを動かす */
   armAimExtra: { x: number; y: number } | null = null;
   /**
@@ -203,7 +205,9 @@ export class Input {
         if (b === 2) this.mouseR = true;
         this.claim(e, {
           move: (ev) => {
-            const dx = (ev.clientX - lastX) * this.pointerScale, dy = (ev.clientY - lastY) * this.pointerScale;
+            // （ポインターを固定している間は位置が動かないので、動いた量 movementX / Y を使う）
+            const locked = !!document.pointerLockElement;
+            const dx = (locked ? ev.movementX : ev.clientX - lastX) * this.pointerScale, dy = (locked ? ev.movementY : ev.clientY - lastY) * this.pointerScale;
             lastX = ev.clientX;
             lastY = ev.clientY;
             if (b === 1) {

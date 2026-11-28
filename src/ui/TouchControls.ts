@@ -37,6 +37,8 @@ export interface TouchControlsOptions {
    * 挟むスイッチ（たたくたびに Input.touchGrabLatch を切り替える。水槽ゲームの「挟む」）。押したまま指をずらすと視点を回せる
    */
   grab?: boolean;
+  /** 左のハサミの挟むスイッチ（Input.touchGrabLatchL。水槽ゲーム：スティックの上に置く） */
+  grabL?: boolean;
   /**
    * 文字の代わりに簡単な印（アイコン）で出す（水槽ゲーム）。見た目の円（.face）と指の当たる範囲（ボタン自体）を分け、
    * 見た目を小さく・薄くしても押しやすさを保つ。大きさと濃さは setLook で変える
@@ -120,7 +122,8 @@ export class TouchControls {
       <button class="tb dig" type="button" aria-label="掘る" data-label="掘る">${f(`<i class="aim"></i>${touchIcon('dig', 'i-dig')}${touchIcon('fill', 'i-fill')}${touchIcon('snip', 'i-snip')}${touchIcon('uproot', 'i-uproot')}${touchIcon('eat', 'i-eat')}`)}</button>` : ''}${opts.onCamera ? `
       <button class="tb cam" type="button" aria-label="視点の切り替え（長押しで一覧）" data-label="視点">${f(touchIcon('camTps', 'i-view'))}</button>` : ''}${opts.act ? `
       <button class="act" type="button"><i class="ring"></i><span></span></button>` : ''}${opts.grab ? `
-      <button class="tb grab" type="button" aria-pressed="false" aria-label="挟む" data-label="挟む">${f(`${touchIcon('clawOpen', 'i-open')}${touchIcon('clawShut', 'i-shut')}`)}</button>` : ''}`;
+      <button class="tb grab" type="button" aria-pressed="false" aria-label="挟む" data-label="挟む">${f(`${touchIcon('clawOpen', 'i-open')}${touchIcon('clawShut', 'i-shut')}`)}</button>` : ''}${opts.grabL ? `
+      <button class="tb grab grabL" type="button" aria-pressed="false" aria-label="左で挟む" data-label="左で挟む">${f(`${touchIcon('clawOpen', 'i-open')}${touchIcon('clawShut', 'i-shut')}`)}</button>` : ''}`;
     } else {
       this.root.innerHTML = `
       <div class="stick"><div class="knob"></div></div>
@@ -141,8 +144,10 @@ export class TouchControls {
     if (jump) this.bindHold(jump, (on) => (this.input.touchJump = on));
     const dig = this.root.querySelector<HTMLButtonElement>('.dig');
     if (dig) this.bindDig(dig);
-    const grab = this.root.querySelector<HTMLButtonElement>('.grab');
-    if (grab) this.bindGrab(grab);
+    const grab = this.root.querySelector<HTMLButtonElement>('.grab:not(.grabL)');
+    if (grab) this.bindGrab(grab, 'R');
+    const grabL = this.root.querySelector<HTMLButtonElement>('.grabL');
+    if (grabL) this.bindGrab(grabL, 'L');
     const cam = this.root.querySelector<HTMLButtonElement>('.cam');
     if (cam && opts.onCamera) {
       const fn = opts.onCamera, hold = opts.onCameraHold;
@@ -362,7 +367,7 @@ export class TouchControls {
    * 錠の印で示す。押した指をそのままずらすと（GRAB_LOOK_DEAD を越えたら）、その動きで視点を回す。
    * 回転・アプリの切り替え・指の取り消し（Input.releaseAll）では指だけを終わらせ、閉じている / 開いているは変えない
    */
-  private bindGrab(btn: HTMLButtonElement) {
+  private bindGrab(btn: HTMLButtonElement, side: 'R' | 'L') {
     let id = -1;
     let ox = 0, oy = 0, lx = 0, ly = 0, look = false;
     const clear = () => {
@@ -370,6 +375,10 @@ export class TouchControls {
       look = false;
       btn.classList.remove('look', 'press');
       this.showGrab();
+    };
+    const flip = () => {
+      if (side === 'R') this.input.touchGrabLatch = !this.input.touchGrabLatch;
+      else this.input.touchGrabLatchL = !this.input.touchGrabLatchL;
     };
     btn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -379,7 +388,7 @@ export class TouchControls {
       ox = lx = e.clientX;
       oy = ly = e.clientY;
       look = false;
-      this.input.touchGrabLatch = !this.input.touchGrabLatch;
+      flip();
       this.grabToggles++;
       btn.classList.add('press');
       capture(btn, mine);
@@ -411,31 +420,34 @@ export class TouchControls {
 
   /** 挟むスイッチの見た目を Input.touchGrabLatch に合わせる（閉じている = on・文字「離す」） */
   showGrab() {
-    const btn = this.root.querySelector<HTMLButtonElement>('.grab');
-    if (!btn) return;
-    const on = this.input.touchGrabLatch;
-    btn.classList.toggle('on', on);
-    btn.setAttribute('aria-pressed', String(on));
-    const label = on ? '離す' : '挟む';
-    // 印のボタンは閉じた / 開いたハサミの印を CSS で切り替える（文字は読み上げ用の名前だけ）
-    if (this.icons) {
-      if (btn.getAttribute('aria-label') !== label) btn.setAttribute('aria-label', label);
-      if (btn.dataset.label !== label) btn.dataset.label = label;
-      return;
+    for (const side of ['R', 'L'] as const) {
+      const btn = this.root.querySelector<HTMLButtonElement>(side === 'R' ? '.grab:not(.grabL)' : '.grabL');
+      if (!btn) continue;
+      const on = side === 'R' ? this.input.touchGrabLatch : this.input.touchGrabLatchL;
+      btn.classList.toggle('on', on);
+      btn.setAttribute('aria-pressed', String(on));
+      const label = side === 'R' ? (on ? '離す' : '挟む') : on ? '左を離す' : '左で挟む';
+      // 印のボタンは閉じた / 開いたハサミの印を CSS で切り替える（文字は読み上げ用の名前だけ）
+      if (this.icons) {
+        if (btn.getAttribute('aria-label') !== label) btn.setAttribute('aria-label', label);
+        if (btn.dataset.label !== label) btn.dataset.label = label;
+        continue;
+      }
+      const span = btn.querySelector('span');
+      if (span && span.textContent !== label) span.textContent = label;
     }
-    const span = btn.querySelector('span');
-    if (span && span.textContent !== label) span.textContent = label;
   }
 
-  /** ゲームの側から挟むスイッチを開く・閉じる（滑った・抜けた・瞬間移動などでハサミが開いたとき） */
-  setGrabLatched(on: boolean) {
-    this.input.touchGrabLatch = on;
+  /** ゲームの側から挟むスイッチを開く・閉じる（滑った・抜けた・瞬間移動などでハサミが開いたとき）。side = 'L' は左のハサミ */
+  setGrabLatched(on: boolean, side: 'R' | 'L' = 'R') {
+    if (side === 'R') this.input.touchGrabLatch = on;
+    else this.input.touchGrabLatchL = on;
     this.showGrab();
   }
 
   /** 挟むボタンに「届く物がある」印を付ける（押す前の案内） */
-  setGrabReady(ready: boolean) {
-    this.root.querySelector('.grab')?.classList.toggle('ready', ready);
+  setGrabReady(ready: boolean, side: 'R' | 'L' = 'R') {
+    this.root.querySelector(side === 'R' ? '.grab:not(.grabL)' : '.grabL')?.classList.toggle('ready', ready);
   }
 
   private bindStick(base: HTMLElement) {

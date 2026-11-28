@@ -26,10 +26,10 @@ import type { CrabController } from './CrabController';
  * weed = ちぎった・抜いた水草（第 5 段階。形は円盤の集まり：AquaCatch.ts。静的なメッシュは持たない）。
  * block / slab / rod / pillar = 積み木・物理パズルの検証エリアの物（ハサミ集中モード。形は箱：剛体の回転と、箱どうしの積み重ね）
  */
-export type PropKind = 'pebble' | 'shell' | 'stone' | 'weed' | 'block' | 'slab' | 'rod' | 'pillar';
+export type PropKind = 'pebble' | 'shell' | 'stone' | 'weed' | 'block' | 'slab' | 'rod' | 'pillar' | 'floor';
 
 /** 箱の形の物（積み木の検証エリア）。semi は箱の半分の大きさ（x = 横, y = 厚み, z = 前後） */
-export const BOX_KINDS: readonly PropKind[] = ['block', 'slab', 'rod', 'pillar'];
+export const BOX_KINDS: readonly PropKind[] = ['block', 'slab', 'rod', 'pillar', 'floor'];
 
 export interface PropKindSpec {
   /** 形：省略 = 楕円体（従来の小石・貝殻）、box = 箱（剛体：慣性で回り、角・辺・面で接して積み重なる） */
@@ -64,6 +64,8 @@ export const PROP_KIND: Record<PropKind, PropKindSpec> = {
   slab: { name: '平たい石', semi: [0.15, 0.024, 0.1], mass: 0.5, sinkG: 4.8, drag: 1.7, mu: 0.8, bounce: 0.02, shape: 'box' },
   rod: { name: '細長い棒', semi: [0.21, 0.017, 0.017], mass: 0.12, sinkG: 3.0, drag: 2.0, mu: 0.65, bounce: 0.03, shape: 'box' },
   pillar: { name: '石の台', semi: [0.075, 0.09, 0.075], mass: 2.4, sinkG: 6.4, drag: 1.2, mu: 0.9, bounce: 0.02, shape: 'box' },
+  // 検証エリアの石の床（動かない・挟めない：Prop.fixed。大きさは置くときに決める。平らな床で積み木の安定を確かめる）
+  floor: { name: '石の床', semi: [0.8, 0.12, 1.2], mass: 1000, sinkG: 6.4, drag: 1, mu: 0.85, bounce: 0, shape: 'box' },
 };
 
 /** 握る力の上限の倍率（強く握る = 1 で従来どおり。弱いほど物が滑る）：握る強さ s（0..1）→ 摩擦で支えられる力 / 腕の力 */
@@ -155,6 +157,8 @@ export class Prop {
   readonly samples: Float32Array;
   /** 箱：保存する物（積み木の検証エリアの物） */
   save = false;
+  /** 動かない物（検証エリアの石の床）：起きない・挟めない。当たり判定（dist）にだけ入る */
+  fixed = false;
   /** 水槽の外・固体の中にいる時間（長く続いたら置いた所へ戻す） */
   lostT = 0;
   /** 置いた所（戻す先） */
@@ -193,12 +197,22 @@ export class Prop {
       this.invI[0] = 3 / (m * (b * b + c * c));
       this.invI[1] = 3 / (m * (a * a + c * c));
       this.invI[2] = 3 / (m * (a * a + b * b));
-      // 表面の格子の点（約 5 cm ごと。角・辺・面）
-      const n = this.semi.map((h) => Math.max(1, Math.round((2 * h) / 0.05)));
+      // 表面の点：6 つの面ごとに、面の中の格子（約 5 cm ごと）。面の縁からは少し内側（ins：角の丸みより内側）に置く
+      // （同じ大きさの箱をぴったり重ねたとき、上の箱の点が下の箱の丸い縁に乗ると、押し戻す向きが斜めになって横へ揺れ、
+      // 回り始めて崩れた。面の内側の点なら下の箱の平らな面に乗る）
+      const h3 = this.semi;
       const pts: number[] = [];
-      for (let i = 0; i <= n[0]; i++) for (let j = 0; j <= n[1]; j++) for (let k = 0; k <= n[2]; k++) {
-        if (i > 0 && i < n[0] && j > 0 && j < n[1] && k > 0 && k < n[2]) continue;
-        pts.push((i / n[0] * 2 - 1) * a, (j / n[1] * 2 - 1) * b, (k / n[2] * 2 - 1) * c);
+      for (let ax = 0; ax < 3; ax++) {
+        const u = (ax + 1) % 3, w = (ax + 2) % 3;
+        const nu = Math.max(1, Math.round((2 * h3[u]) / 0.05)), nw = Math.max(1, Math.round((2 * h3[w]) / 0.05));
+        const iu = Math.min(0.008, h3[u] * 0.3), iw = Math.min(0.008, h3[w] * 0.3);
+        for (const sgn of [-1, 1]) for (let i = 0; i <= nu; i++) for (let j = 0; j <= nw; j++) {
+          const pt = [0, 0, 0];
+          pt[ax] = sgn * h3[ax];
+          pt[u] = (i / nu * 2 - 1) * (h3[u] - iu);
+          pt[w] = (j / nw * 2 - 1) * (h3[w] - iw);
+          pts.push(pt[0], pt[1], pt[2]);
+        }
       }
       this.samples = new Float32Array(pts);
     } else this.samples = new Float32Array(0);
@@ -209,6 +223,7 @@ export class Prop {
   }
 
   wake() {
+    if (this.fixed) return;
     this.awake = true;
     this.restT = 0;
   }
@@ -393,6 +408,17 @@ export class PropSystem {
     world.dyn = this;
   }
 
+  /** 動かない箱を置く（中心 p・半分の大きさ semi・向き yaw）。起きない・挟めない */
+  addFixed(id: string, kind: PropKind, p: readonly number[], semi: readonly number[], yaw = 0): Prop {
+    const pr = new Prop(id, kind, 1, [p[0], p[1], p[2]], yaw, { semi: [semi[0], semi[1], semi[2]] });
+    pr.fixed = true;
+    pr.awake = false;
+    this.props.push(pr);
+    this.boxes.push(pr);
+    this.boxBounds();
+    return pr;
+  }
+
   /** 地面の上に置く（x, z、探し始める高さ y、向き、大きさ） */
   add(id: string, kind: PropKind, x: number, z: number, yFrom: number, scale = 1, yaw = 0): Prop {
     const spec = PROP_KIND[kind];
@@ -568,8 +594,9 @@ export class PropSystem {
     }
     for (const h of holds) h.prop.wake();
     // 動いている箱の上・横の箱も起こす（下の箱を引き抜いたら上の箱が落ちる）
+    // （止まりかけている箱は起こさない：眠った箱と起きている箱が互いに起こし合って、いつまでも眠れない）
     for (const a of this.boxes) {
-      if (!a.awake) continue;
+      if (!a.awake || (!a.held && Math.hypot(a.v[0], a.v[1], a.v[2]) < 0.03 && Math.hypot(a.w[0], a.w[1], a.w[2]) < 0.2)) continue;
       for (const b of this.boxes) if (!b.awake && Math.hypot(a.p[0] - b.p[0], a.p[1] - b.p[1], a.p[2] - b.p[2]) < a.rb + b.rb + 0.03) b.wake();
     }
     if (dt <= 0) return out;
@@ -867,14 +894,67 @@ export class PropSystem {
 
   // ---------------- 箱（積み木）：剛体 ----------------
 
-  /** 世界の当たり（箱どうしを含む。exclude = いま進めている箱）と、その外向きの法線 */
-  private contact(x: number, y: number, z: number, n: V3 | null): number {
+  /**
+   * 箱の当たりを速く調べる下ごしらえ（1 つの小刻みに 1 回）：近くの箱（外接球が届く物だけ）と、中心での地形の距離と向き
+   * （地形を平面で近似して、明らかに離れている点は正確に調べない）
+   */
+  private prepFast(pr: Prop) {
+    const F = this.fastS, c = pr.p, w = this.world;
+    F.cx = c[0]; F.cy = c[1]; F.cz = c[2];
+    F.cand.length = 0;
+    for (const b of this.boxes) if (b !== pr && Math.hypot(b.p[0] - c[0], b.p[1] - c[1], b.p[2] - c[2]) < b.rb * 1.75 + pr.rb * 1.75 + 0.05) F.cand.push(b);
+    const d0 = w.staticContactSolid(c[0], c[1], c[2]);
+    F.d0 = d0;
+    F.far = d0 > pr.rb * 1.8 + 0.08;
+    if (F.far) return;
+    const e = 0.03;
+    const gx = w.staticContactSolid(c[0] + e, c[1], c[2]) - w.staticContactSolid(c[0] - e, c[1], c[2]);
+    const gy = w.staticContactSolid(c[0], c[1] + e, c[2]) - w.staticContactSolid(c[0], c[1] - e, c[2]);
+    const gz = w.staticContactSolid(c[0], c[1], c[2] + e) - w.staticContactSolid(c[0], c[1], c[2] - e);
+    F.gx = gx / (2 * e); F.gy = gy / (2 * e); F.gz = gz / (2 * e);
+  }
+
+  private readonly fastS = { on: false, cx: 0, cy: 0, cz: 0, d0: 0, gx: 0, gy: 0, gz: 0, far: false, cand: [] as Prop[] };
+
+  /** 地形（動かない物）までの距離（箱の小刻みの中では平面の近似で離れた点を飛ばす） */
+  private staticAt(x: number, y: number, z: number, need = 0.02): number {
+    const F = this.fastS;
+    if (F.on) {
+      if (F.far) return 1e3;
+      const dx = x - F.cx, dy = y - F.cy, dz = z - F.cz;
+      const da = F.d0 + F.gx * dx + F.gy * dy + F.gz * dz;
+      // 平面の近似が十分離れていれば正確に調べない（曲がった地形・岩の角を見落とさないよう、中心から離れるほど広めに。
+      // need = これより近い面だけが要る：箱の面が既にこれより近ければ、地形は調べなくてよい）
+      if (da > need + 0.02 + 0.25 * Math.hypot(dx, dy, dz)) return da;
+    }
+    return this.world.staticContactSolid(x, y, z);
+  }
+
+  /** 箱までの距離（小刻みの中では近くの箱だけ） */
+  private boxAt(x: number, y: number, z: number): number {
+    const F = this.fastS;
+    if (!F.on) return this.dist(x, y, z);
+    let d = 1e3;
+    for (const b of F.cand) {
+      const l = qinv(b.q, x - b.p[0], y - b.p[1], z - b.p[2], this.tmpL);
+      d = Math.min(d, boxSd(b.semi, l[0], l[1], l[2]));
+    }
+    return d;
+  }
+
+  /**
+   * 世界の当たり（箱どうしを含む。exclude = いま進めている箱）と、その外向きの法線（n。only を渡すと、距離が only より
+   * 小さいときだけ法線を求める）
+   */
+  private contact(x: number, y: number, z: number, n: V3 | null, only = Infinity): number {
     const w = this.world;
-    const ds = w.staticContactSolid(x, y, z);
-    const db = this.dist(x, y, z);
-    if (!n) return Math.min(ds, db);
+    const db = this.boxAt(x, y, z);
+    const ds = this.staticAt(x, y, z, Math.min(db, only === Infinity ? 0.02 : only));
+    this.fromBox = false;
+    if (!n || Math.min(ds, db) >= only) return Math.min(ds, db);
     if (db < ds) {
       if (!this.nearestBox(x, y, z, n)) n.splice(0, 3, 0, 1, 0);
+      this.fromBox = true;
       return db;
     }
     const e = 0.02;
@@ -885,6 +965,55 @@ export class PropSystem {
     n[0] = gx / l; n[1] = gy / l; n[2] = gz / l;
     return ds;
   }
+
+  /**
+   * 箱の接触（jac の m 点：点 r・法線 n・押し戻す量 d）を同時に満たす補正を、正則化した最小二乗で解いて掛ける。
+   * 行 a = [n, r × n]、A = Σ a aᵀ + ε·diag(1, 1, 1, Iw / m)、b = Σ a d、A x = b（6 × 6。部分ピボットの消去法）
+   */
+  private solveContacts(pr: Prop, m: number) {
+    // 射影ガウス・ザイデル：点ごとの押し戻しの量（乗数 λ）を積み上げ、負（引っ張る）にはしない。何度か繰り返すと、平らな面の着地は
+    // 平行移動に、重心が支えの外なら内側の支えの λ が 0 になって回る（倒れる）。押すことしかできない接触の正しい解に近づく
+    const P = this.pgs;
+    for (let j = 0; j < m; j++) {
+      const J = this.jac[j], r = J.r, n = J.n, E = P[j];
+      E.c[0] = r[1] * n[2] - r[2] * n[1];
+      E.c[1] = r[2] * n[0] - r[0] * n[2];
+      E.c[2] = r[0] * n[1] - r[1] * n[0];
+      this.invIw(pr, E.c[0], E.c[1], E.c[2], E.ic);
+      E.w = 1 / pr.mass + E.c[0] * E.ic[0] + E.c[1] * E.ic[1] + E.c[2] * E.ic[2];
+      E.lam = 0;
+    }
+    const x = this.x6;
+    x.fill(0);
+    const im = 1 / pr.mass;
+    for (let sweep = 0; sweep < 8; sweep++) {
+      for (let j = 0; j < m; j++) {
+        const J = this.jac[j], n = J.n, E = P[j];
+        const got = n[0] * x[0] + n[1] * x[1] + n[2] * x[2] + E.c[0] * x[3] + E.c[1] * x[4] + E.c[2] * x[5];
+        const nl = Math.max(0, E.lam + (J.d - got) / E.w);
+        const dl = nl - E.lam;
+        if (dl === 0) continue;
+        E.lam = nl;
+        x[0] += n[0] * dl * im; x[1] += n[1] * dl * im; x[2] += n[2] * dl * im;
+        x[3] += E.ic[0] * dl; x[4] += E.ic[1] * dl; x[5] += E.ic[2] * dl;
+      }
+    }
+    for (let j = 0; j < m; j++) this.jac[j].d = P[j].lam / pr.mass;
+    if (!x.every(Number.isFinite)) return;
+    const q = pr.q;
+    pr.p[0] += x[0]; pr.p[1] += x[1]; pr.p[2] += x[2];
+    const ax = x[3], ay = x[4], az = x[5];
+    const qx = q[0], qy = q[1], qz = q[2], qw = q[3];
+    q[0] += 0.5 * (ax * qw + ay * qz - az * qy);
+    q[1] += 0.5 * (ay * qw + az * qx - ax * qz);
+    q[2] += 0.5 * (az * qw + ax * qy - ay * qx);
+    q[3] += 0.5 * (-ax * qx - ay * qy - az * qz);
+    const ql = Math.hypot(q[0], q[1], q[2], q[3]) || 1;
+    q[0] /= ql; q[1] /= ql; q[2] /= ql; q[3] /= ql;
+  }
+
+  private readonly x6 = new Float64Array(6);
+  private readonly pgs = Array.from({ length: 160 }, () => ({ c: [0, 0, 0] as V3, ic: [0, 0, 0] as V3, w: 1, lam: 0 }));
 
   /** 世界の向きのベクトル u を、箱の逆慣性で掛ける（世界の向きで返す） */
   private invIw(pr: Prop, ux: number, uy: number, uz: number, out: V3): V3 {
@@ -918,10 +1047,16 @@ export class PropSystem {
   }
 
   private readonly tmpC: V3 = [0, 0, 0];
+  /** 最後の contact（法線つき）の面が箱だったか */
+  private fromBox = false;
   private readonly boxPrevP: V3 = [0, 0, 0];
   private readonly boxPrevQ: Q4 = [0, 0, 0, 1];
+  private readonly boxPrevV: V3 = [0, 0, 0];
+  /** 1 回の押し戻しで集める接触（ヤコビ法） */
+  private readonly jac: { r: V3; n: V3; d: number; k: number }[] = Array.from({ length: 160 }, () => ({ r: [0, 0, 0] as V3, n: [0, 0, 0] as V3, d: 0, k: 0 }));
+  private readonly boxPrevW: V3 = [0, 0, 0];
   /** 箱の接触（1 刻みの中）：点（体の座標）・法線・押し戻した量 */
-  private readonly cts: { l: V3; n: V3; lam: number }[] = Array.from({ length: 96 }, () => ({ l: [0, 0, 0] as V3, n: [0, 0, 0] as V3, lam: 0 }));
+  private readonly cts: { l: V3; n: V3; lam: number }[] = Array.from({ length: 160 }, () => ({ l: [0, 0, 0] as V3, n: [0, 0, 0] as V3, lam: 0 }));
 
   /**
    * 1 刻み（箱の物）：2 つの小刻み（1/240 秒）に分け、重力・浮力・水の抵抗・鋏のばね（つかみ点にかかる力 → 中心の加速と回転）・
@@ -987,35 +1122,95 @@ export class PropSystem {
       if (wl > 25) for (let i = 0; i < 3; i++) wv[i] *= 25 / wl;
       this.boxPrevP.splice(0, 3, p[0], p[1], p[2]);
       this.boxPrevQ.splice(0, 4, q[0], q[1], q[2], q[3]);
+      this.boxPrevV.splice(0, 3, v[0], v[1], v[2]);
+      this.boxPrevW.splice(0, 3, wv[0], wv[1], wv[2]);
       p[0] += v[0] * h; p[1] += v[1] * h; p[2] += v[2] * h;
       qintegrate(q, wv, h);
       // 当たり：中心が十分離れていれば調べない
       let nc = 0;
+      this.prepFast(pr);
+      this.fastS.on = true;
       const far = this.contact(p[0], p[1], p[2], null) > pr.rb + 0.02;
       if (!far) {
         const SM = pr.samples;
         for (let it = 0; it < 2; it++) {
+          // 押し戻しは同じ姿勢で全部の点の分を求めてから、平均して掛ける（ヤコビ法。1 点ずつ順に直すと、平らな面で着地しただけで
+          // 先に直した角の側へ傾いてしまい、積み重ねが崩れた）
+          let m = 0;
+          // 上を向いている面の点は調べない（触れるのは上に載った箱だけで、それには押されない。挟んで天井へ押し当てるときは調べる）
+          const up = qrot(q, 0, 1, 0, tmp), uy = up[1], ux = qrot(q, 1, 0, 0)[1], uz = qrot(q, 0, 0, 1)[1];
+          const held = !!hs && hs.length > 0;
           for (let k = 0; k < SM.length; k += 3) {
+            if (!held) {
+              // 点の面の外向き（体の座標の軸のうち、半分の大きさに一致する成分）
+              const fy = Math.abs(Math.abs(SM[k + 1]) - pr.semi[1]) < 1e-6 ? Math.sign(SM[k + 1]) * uy : 0;
+              const fx = Math.abs(Math.abs(SM[k]) - pr.semi[0]) < 1e-6 ? Math.sign(SM[k]) * ux : 0;
+              const fz = Math.abs(Math.abs(SM[k + 2]) - pr.semi[2]) < 1e-6 ? Math.sign(SM[k + 2]) * uz : 0;
+              if (fx > 0.75 || fy > 0.75 || fz > 0.75) continue;
+            }
             qrot(q, SM[k], SM[k + 1], SM[k + 2], r);
-            const d = this.contact(p[0] + r[0], p[1] + r[1], p[2] + r[2], null);
+            const d = this.contact(p[0] + r[0], p[1] + r[1], p[2] + r[2], n, SKIN);
             if (d >= SKIN) continue;
-            this.contact(p[0] + r[0], p[1] + r[1], p[2] + r[2], n);
-            const lam = this.correct(pr, r, n[0], n[1], n[2], SKIN - d);
-            if (it === 0 && nc < this.cts.length) {
-              const c = this.cts[nc++];
-              c.l[0] = SM[k]; c.l[1] = SM[k + 1]; c.l[2] = SM[k + 2];
-              c.n[0] = n[0]; c.n[1] = n[1]; c.n[2] = n[2];
-              c.lam = lam;
-            } else if (nc > 0) {
-              // 2 回目の押し戻しも、同じ点の押し戻しの量へ足す
-              for (let j = 0; j < nc; j++) {
-                const c = this.cts[j];
-                if (c.l[0] === SM[k] && c.l[1] === SM[k + 1] && c.l[2] === SM[k + 2]) {
-                  c.lam += lam;
-                  break;
-                }
+            // 上に載っている箱には押されない（積み重ねは下から順に支える：上の箱は自分で下の箱の上へ押し戻る。
+            // 下の箱まで上の箱から逃げると、床との間で挟まれて弾き出される）
+            if (this.fromBox && n[1] < -0.55) continue;
+            if (m >= this.jac.length) break;
+            const J = this.jac[m++];
+            J.r[0] = r[0]; J.r[1] = r[1]; J.r[2] = r[2];
+            J.n[0] = n[0]; J.n[1] = n[1]; J.n[2] = n[2];
+            J.d = SKIN - d;
+            J.k = k;
+          }
+          // 近くの（動く）箱の表面の点が、この箱に入っていれば、その点でも押し戻す（支えの縁＝下の箱の角・辺を接点にする：
+          // 自分の点だけでは、ずらして積んだときに支えの範囲が点の間隔の分だけ狭く見え、重心が支えの内でも倒れた）
+          for (const C of this.fastS.cand) {
+            if (C.fixed) continue;
+            const CS = C.samples;
+            for (let k = 0; k < CS.length; k += 3) {
+              if (m >= this.jac.length) break;
+              const s = qrot(C.q, CS[k], CS[k + 1], CS[k + 2], tmp);
+              const sx = C.p[0] + s[0], sy = C.p[1] + s[1], sz = C.p[2] + s[2];
+              if (Math.hypot(sx - p[0], sy - p[1], sz - p[2]) > pr.rb * 1.75) continue;
+              const l = qinv(q, sx - p[0], sy - p[1], sz - p[2], this.tmpL);
+              const d = boxSd(pr.semi, l[0], l[1], l[2]);
+              if (d >= SKIN) continue;
+              // 押す向き = この箱の表面の外向きの逆（点を箱の外へ出す向きに、箱を動かす）
+              const nl = boxNormalLocal(pr.semi, l[0], l[1], l[2], this.tmpN);
+              const nw = qrot(q, -nl[0], -nl[1], -nl[2]);
+              if (nw[1] < -0.55) continue;
+              const J = this.jac[m++];
+              J.r[0] = sx - p[0]; J.r[1] = sy - p[1]; J.r[2] = sz - p[2];
+              J.n[0] = nw[0]; J.n[1] = nw[1]; J.n[2] = nw[2];
+              J.d = SKIN - d;
+              J.k = -1;
+            }
+          }
+          if (m === 0) break;
+          // 全部の点を同時に直す剛体の補正（中心の移動 Δp と回転 Δθ の 6 つ）を最小二乗で解く：
+          // Σ (n·Δp + (r×n)·Δθ − d)² + 正則化（重さ・慣性に比例）を最小にする。平らな面の着地・片側だけ載っている（重心は支えの内）は
+          // 平行移動になり、支えの外に重心があるとき（1 点だけで支えている）は回る（倒れる）
+          this.solveContacts(pr, m);
+          for (let j = 0; j < m; j++) {
+            const J = this.jac[j];
+            const lam = J.d * pr.mass;
+            // 接触の記録（摩擦・速さの段）：最初の回は新しく、2 回目からは同じ点へ足す（ほかの箱の点は記録しない）
+            const k = J.k;
+            if (k < 0) continue;
+            let c = null;
+            for (let jj = 0; jj < nc; jj++) {
+              const cc = this.cts[jj];
+              if (cc.l[0] === SM[k] && cc.l[1] === SM[k + 1] && cc.l[2] === SM[k + 2]) {
+                c = cc;
+                break;
               }
             }
+            if (!c && nc < this.cts.length) {
+              c = this.cts[nc++];
+              c.l[0] = SM[k]; c.l[1] = SM[k + 1]; c.l[2] = SM[k + 2];
+              c.n[0] = J.n[0]; c.n[1] = J.n[1]; c.n[2] = J.n[2];
+              c.lam = 0;
+            }
+            if (c) c.lam += lam;
           }
         }
         // 静止摩擦：接触点が前の刻みから横へずれた分を戻す（押し戻した量 × 摩擦の係数まで。越えたら動摩擦で一部だけ）
@@ -1034,6 +1229,7 @@ export class PropSystem {
         }
         if (nc > 0) contactAny = true;
       }
+      this.fastS.on = false;
       // カニの体（球）：横から押されたら動く（軽い物だけ。上に乗っているときは押さない）
       const cy = crab.y + crab.radius;
       if (pr.mass < 1 && !pr.eating) {
@@ -1069,6 +1265,27 @@ export class PropSystem {
       wv[0] = (2 * sg * dq[0]) / h;
       wv[1] = (2 * sg * dq[1]) / h;
       wv[2] = (2 * sg * dq[2]) / h;
+      // 速さの補正（XPBD の剛体の速さの段）：押し戻しで生まれた離れる向きの速さを消す（めり込みを直しただけで跳ねない）。
+      // 速くぶつかったときだけ少しはね返る（はね返りの係数 × 押し戻す前の近づく速さ）
+      for (let j = 0; j < nc; j++) {
+        const c = this.cts[j];
+        qrot(q, c.l[0], c.l[1], c.l[2], r);
+        const n0 = c.n[0], n1 = c.n[1], n2 = c.n[2];
+        const vn = (v[0] + wv[1] * r[2] - wv[2] * r[1]) * n0 + (v[1] + wv[2] * r[0] - wv[0] * r[2]) * n1 + (v[2] + wv[0] * r[1] - wv[1] * r[0]) * n2;
+        const pv = this.boxPrevV, pw = this.boxPrevW;
+        const vn0 = (pv[0] + pw[1] * r[2] - pw[2] * r[1]) * n0 + (pv[1] + pw[2] * r[0] - pw[0] * r[2]) * n1 + (pv[2] + pw[0] * r[1] - pw[1] * r[0]) * n2;
+        // （押し戻す前から離れていく速さ＝倒れ始めた角が浮く・転がる、は残す。押し戻しで生まれた分だけ消す）
+        const want = vn0 < -0.6 ? -S.bounce * vn0 : Math.max(vn0, 0);
+        const dvn = want - vn;
+        if (Math.abs(dvn) < 1e-6) continue;
+        const cx = r[1] * n2 - r[2] * n1, cy = r[2] * n0 - r[0] * n2, cz = r[0] * n1 - r[1] * n0;
+        const ic = this.invIw(pr, cx, cy, cz, tmp);
+        const J = dvn / (1 / pr.mass + cx * ic[0] + cy * ic[1] + cz * ic[2]);
+        // （離れる速さを消す・近づく速さを止める。どちらも 1 回の接触点ぶんだけ：同じ面の点が多いので重ねすぎない）
+        const k = 1 / Math.max(1, nc * 0.5);
+        v[0] += (n0 * J * k) / pr.mass; v[1] += (n1 * J * k) / pr.mass; v[2] += (n2 * J * k) / pr.mass;
+        wv[0] += ic[0] * J * k; wv[1] += ic[1] * J * k; wv[2] += ic[2] * J * k;
+      }
       // 触れている間は小さな速さ・回転を消す（止まった物が震えない）
       if (nc > 0) {
         const kr = Math.exp(-h * 6);
@@ -1091,7 +1308,7 @@ export class PropSystem {
       for (let j = i + 1; j < P.length; j++) {
         const a = P[i], b = P[j];
         if (!a.awake && !b.awake) continue;
-        if (a.box && b.box) continue;
+        if ((a.box && b.box) || a.fixed || b.fixed) continue;
         if (a.box || b.box) {
           this.collideBoxBall(a.box ? a : b, a.box ? b : a);
           continue;
@@ -1586,6 +1803,7 @@ export class GrabSystem {
     const test = (pr: Prop) => {
       // もう 1 本の鋏が挟んでいる物は、もう 1 か所を挟める（両方のハサミで持つ）。挟もうとしている途中の物・3 本目は挟まない
       const o = this.other;
+      if (pr.fixed) return;
       if (pr.held && !(o && o.state === 'holding' && o.target === pr && pr.holders === 1)) return;
       if (o && o.state === 'closing' && o.target === pr) return;
       const rq = reach + (pr === quick ? 0.04 : 0);
@@ -1655,7 +1873,7 @@ export class GrabSystem {
       best = { target, at: [at[0], at[1], at[2]], d };
     };
     const scan = (pr: Prop) => {
-      if (pr.held || Math.hypot(pr.p[0] - cx, pr.p[2] - cz) > ASSIST_R + pr.rb) return;
+      if (pr.held || pr.fixed || Math.hypot(pr.p[0] - cx, pr.p[2] - cz) > ASSIST_R + pr.rb) return;
       consider(pr, pr.p);
     };
     for (const pr of this.props.props) scan(pr);

@@ -1287,6 +1287,41 @@ export function buildPropMeshes(): Record<PropKind, TriMesh> {
     const mb = new MeshBuilder();
     let sdf: Sdf;
     let color: (x: number, y: number, z: number, ny: number) => RGB;
+    if (PROP_KIND[kind].shape === 'box') {
+      // 積み木の検証エリアの箱：角を少し丸めた箱（当たり判定の箱と同じ大きさ）。積み木 = 素焼きのれんが色、平たい石 = 灰色の板石、
+      // 細長い棒 = 節のある細い竹のような棒、石の台 = 暗い石。面ごとに少し明るさを変えて形を読みやすく
+      const r = 0.006;
+      const box = (x: number, y: number, z: number) => {
+        const qx = Math.abs(x) - a + r, qy = Math.abs(y) - b + r, qz = Math.abs(z) - c + r;
+        return Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qy, qz), 0) - r;
+      };
+      sdf = (x, y, z) => box(x, y, z) - (kind === 'pillar' || kind === 'slab' || kind === 'floor' ? noise3(x * 30, y * 30, z * 30, 41) * 0.002 : 0);
+      const pal: Record<string, [RGB, RGB]> = {
+        block: [hex('#b4563a'), hex('#d98a5c')],
+        slab: [hex('#7b8186'), hex('#a7adb0')],
+        rod: [hex('#a88a4e'), hex('#d8c07c')],
+        pillar: [hex('#4c5258'), hex('#6e767c')],
+        // 石の床：砂に近い明るい板石（継ぎ目の線で格子に見せる：積んだ物の位置・傾きが分かりやすい）
+        floor: [hex('#9c9480'), hex('#c6bda4')],
+      };
+      const [c0, c1] = pal[kind];
+      color = (x, y, z, ny) => {
+        const m = noise3(x * 35, y * 35, z * 35, 7) * 0.5 + 0.5;
+        let col = mixRGB(c0, c1, clamp(m * 0.6 + ny * 0.3 + 0.2, 0, 1));
+        // 棒の節・積み木の縁の明るい線
+        if (kind === 'rod' && Math.abs(Math.sin(x * 38)) > 0.94) col = mixRGB(col, hex('#5e4a26'), 0.6);
+        if (kind === 'block' && (Math.abs(x) > a - 0.009) !== (Math.abs(z) > c - 0.009)) col = mixRGB(col, hex('#f0b080'), 0.25);
+        if (kind === 'floor' && ny > 0.5 && (Math.abs(((x + 4) % 0.4) - 0.2) > 0.185 || Math.abs(((z + 4) % 0.4) - 0.2) > 0.185)) col = mixRGB(col, hex('#5e5848'), 0.55);
+        return col;
+      };
+      const cell = kind === 'floor' ? 0.03 : kind === 'pillar' ? 0.012 : kind === 'rod' ? 0.006 : 0.008;
+      surfaceNets(sdf, { min: [-a - 0.02, -b - 0.02, -c - 0.02], max: [a + 0.02, b + 0.02, c + 0.02] }, cell, mb, (x, y, z, nx, ny, nz) => {
+        const col = color(x, y, z, ny);
+        return mb.vertex(x, y, z, nx, ny, nz, u8(col[0]), u8(col[1]), u8(col[2]), 1, 0);
+      });
+      out[kind] = mb.finish();
+      continue;
+    }
     if (kind === 'shell') {
       // 二枚貝の殻：上は放射状の筋の入ったふくらみ、下は浅いお椀（伏せた殻）。付け根（−z）を少し尖らせる
       sdf = (x, y, z) => {
