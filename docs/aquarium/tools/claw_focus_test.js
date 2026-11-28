@@ -156,7 +156,8 @@
     X.release();
     return { grabbed: g.ok, afterToNormal, touchLatchClosedOnReturn: latched, maxSpeedAfterSwitch: jump, afterPressRelease, heldNormal, afterToFocus, afterSqueezeRelease };
   };
-  const worm = () => {
+  // （o.hold：引き伸ばしたところで止める。画像を撮るとき）
+  const worm = (o = {}) => {
     // 砂の広い所（スタート地点）で：カニの前 0.38 に横向きに横たえる（体長 約 0.9。積み木の検証エリアは狭い）
     X.release();
     a.setFocus(false);
@@ -185,7 +186,10 @@
     X.ctl('R', { close: 1 });
     X.run(20);
     const r1 = a.grab.holdingCreature === W;
-    X.moveTo('L', pL, { tol: 0.015, max: 200 });
+    // （左は、決めた点にいちばん近い節を毎フレーム追う：右で挟んだ後もゴカイは身をよじって動くので、決めた点のままだと外れる）
+    let iL = 0;
+    for (let i = 1; i < W.N; i++) if (Math.hypot(W.x[i * 3] - pL[0], W.x[i * 3 + 2] - pL[2]) < Math.hypot(W.x[iL * 3] - pL[0], W.x[iL * 3 + 2] - pL[2])) iL = i;
+    X.moveTo('L', () => [W.x[iL * 3], 0, W.x[iL * 3 + 2]], { tol: 0.015, max: 200 });
     X.ctl('L', { close: 1 });
     X.run(20);
     const r2 = a.grabL.holdingCreature === W.grip2;
@@ -203,6 +207,7 @@
     X.run(30);
     const g1 = a.grab.gripAt(), g2 = a.grabL.gripAt();
     const out = { rightGrabbed: r1, leftGrabbed2: r2, g2On: W.g2On, gripSpanBefore: r3(sep0), gripSpanAfter: g1 && g2 ? r3(Math.hypot(g1[0] - g2[0], g1[2] - g2[2])) : null, maxStrain: r3(W.stats.maxStrain), maxStrainBefore: r3(s0), diverge: W.stats.diverge, finite: W.x.every(Number.isFinite), stillHeld: a.grab.holdingCreature === W && a.grabL.holdingCreature === W.grip2 };
+    if (o.hold) return out;
     // 右を離す：左が 1 本目になる
     X.ctl('R', { close: 0 });
     X.run(20);

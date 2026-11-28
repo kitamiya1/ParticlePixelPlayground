@@ -163,6 +163,7 @@
       // 検証エリア（石の床・積み木。id が area-）を一時的に地面の下へ退ける：2026-11-28 にこのエリアができ、それまでこの検証が
       // 使っていた平らな砂（-11.38, 3.36）がその床になった。終わったら戻す
       const aside = a.props.props.filter((q) => q.id.startsWith('area-')).map((q) => [q, [...q.p]]);
+      // （場所探しは退けた物を数えない：assist0 の q.id.startsWith('area-')）
       for (const [q] of aside) q.p[1] -= 60;
       a.props.boxBounds?.();
       try {
@@ -185,7 +186,7 @@
         // 平らな砂（まわり 0.7 の高さの差 0.06 以下。坂の下の小石は鋏が届かない）
         for (let k = 0; k < 8 && clear2; k++) { const qa = (k * Math.PI) / 4, qx = gx + Math.cos(qa) * 0.7, qz = gz + Math.sin(qa) * 0.7; if (Math.abs(w.contactSurfaceBelow(qx, 6, qz) - y) > 0.06) clear2 = false; }
         for (let k = 0; k < D.count && clear2; k++) { const q = D.item(k).prop.p; if (Math.hypot(q[0] - gx, q[2] - gz) < 1.0) clear2 = false; }
-        for (const q of a.props.props) if (q !== pr && Math.hypot(q.p[0] - gx, q.p[2] - gz) < 1.0) clear2 = false;
+        for (const q of a.props.props) if (q !== pr && !q.id.startsWith('area-') && Math.hypot(q.p[0] - gx, q.p[2] - gz) < 1.0) clear2 = false;
         const bw = a.buddy.burrow;
         if (Math.hypot(bw[0] - gx, bw[2] - gz) < 1.5) clear2 = false;
         if (clear2) spot = [gx, y, gz];
@@ -204,7 +205,7 @@
       step(20);
       const h0 = c.heading;
       step(40);
-      const idle = { headingDrift: r3(Math.abs(c.heading - h0)), hint: !!G.hint, near: G.near ? G.near.target === pr : false, state: G.state };
+      const idle = { headingDrift: r3(Math.abs(c.heading - h0)), hint: !!G.hint, near: G.near ? G.near.target === pr : false, state: G.state, nearId: G.near?.target?.id ?? G.near?.target?.name ?? null, hintId: G.hint?.id ?? G.hint?.name ?? null, hintAt: G.hintAt?.map(r3) ?? null, spot: spot.map(r3) };
       // 押す（閉じる）：その場で鋏の側を小石へ向ける（30 フレーム）。届かなければ、小石の方へ少し歩くと挟む（最大 1 秒）
       a.hold = true;
       let grabbedAt = null;

@@ -571,6 +571,10 @@ body.claw-focus #touch-ui { display: none; }
   border-radius: 20px; pointer-events: auto; font-size: 12px; font-weight: 700; color: #fff; background: rgba(20, 30, 40, 0.55); border: 1px solid rgba(255, 255, 255, 0.3); }
 #focus-touch .fexit { bottom: calc(18px + env(safe-area-inset-bottom)); }
 #focus-touch .fscheme { bottom: calc(66px + env(safe-area-inset-bottom)); }
+/* 知らせ（下の真ん中）は「通常へ」「動かし方」の上へ（重ねて隠さない。狭い画面の知らせは上なのでそのまま） */
+@media (min-width: 761px) {
+  body:has(#focus-touch.show) #aqua-toast { bottom: calc(118px + env(safe-area-inset-bottom)); }
+}
 /* 狭い縦長の画面：高さのつまみをスティックの上（内側）へ。開閉のボタンはスティックの上の外側のまま */
 @media (max-width: 520px) {
   #focus-touch .flift { bottom: calc(190px + env(safe-area-inset-bottom)); height: 96px; }
