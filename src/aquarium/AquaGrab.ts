@@ -59,11 +59,11 @@ export const PROP_KIND: Record<PropKind, PropKindSpec> = {
   // ちぎった・抜いた水草：とても軽く、水の抵抗が大きい（離すとゆっくり漂って沈む）
   weed: { name: '水草', semi: [0.08, 0.05, 0.08], mass: 0.04, sinkG: 0.45, drag: 4.5, mu: 0.8, bounce: 0.02 },
   // 積み木の検証エリア（箱）：積み木（10 cm の立方体）・平たい石（板）・細長い棒（42 cm）・石の台（重くて 1 本では持ち上がらない。
-  // 水中の重さ 2.4 × 6.4 = 15 > 握る力 8。両方のハサミなら 8 + 8 = 16 でやっと浮く）
+  // 水中の重さ 2.2 × 6.4 = 14 > 腕の力 8。両方のハサミなら 8 + 8 = 16 でゆっくり浮く）
   block: { name: '積み木', semi: [0.05, 0.05, 0.05], mass: 0.3, sinkG: 4.5, drag: 1.4, mu: 0.75, bounce: 0.04, shape: 'box' },
   slab: { name: '平たい石', semi: [0.15, 0.024, 0.1], mass: 0.5, sinkG: 4.8, drag: 1.7, mu: 0.8, bounce: 0.02, shape: 'box' },
   rod: { name: '細長い棒', semi: [0.21, 0.017, 0.017], mass: 0.12, sinkG: 3.0, drag: 2.0, mu: 0.65, bounce: 0.03, shape: 'box' },
-  pillar: { name: '石の台', semi: [0.075, 0.09, 0.075], mass: 2.4, sinkG: 6.4, drag: 1.2, mu: 0.9, bounce: 0.02, shape: 'box' },
+  pillar: { name: '石の台', semi: [0.075, 0.09, 0.075], mass: 2.2, sinkG: 6.4, drag: 1.2, mu: 0.9, bounce: 0.02, shape: 'box' },
   // 検証エリアの石の床（動かない・挟めない：Prop.fixed。大きさは置くときに決める。平らな床で積み木の安定を確かめる）
   floor: { name: '石の床', semi: [0.8, 0.12, 1.2], mass: 1000, sinkG: 6.4, drag: 1, mu: 0.85, bounce: 0, shape: 'box' },
 };
@@ -1110,6 +1110,15 @@ export class PropSystem {
           const iw = this.invIw(pr, tx, ty, tz, tmp);
           wv[0] += iw[0] * h; wv[1] += iw[1] * h; wv[2] += iw[2] * h;
         }
+        // 両方の鋏で持っている：2 本のばねが互いに引き合って震えないよう、回転と、2 本の間を行き来する動きを強く減衰
+        if (hs.length >= 2) {
+          const kr = Math.exp(-h * 14);
+          wv[0] *= kr; wv[1] *= kr; wv[2] *= kr;
+          // 2 本の構えの速さの平均へ寄せる（物は 2 本の鋏と一緒に動く）
+          const ax = (hs[0].av[0] + hs[1].av[0]) / 2, ay = (hs[0].av[1] + hs[1].av[1]) / 2, az = (hs[0].av[2] + hs[1].av[2]) / 2;
+          const kv = 1 - Math.exp(-h * 6);
+          v[0] += (ax - v[0]) * kv; v[1] += (ay - v[1]) * kv; v[2] += (az - v[2]) * kv;
+        }
         // 1 本で強く握っている：鋏と一緒に回る（向きのばね。握る力で頭打ち）
         if (hs.length === 1) {
           const wt: V3 = [0, 0, 0];
@@ -1262,8 +1271,8 @@ export class PropSystem {
         qrot(q, tmp[0], tmp[1], tmp[2], n);
         const sl = surfaceLocal(pr, t.p[0], t.p[1], t.p[2]);
         qrot(q, sl[0], sl[1], sl[2], r);
-        // （1 小刻みに 3 mm まで：鋏の先が深く入っていても弾き飛ばさない。押し続ければ少しずつ動く）
-        this.correct(pr, r, -n[0], -n[1], -n[2], Math.min(t.r - d, 0.003));
+        // （1 小刻みに 3 mm まで：鋏の先が深く入っていても弾き飛ばさない。押し続ければ少しずつ動く。重い物ほど動かない）
+        this.correct(pr, r, -n[0], -n[1], -n[2], Math.min(t.r - d, 0.003) * Math.min(1, 0.4 / pr.mass));
       }
       // 速さと角速度：前の刻みとの差
       v[0] = (p[0] - this.boxPrevP[0]) / h;
@@ -1620,6 +1629,8 @@ export class GrabSystem {
   private hintPrev: Grabbable | null = null;
   /** 離した・滑った位置（挟み直しの検証用） */
   readonly regrab = { releases: 0, quick: 0 };
+  /** つかみ点が滑った距離の合計（握る力が足りない） */
+  slid = 0;
   /** モードを切り替えた直後：押し直すまで挟んだまま（setCarry） */
   carry = false;
 
@@ -2144,13 +2155,15 @@ export class GrabSystem {
   }
 
   /** 1 フレームの後半：物の時間を進めた結果（r = この鋏の挟んでいる物のばね）から、手応え・滑り・生き物・案内を決める */
-  post(dt: number, crab: CrabController, claw: ClawView, r: { force: V3; stretch: number }) {
+  post(dt: number, crab: CrabController, claw: ClawView, r: { force: V3; stretch: number; slide?: number }) {
     const anchor = this.anchorNow, blocked = this.blockedNow;
     const pr = this.holding, cr = this.holdingCreature;
     const a0 = this.prevAnchor ?? anchor;
     this.prevAnchor = anchor;
     if (pr) {
       this.stretch = r.stretch;
+      // 握る力が足りずにつかみ点が滑った距離（物の座標。検証・表示用の合計）
+      this.slid += r.slide ?? 0;
       this.force.splice(0, 3, ...r.force);
       this.stats.maxStretch = Math.max(this.stats.maxStretch, r.stretch);
       // 反作用：物が引く力をカニへ（接地中のカニを持ち上げはしない：縦は CrabController が空中・水中だけ使う）

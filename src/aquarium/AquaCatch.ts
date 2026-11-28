@@ -40,6 +40,9 @@ const PLANT_GRIP = GRIP_FORCE * 0.95;
 /** ちぎる（ハサミで切る）・抜く（引きながら根をゆする）の長さ */
 const CUT_T = 0.14;
 const UPROOT_T = 0.3;
+/** 両方のハサミで引き裂く：挟んだときより鋏の間をこれだけ広げるとちぎれる・2 本目のばねの強さ */
+const TEAR_D = 0.06;
+const SECOND_K = 60;
 
 export interface Detach {
   i: number;
@@ -71,7 +74,19 @@ export class PlantGrab implements GrabCreature {
   /** ちぎる・抜くの途中（残り時間） */
   private act: { kind: 'cut' | 'uproot'; t: number } | null = null;
   private result: Detach | null = null;
-  readonly stats = { grabs: 0, uproots: 0, cuts: 0, slips: 0, releases: 0, weak: 0, maxTension: 0, maxBend: 0 };
+  readonly stats = { grabs: 0, uproots: 0, cuts: 0, slips: 0, releases: 0, weak: 0, maxTension: 0, maxBend: 0, tears: 0 };
+  /**
+   * 両方のハサミで同じ株を挟む（2026-11-28）：もう 1 本の鋏の窓口（main が組にする）。後から挟んだ方は secondary（株のしなりは
+   * 先に挟んだ方が決める）。2 本の鋏の間を、挟んだときより TEAR_D 以上広げると、ちぎれる種類の株は 2 つのつかみ点の間で
+   * ちぎれる（上のかけらは上を挟んでいた鋏へ、根の付いた方は下の鋏に残る）
+   */
+  partner: PlantGrab | null = null;
+  secondary = false;
+  /** 挟んだときの、もう 1 本の鋏との間（世界）・このフレームの鋏の構え */
+  private sep0 = 0;
+  readonly lastA: V3 = [0, 0, 0];
+  /** もう 1 本の鋏から頼まれた、ちぎれ（上のかけらを受け取る：次の stepHeld で done） */
+  private tearReq: Detach | null = null;
 
   constructor(private readonly field: PlantField, private readonly onDetach: (d: Detach) => void) {}
 
@@ -81,7 +96,9 @@ export class PlantGrab implements GrabCreature {
 
   nearest(from: readonly number[]): { p: V3; d: number } | null {
     // （0.6 まで探す：挟めるかは GrabSystem が距離で決める。体の中心から探す狙いの補助（near）にも見つかるように）
-    const n = this.field.nearestStem(from, 0.6);
+    // もう 1 本の鋏が株を挟んでいる：同じ株の別の所だけ挟める（ほかの株を挟むと、その鋏の株のしなりを奪ってしまう）
+    const P = this.partner;
+    const n = this.field.nearestStem(from, 0.6, this.i < 0 && P && P.holding ? P.i : -1);
     if (!n) return null;
     this.cand = { i: n.i, f: n.f };
     this.from[0] = from[0];
@@ -131,16 +148,103 @@ export class PlantGrab implements GrabCreature {
   onGrab() {
     this.result = null;
     this.act = null;
+    this.tearReq = null;
     this.prevL = -1;
     this.tension = this.bend = 0;
     this.stats.grabs++;
     this.stats.maxTension = 0;
     this.stats.maxBend = 0;
+    const P = this.partner;
+    // （鋏の構えの最初の値：もう 1 本の鋏が引き裂きの間を測る基準。stepHeld で毎フレーム書き直す）
+    const g0 = this.gripPoint();
+    this.lastA[0] = g0[0];
+    this.lastA[1] = g0[1];
+    this.lastA[2] = g0[2];
+    // もう 1 本の鋏が同じ株を挟んでいる：2 本目（株のしなりは 1 本目のまま）
+    this.secondary = !!P && P.holding && P.i === this.i;
+    if (this.secondary && P) {
+      // （2 本の鋏の構えの間は、最初の stepHeld で測る：構えはつかみ点から少し離れているので）
+      this.sep0 = -1;
+      return;
+    }
+    this.field.held = { i: this.i, dx: 0, dz: 0, fc: this.fg, cap: PLANT_PULL[this.field.table.kind[this.i]].cap, fl: 0 };
+  }
+
+  /**
+   * 2 本目の鋏（同じ株の別の所）：つかみ点（株のしなりは 1 本目が決める）と鋏の構えをばねでつなぐ。鋏の間を広げると
+   * ちぎれる種類の株は 2 つのつかみ点の間（真ん中の高さ）でちぎれ、上を挟んでいた鋏が上のかけらを受け取る
+   */
+  private stepSecondary(a1: readonly number[]) {
+    const gp = this.gripPoint();
+    const ex = a1[0] - gp[0], ey = a1[1] - gp[1], ez = a1[2] - gp[2], L = Math.hypot(ex, ey, ez);
+    const raw = SECOND_K * L, F = Math.min(raw, this.grip);
+    const out: V3 = L > 1e-6 ? [(ex / L) * F, (ey / L) * F, (ez / L) * F] : [0, 0, 0];
+    const P = this.partner;
+    const T = this.field.table, i = this.i, S = PLANT_PULL[T.kind[i]];
+    if (P && P.holding && P.i === i && S.cut) {
+      const pa = P.lastA, sep = Math.hypot(a1[0] - pa[0], a1[1] - pa[1], a1[2] - pa[2]);
+      if (this.sep0 < 0) this.sep0 = sep;
+      if (sep - this.sep0 > TEAR_D) {
+        const lo = Math.min(this.fg, P.fg), hi = Math.max(this.fg, P.fg);
+        const ry = T.root[i * 3 + 1], cutY = ry + ((lo + hi) / 2) * T.height[i];
+        if (cutY - ry >= S.cutAbove * 0.5 && cutY < ry + this.field.cutH[i] - 0.03) {
+          const upperIsMe = this.fg >= P.fg;
+          const g = (upperIsMe ? this : P).gripPoint();
+          const d: Detach = { i, cutY, at: [g[0], g[1], g[2]] };
+          this.stats.tears++;
+          if (upperIsMe) {
+            this.result = d;
+            return { force: out, over: 0, tugOver: 0, stretch: L, done: true };
+          }
+          P.tearReq = d;
+        }
+      }
+    }
+    return { force: out, over: raw / this.grip, tugOver: 0, stretch: L, done: false };
+  }
+
+  /** 1 本目の鋏が離した：2 本目がこの株のしなりを受け持つ */
+  private promote() {
+    this.secondary = false;
+    this.prevL = -1;
     this.field.held = { i: this.i, dx: 0, dz: 0, fc: this.fg, cap: PLANT_PULL[this.field.table.kind[this.i]].cap, fl: 0 };
   }
 
   onRelease(kind: 'release' | 'slip' | 'pop') {
     const i = this.i;
+    const P = this.partner;
+    if (this.secondary) {
+      // 2 本目を離した：株はそのまま（1 本目が引いている）。ちぎれた上のかけらは受け取る（pop）
+      this.secondary = false;
+      const r = kind === 'pop' ? this.result ?? this.tearReq : null;
+      this.i = -1;
+      this.result = this.tearReq = null;
+      this.act = null;
+      if (r) this.pending = r;
+      return;
+    }
+    // 1 本目を離した：もう 1 本が同じ株を挟んでいれば、そちらが株のしなりを受け持つ
+    if (P && P.secondary && P.i === i && kind !== 'pop') {
+      this.field.held = null;
+      P.promote();
+      this.i = -1;
+      this.result = null;
+      this.act = null;
+      this.tension = this.bend = 0;
+      return;
+    }
+    if (P && P.secondary && P.i === i && kind === 'pop') {
+      // （1 本目が上のかけらを受け取って離れる：2 本目が根の付いた方を受け持つ）
+      this.field.held = null;
+      P.promote();
+      const r = this.result ?? this.tearReq;
+      this.i = -1;
+      this.result = this.tearReq = null;
+      this.act = null;
+      this.tension = this.bend = 0;
+      if (r) this.pending = r;
+      return;
+    }
     if (this.field.held?.i === i) this.field.held = null;
     if (kind === 'slip') this.stats.slips++;
     else if (kind === 'release') this.stats.releases++;
@@ -212,6 +316,16 @@ export class PlantGrab implements GrabCreature {
   }
 
   stepHeld(dt: number, _a0: readonly number[], a1: readonly number[]) {
+    this.lastA[0] = a1[0];
+    this.lastA[1] = a1[1];
+    this.lastA[2] = a1[2];
+    // もう 1 本の鋏が引き裂いた：上のかけらを受け取る（pop で離して、かけらを挟み直す）
+    if (this.tearReq) {
+      this.result = this.tearReq;
+      this.tearReq = null;
+      return { force: [0, 0, 0] as V3, over: 0, tugOver: 0, stretch: 0, done: true };
+    }
+    if (this.secondary) return this.stepSecondary(a1);
     const T = this.field.table, i = this.i;
     const S = PLANT_PULL[T.kind[i]];
     const rx = T.root[i * 3], ry = T.root[i * 3 + 1], rz = T.root[i * 3 + 2];

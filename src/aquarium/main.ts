@@ -268,16 +268,22 @@ async function boot() {
     weeds.spawn(d, G);
   };
   const plantGrabR = new PlantGrab(plantField, onDetach(grab)), plantGrabL = new PlantGrab(plantField, onDetach(grabL));
+  // 両方のハサミで同じ株を挟む（引き裂く）：互いの窓口を組にする
+  plantGrabR.partner = plantGrabL;
+  plantGrabL.partner = plantGrabR;
   const lifeGrabR = new LifeGrab(life, world), lifeGrabL = new LifeGrab(life, world);
   grab.creatures.push(lifeGrabR, plantGrabR);
   grabL.creatures.push(lifeGrabL, plantGrabL);
   // ゴカイ：外に出ている体のどこでも、左右どちらの鋏でも挟める（1 匹を 2 本で同時には挟まない）。
   // 保存から戻して個体を作り直したら入れ替える
-  for (const w of worms.worms) grab.creatures.push(w), grabL.creatures.push(w);
+  // （2 か所目の窓口 grip2：もう 1 本の鋏で同じゴカイの別の所を挟んで伸ばす）
+  for (const w of worms.worms) grab.creatures.push(w, w.grip2), grabL.creatures.push(w, w.grip2);
   const swapWorms = (sw: { from: Worm; to: Worm }[]) => {
     for (const G of [grab, grabL]) for (const { from, to } of sw) {
       const k = G.creatures.indexOf(from);
       if (k >= 0) G.creatures[k] = to;
+      const k2 = G.creatures.indexOf(from.grip2);
+      if (k2 >= 0) G.creatures[k2] = to.grip2;
     }
   };
   // ---------------- 食事（AquaEat）：挟んだ物を口元へ運んで食べる・栄養 ----------------
@@ -1523,8 +1529,9 @@ async function boot() {
       const tips = focus.w > 0.5 ? [
         // （鋏の先の小さな球：挟める距離 FOCUS_REACH よりずっと小さく。近づくだけで物を押しのけて挟めない、を防ぐ）
         // （閉じていく途中の物・離した直後の物は押さない）
-        { p: rig.pinch, r: 0.012, skip: grab.holding ?? (grab.state === 'closing' ? grab.target : null) ?? grab.justReleased },
-        { p: rig.pinchL, r: 0.01, skip: grabL.holding ?? (grabL.state === 'closing' ? grabL.target : null) ?? grabL.justReleased },
+        // （目標は物の面から 1.2 cm 離すので、それより小さく：触れて止まっているだけの物は押さない。さらに押し込むと押す）
+        { p: rig.pinch, r: 0.009, skip: grab.holding ?? (grab.state === 'closing' ? grab.target : null) ?? grab.justReleased },
+        { p: rig.pinchL, r: 0.008, skip: grabL.holding ?? (grabL.state === 'closing' ? grabL.target : null) ?? grabL.justReleased },
       ].filter((t, i) => (i === 0 ? grab : grabL).state !== 'holding') : [];
       const res = props.updateMany(dt, crab, reqs, tips);
       const none = { force: [0, 0, 0] as [number, number, number], stretch: 0, slide: 0 };

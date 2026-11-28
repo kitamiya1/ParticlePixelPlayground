@@ -426,11 +426,12 @@ export class PlantField {
    * from にいちばん近い植物の茎の点（挟む候補。maxD 以内）。茎は根元の真上の線 + いまの曲がり。
    * 戻り値 i = 植物、p = 茎の点（世界）、d = from から茎の表面までの距離、f = 根元からの高さの割合
    */
-  nearestStem(from: readonly number[], maxD: number): { i: number; p: [number, number, number]; d: number; f: number } | null {
+  nearestStem(from: readonly number[], maxD: number, only = -1): { i: number; p: [number, number, number]; d: number; f: number } | null {
     let best: { i: number; p: [number, number, number]; d: number; f: number } | null = null;
     const T = this.table;
+    // （only = その植物だけ：もう 1 本の鋏が挟んでいる株の別の所を挟む）
     this.near({ x: from[0], y: from[1], z: from[2], r: maxD, vx: 0, vy: 0, vz: 0 }, (i) => {
-      if (this.removed[i]) return;
+      if (this.removed[i] || (only >= 0 && i !== only)) return;
       const ry = T.root[i * 3 + 1], H = this.cutH[i];
       const y = Math.min(Math.max(from[1], ry + 0.03), ry + H);
       const o = this.offsetAt(i, y);

@@ -126,8 +126,9 @@ export class ClawFocus {
         S.roll = 0;
         S.lift = 0;
         S.floor = this.floorBelow(S.p, [G.holding]);
-        // 面に沿う：作業の高さ（面から 6 cm まで）へ、なめらかに下りる（move の高さの追従。挟んでいる物はそのままの高さ）
-        if (this.scheme === 'surface') S.lift = Math.min(G.holding || G.holdingCreature ? 0.35 : 0.06, Math.max(0, S.p[1] - (S.floor + this.hover(G))));
+        // 面に沿う：作業の高さ（面から 2.5 + 2 cm。積み木の真ん中・平たい石の縁を挟める高さ）へ、なめらかに下りる
+        // （move の高さの追従。挟んでいる物はそのままの高さ）
+        if (this.scheme === 'surface') S.lift = Math.min(G.holding || G.holdingCreature ? 0.35 : 0.02, Math.max(0, S.p[1] - (S.floor + this.hover(G))));
         if (this.scheme === 'screen') S.lift = 0;
       }
       this.saved = this.restore ?? { zoom: A.zoom, pitch: A.pitch };
@@ -218,6 +219,7 @@ export class ClawFocus {
       this.move(this.R, cR, dt);
       this.move(this.L, cL, dt);
       this.separate();
+      this.keepSpan();
     }
     // 届かない向きへ押し続けている（このフレームに動かそうとした量のうち、届かずに止めた分の割合）：ゆっくり寄る
     // （半分以上を止めたときだけ。最大でふだんの歩きの約 3 割）
@@ -365,8 +367,9 @@ export class ClawFocus {
     const g = G.gripAt();
     if (g && G.state === 'holding') {
       dx = p[0] - g[0]; dy = p[1] - g[1]; dz = p[2] - g[2]; dl = Math.hypot(dx, dy, dz);
-      // （挟んだ物が面に触れている間は 2 cm まで：置くときに強く押し付けて、縁で転がしてしまわない）
-      const lead = G.holding?.contact ? 0.02 : LEAD;
+      // （挟んだ物が面に触れていて、下へ押し付けているときは 2 cm まで：置くときに強く押し付けて、縁で転がしてしまわない。
+      // 持ち上げる・横へ引くときは LEAD のまま＝重い物も持ち上げられる）
+      const lead = G.holding?.contact && dy < 0 ? 0.02 : LEAD;
       if (dl > lead) {
         const kk = lead / dl;
         p[0] = g[0] + dx * kk; p[1] = g[1] + dy * kk; p[2] = g[2] + dz * kk;
@@ -374,6 +377,31 @@ export class ClawFocus {
       }
     }
   }
+
+  /**
+   * 両方の鋏で同じ物を持っている間：2 つの目標の間を、持ち始めたときの間に保つ（片方の腕が届く範囲の端で止まったのに
+   * もう片方だけ動いて、物をねじる・引きちぎる力で震えさせない。向きを変える・運ぶはできる）
+   */
+  private keepSpan() {
+    const pr = this.grabR.holding;
+    if (!pr || pr !== this.grabL.holding) {
+      this.span = 0;
+      return;
+    }
+    const a = this.R.p, b = this.L.p;
+    const dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2], d = Math.hypot(dx, dy, dz);
+    if (this.span <= 0) {
+      const ga = this.grabR.gripAt(), gb = this.grabL.gripAt();
+      this.span = ga && gb ? Math.hypot(ga[0] - gb[0], ga[1] - gb[1], ga[2] - gb[2]) : d;
+    }
+    if (d < 1e-4) return;
+    const k = (d - this.span) / (2 * d);
+    a[0] -= dx * k; a[1] -= dy * k; a[2] -= dz * k;
+    b[0] += dx * k; b[1] += dy * k; b[2] += dz * k;
+  }
+
+  /** 両方の鋏で同じ物を持ち始めたときの、2 つのつかみ点の間（0 = 持っていない） */
+  private span = 0;
 
   /** 左右の鋏が同じ所へ来ない（ぶつかったら互いに押し分ける） */
   private separate() {
